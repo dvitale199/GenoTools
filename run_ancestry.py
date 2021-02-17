@@ -1,30 +1,3 @@
-# import pandas as pd
-# import subprocess
-# import sys
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-# import seaborn as sns
-# from matplotlib import cm 
-# import numpy as np
-# import os
-# import shutil
-# from umap import UMAP
-# from sklearn import preprocessing, metrics
-# from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-# from sklearn.pipeline import Pipeline
-# from sklearn.svm import LinearSVC
-# import joblib
-# import plotly.express as px
-# import plotly
-# # import sklearn.externals.joblib as extjoblib
-# import joblib
-# import argparse
-
-# #local imports
-# from QC.utils import shell_do, merge_genos, ld_prune, random_sample_snps, get_common_snps
-# from Ancestry.ancestry import ancestry_prune, flash_pca, pca_projection, plot_3d
-
-
 import os
 from Ancestry.ancestry import calculate_pcs, munge_training_pca_loadings, train_umap_classifier, predict_ancestry_from_pcs, umap_transform_with_fitted, plot_3d
 
