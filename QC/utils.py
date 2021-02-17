@@ -97,4 +97,9 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     ext_snps_cmd = f'plink --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     
     shell_do(ext_snps_cmd)
-    
+
+    outfiles = {
+        'common_snps': common_snps_file,
+        'bed': out_name
+    }
+    return outfiles
