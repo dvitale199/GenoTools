@@ -1,18 +1,20 @@
 import os
 from Ancestry.ancestry import calculate_pcs, munge_training_pca_loadings, train_umap_classifier, predict_ancestry_from_pcs, umap_transform_with_fitted, plot_3d
 
-
+###### paths for testing ######
 geno_path = '/data/vitaled2/test_data/mcgill/MCGILL_all_call_rate_sex'
 out_path = '/data/vitaled2/test_data/mcgill/MCGILL_all_call_rate_sex_ancestry'
+
+ref_dir_path = '/data/LNG/vitaled2/1kgenomes'
+ref_panel = f'{ref_dir_path}/1kg_ashkj_ref_panel_gp2_pruned'
+ref_labels = f'{ref_dir_path}/ref_panel_ancestry.txt'
+###############################
+
 
 outdir = os.path.dirname(out_path)
 plot_dir = f'{outdir}/plot_ancestry'
 model_dir = f'{outdir}/models'
 temp_dir = f'{outdir}/temp'
-
-ref_dir_path = '/data/LNG/vitaled2/1kgenomes'
-ref_panel = f'{ref_dir_path}/1kg_ashkj_ref_panel_gp2_pruned'
-ref_labels = f'{ref_dir_path}/ref_panel_ancestry.txt'
 
 # create directories if not already in existence
 os.makedirs(plot_dir, exist_ok=True)

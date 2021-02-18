@@ -121,7 +121,7 @@ def pca_projection(geno_path, inmeansd, inload, outproj):
         }
     return outfiles
 
-def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None):
+def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
     '''
     Input: 
         labeled_df: Pandas dataframe. labeled ancestry dataframe
@@ -137,7 +137,14 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         
     '''    
     fig = px.scatter_3d(labeled_df, x=x, y=y, z=z, color=color, symbol=symbol, title=title, color_discrete_sequence=px.colors.qualitative.Bold)
-    # fig.show()
+    if x_range:
+        fig.update_layout(xaxis_range=x_range)
+    if y_range:
+        fig.update_layout(yaxis_range=y_range)
+    if z_range:
+        fig.update_layout(zaxis_range=z_range)
+
+    fig.show()
 
     if plot_out:
         fig.write_image(f'{plot_out}.png', width=1980, height=1080)
