@@ -84,7 +84,7 @@ def flash_pca(geno_path, out_name, dim=20):
     
     shell_do(flashpca_cmd)
 
-    outfiles = {
+    out_dict = {
         'outpc':f'{out_name}.pcs',
         'outvec': f'{out_name}.vec',
         'outval': f'{out_name}.val',
@@ -93,7 +93,7 @@ def flash_pca(geno_path, out_name, dim=20):
         'outmeansd': f'{out_name}.meansd'
         }
         
-    return outfiles
+    return out_dict
 
 
     
@@ -113,13 +113,13 @@ def pca_projection(geno_path, inmeansd, inload, outproj):
 
     shell_do(project_geno_pcs_cmd)
 
-    outfiles = {
+    out_dict = {
         'outpc':f'{outproj}.pcs',
         'outvec': f'{outproj}.vec',
         'outval': f'{outproj}.val',
         'outload': f'{outproj}.loadings',
         }
-    return outfiles
+    return out_dict
 
 def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
     '''
@@ -229,12 +229,14 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     out_paths['ref_pca'] = f'{out}_labeled_ref_pca.txt'
     out_paths['projected_pca'] = f'{out}_projected_new_pca.txt'
 
-    return {
+    out_dict = {
         'labeled_ref_pca': labeled_pca,
         'new_samples_projected': projected,
         'outpaths': out_paths,
         'temp_paths': temp_paths
         }
+
+    return out_dict
 
 
 def munge_training_pca_loadings(labeled_pca):
@@ -254,7 +256,7 @@ def munge_training_pca_loadings(labeled_pca):
     X_train = X_train.drop(columns=['FID','IID'])
     X_test = X_test.drop(columns=['FID','IID'])
 
-    out = {
+    out_dict = {
         'X_train': X_train,
         'X_test': X_test,
         'y_train': y_train,
@@ -266,7 +268,7 @@ def munge_training_pca_loadings(labeled_pca):
         'y_all':y
         }
     
-    return out
+    return out_dict
 
 
 def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
@@ -315,14 +317,14 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     # dump best estimator to pkl
     joblib.dump(pipe_clf, f'{model_dir}/umap_linearsvc_ancestry_model.pkl')
 
-    output = {
+    out_dict = {
         'classifier': pipe_clf,
         'best_params': pipe_grid.best_params_,
         'confusion_matrix': pipe_clf_c_matrix,
         'fitted_pipe_grid': pipe_grid
     }
     
-    return output
+    return out_dict
 
 
 def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
@@ -345,13 +347,13 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
 
     projected[['FID','IID','label']].to_csv(f'{out}_umap_linearsvc_predicted_labels.txt', sep='\t')
 
-    output = {
+    out_dict = {
         'X_new': X_new,
         'y_pred': y_pred,
         'labels_outpath': f'{out}_umap_linearsvc_predicted_labels.txt'
     }
 
-    return output
+    return out_dict
 
 
 def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitted_pipe_grid=None):
@@ -389,11 +391,11 @@ def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitte
     new_samples_umap.loc[:, 'dataset'] = 'predicted'
     total_umap = ref_umap.append(new_samples_umap)
 
-    output = {
+    out_dict = {
         'total_umap': total_umap,
         'ref_umap': ref_umap,
         'new_samples_umap': new_samples_umap
     }
 
-    return output
+    return out_dict
 
