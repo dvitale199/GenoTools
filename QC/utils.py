@@ -103,3 +103,18 @@ def get_common_snps(geno_path1, geno_path2, out_name):
         'bed': out_name
     }
     return outfiles
+
+
+def rm_tmps(tmps, suffixes=['hh','log','nosex','prune.in','prune.out','het','bed','bim','fam']):
+    
+    print()
+    print("REMOVING TEMPORARY FILES")
+    for tmp in tmps:
+        for suf in suffixes:
+            tmpfile = f'{tmp}.{suf}'
+            if os.path.isfile(tmpfile):
+                os.remove(tmpfile)
+                print(f"REMOVED: {tmpfile}")
+            else:
+                pass
+    print()
