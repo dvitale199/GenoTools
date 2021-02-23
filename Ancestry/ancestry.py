@@ -347,11 +347,6 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
 
 def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     
-    step = "predict_ancestry"
-    print()
-    print(f"RUNNING: {step}")
-    print()
-    
     le = label_encoder
 
     # set new samples aside for labeling after training the model
@@ -385,10 +380,9 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     }
 
     out_dict = {
-        'step':step,
         'data': data_out,
         'metrics': metrics_dict,
-        'output': outfiles_dict'
+        'output': outfiles_dict
     }
 
     return out_dict
@@ -439,10 +433,15 @@ def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitte
 
 
 def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
+    step = "predict_ancestry"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
     model_dir = f'{outdir}/models'
-    temp_dir = f'{outdir}/temp'
+    pc_dir = f'{outdir}/pcs'
 
     # create directories if not already in existence
     os.makedirs(plot_dir, exist_ok=True)
@@ -453,7 +452,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
         geno=geno_path,
         ref=ref_panel,
         labels=ref_labels,
-        out=out_path,
+        out=pc_dir,
         plot_dir=plot_dir,
         keep_temp=True
     )
@@ -467,9 +466,6 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
             "umap__b": [0.25],
             "svc__C": [10**-3],
         }
-
-    plot_out = '/data/vitaled2/test_data/mcgill/plot_ancestry'
-    model_out = '/data/vitaled2/test_data/mcgill/models'
 
     trained_clf = train_umap_classifier(
         X_train=train_split['X_train'],
@@ -526,3 +522,25 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
         y=1,
         z=2
     )
+
+    # return more stuff as needed but for now, just need predicted labels, predicted labels out path, and predicted counts
+    data_dict = {
+        'predict_data': pred['data']
+        }
+
+    metrics_dict = {
+        'predicted_metrics': pred['metrics']
+        }
+
+    outfiles_dict = {
+        'predicted_labels': pred['output']
+    }
+    
+    out_dict = {
+        'step': step
+        'data': data_dict,
+        'metrics': metrics_dict,
+        'output': outfiles_dict
+    }
+
+    return out_dict
