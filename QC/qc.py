@@ -40,9 +40,13 @@ def callrate_prune(geno_path, out_path, mind=0.02):
         'phenos_path': f'{phenos_out}'
     }
 
+    metrics_dict = {
+        'outlier_count': outlier_count
+    }
+
     out_dict = {
         'step': step,
-        'outlier_count': outlier_count,
+        'metrics': metrics_dict,
         'output': outfiles_dict
     }
 
@@ -98,9 +102,13 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         'plink_out': out_path
     }
 
+    metrics_dict = {
+        'outlier_count': sex_fail_count
+    }
+
     out_dict = {
         'step': step,
-        'outlier_count': sex_fail_count,
+        'metrics': metrics_dict,
         'output': outfiles_dict
     }
 
@@ -147,9 +155,13 @@ def het_prune(geno_path, out_path):
         'plink_out': out_path
     }
 
+    metrics_dict = {
+        'outlier_count': outlier_count
+    }
+
     out_dict = {
         'step': step,
-        'outlier_count': outlier_count,
+        'metrics': metrics_dict,
         'output': outfiles_dict
     }
 
@@ -215,10 +227,14 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
         'plink_out': out_path
     }
 
+    metrics_dict = {
+        'related_count': related_count,
+        'duplicated_count': duplicated_count
+    }
+
     out_dict = {
         'step': step,
-        'related_count': related_count,
-        'duplicated_count': duplicated_count,
+        'metrics': metrics_dict,
         'output': outfiles_dict
     }
 
@@ -312,7 +328,7 @@ def variant_prune(geno_path, out_path):
         'plink_out': out_path
     }
 
-    removed_dict = {
+    metrics_dict = {
         'geno_removed_count': geno_rm_count,
         'mis_removed_count': mis_rm_count,
         'haplotype_removed_count': hap_rm_count,
@@ -322,8 +338,33 @@ def variant_prune(geno_path, out_path):
 
     out_dict = {
         'step': step,
-        'snps_removed': removed_dict,
+        'metrics': metrics_dict,
         'output': outfiles_dict
     }
 
     return out_dict
+
+
+def get_avg_miss_rates(geno_path, out_path):
+    plink_miss_cmd = f'\
+plink \
+--bfile {geno_path} \
+--missing \
+--out {out_path}'
+
+    shell_do(plink_miss_cmd)
+
+    # get average call rate
+    lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
+    imiss = pd.read_csv(f'{out_path}.imiss', sep='\s+')
+    avg_lmiss = lmiss.F_MISS.mean()
+    avg_imiss = imiss.F_MISS.mean()
+    print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
+    print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
+
+    metrics = {
+        'avg_lmiss': avg_lmiss,
+        'avg_imiss': avg_imiss
+    }
+
+    return metrics

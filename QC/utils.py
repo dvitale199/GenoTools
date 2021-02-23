@@ -105,22 +105,37 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     return outfiles
 
 
-def rm_tmps(tmps, suffixes=['hh','log','nosex','prune.in','prune.out','sexcheck','het','bed','bim','fam','grm.bim','grm.id','grm.N.bim','missing','missing.hap','exclude']):
+def rm_tmps(tmps, suffixes=None):
     
+    if suffixes:
+        suffixes=suffixes
+    else:
+        suffixes=[
+            'hh','log','nosex','bed','bim','fam',
+            'prune.in','prune.out','sexcheck','het',
+            'grm.bim','grm.id','grm.N.bim',
+            'missing','missing.hap','exclude','snplist'
+        ]
+
     print()
     print("REMOVING TEMPORARY FILES")
     for tmp in tmps:
         for suf in suffixes:
             tmpfile = f'{tmp}.{suf}'
-            if os.path.isfile(tmpfile):
+            try:
                 os.remove(tmpfile)
-                print(f"REMOVED: {tmpfile}")
-            else:
+            except OSError:
                 pass
+            # old method below... remove eventually
+            # if os.path.isfile(tmpfile):
+            #     os.remove(tmpfile)
+            #     print(f"REMOVED: {tmpfile}")
+            # else:
+            #     pass
     print()
+
 
 def count_file_lines(file_path):
     
-    count = sum(1 for line in open(file_path))
+    return sum(1 for line in open(file_path))
 
-    return count

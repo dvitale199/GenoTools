@@ -21,7 +21,7 @@ import joblib
 
 #local imports
 # from gwas.qc import QC
-from QC.utils import shell_do, get_common_snps
+from QC.utils import shell_do, get_common_snps, rm_tmps
 
 
 
@@ -64,11 +64,14 @@ def ancestry_prune(geno_path, out_path=None):
     for cmd in cmds:
         shell_do(cmd)
     
-    for suffix in ['bed','bim','fam','log']:
-        try:
-            os.remove(f'{geno_ancestry_prune_tmp}.{suffix}')
-        except OSError:
-            pass
+    rm_tmps([f'{geno_ancestry_prune_tmp}'], ['bed','bim','fam','log'])
+    
+    #replaced by rm_tmps()
+    # for suffix in ['bed','bim','fam','log']:
+    #     try:
+    #         os.remove(f'{geno_ancestry_prune_tmp}.{suffix}')
+    #     except OSError:
+    #         pass
 
         
 def flash_pca(geno_path, out_name, dim=20):
@@ -152,6 +155,11 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
 
 
 def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
+
+    step = "calculate_pcs"
+    print()
+    print(f"RUNNING: {step}")
+    print()
 
     outdir = os.path.dirname(out)
     out_paths = {}
@@ -241,6 +249,11 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
 
 def munge_training_pca_loadings(labeled_pca):
 
+    step = "munge_pca_loadings"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     X = labeled_pca.drop(columns=['label'])
     y = labeled_pca.label
 
@@ -273,6 +286,11 @@ def munge_training_pca_loadings(labeled_pca):
 
 def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
     
+    step = "train_umap_classifier"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     if input_param_grid:
         param_grid = input_param_grid
     else:
@@ -328,7 +346,12 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
 
 
 def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
-
+    
+    step = "predict_ancestry"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+    
     le = label_encoder
 
     # set new samples aside for labeling after training the model
@@ -347,10 +370,25 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
 
     projected[['FID','IID','label']].to_csv(f'{out}_umap_linearsvc_predicted_labels.txt', sep='\t')
 
-    out_dict = {
+    data_out = {
         'X_new': X_new,
-        'y_pred': y_pred,
+        'y_pred': ancestry_pred,
+        'label_encoder': le
+    }
+
+    metrics_dict = {
+        'predicted_labels_counts': projected.label.value_counts()
+    }
+
+    outfiles_dict = {
         'labels_outpath': f'{out}_umap_linearsvc_predicted_labels.txt'
+    }
+
+    out_dict = {
+        'step':step,
+        'data': data_out,
+        'metrics': metrics_dict,
+        'output': outfiles_dict'
     }
 
     return out_dict
