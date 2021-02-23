@@ -7,7 +7,7 @@ import shutil
 import sys
 
 # local imports
-from QC.utils import shell_do, rm_tmps
+from QC.utils import shell_do, rm_tmps, count_file_lines
 
 
 ################ Sample pruning methods ####################
@@ -156,7 +156,7 @@ def het_prune(geno_path, out_path):
     return out_dict
 
 
-def related_prune(geno_path, out_path, grm_cutoff=0.125):
+def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_cutoff=0.95):
     
     # what step are we running?
     step = "related_prune"
@@ -166,16 +166,16 @@ def related_prune(geno_path, out_path, grm_cutoff=0.125):
 
     # make temp filenames
     related_out = f"{out_path}.related" 
-    grm1 = f"{out_path}_grm1"
-    grm2 = f"{out_path}_grm2"
-    grm3 = f"{out_path}_grm3"
+    grm1 = f"{out_path}_total_grm_tmp"
+    grm2 = f"{out_path}_unrelated_grm_tmp"
+    grm3 = f"{out_path}_duplicated_grm_tmp"
 
     # calculate grm and select relatedness <= grm_cutoff
     gcta_cmd1 = f"gcta --bfile {geno_path} --autosome --maf 0.05 --make-grm --out {grm1}" 
-    gcta_cmd2 = f"gcta --grm {grm1} --grm-cutoff {grm_cutoff} --make-grm --out {grm2}"
+    gcta_cmd2 = f"gcta --grm {grm1} --grm-cutoff {related_grm_cutoff} --make-grm --out {grm2}"
     plink_cmd1 = f"plink --bfile {geno_path} --keep {grm2}.grm.id --make-bed --out {out_path}"
     # see if any samples are duplicated (grm cutoff >= 0.95)
-    gcta_cmd3 = f"gcta --grm {grm1} --grm-cutoff 0.95 --make-grm --out {grm3}"
+    gcta_cmd3 = f"gcta --grm {grm1} --grm-cutoff {duplicated_grm_cutoff} --make-grm --out {grm3}"
 
     cmds = [gcta_cmd1,gcta_cmd2,plink_cmd1, gcta_cmd3]
     for cmd in cmds:
@@ -185,17 +185,20 @@ def related_prune(geno_path, out_path, grm_cutoff=0.125):
     total_count = sum(1 for line in open(f'{geno_path}.fam'))
     unrelated_count = sum(1 for line in open(f'{grm2}.grm.id'))
     related_count = total_count - unrelated_count
-    duplicated_count = sum(1 for line in open(f'{grm3}.grm.id'))
+    nonduplicated_count = sum(1 for line in open(f'{grm3}.grm.id'))
+    duplicated_count = total_count - nonduplicated_count
 
     # get related sample ids
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None, usecols=[0,1], names=['FID','IID'])
     unrelated_ids = pd.read_csv(f'{grm2}.grm.id', sep='\t', header=None, names=['FID','IID'])
-    merged = fam.merge(unrelated_ids.drop_duplicates(), on=['FID','IID'], how='left', indicator=True)
-    related = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
+    merged_rel = fam.merge(unrelated_ids.drop_duplicates(), on=['FID','IID'], how='left', indicator=True)
+    related = merged_rel[merged_rel['_merge'] == 'left_only'].drop(columns=['_merge'])
     related['status'] = 'related'
 
     # get duplicated sample ids
-    duplicated = pd.read_csv(f'{grm3}.grm.id', sep='\t', header=None, names=['FID','IID'])
+    nonduplicated = pd.read_csv(f'{grm3}.grm.id', sep='\t', header=None, names=['FID','IID'])
+    merge_dup = fam.merge(nonduplicated.drop_duplicates(), on=['FID','IID'], how='left', indicator=True)
+    duplicated =  merge_dup[merge_dup['_merge'] == 'left_only'].drop(columns=['_merge'])
     duplicated['status'] = 'duplicated'
 
     # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
@@ -204,7 +207,7 @@ def related_prune(geno_path, out_path, grm_cutoff=0.125):
     grm_pruned.to_csv(related_out, sep='\t', header=True, index=False)
     
     # remove temp files
-    tmps = [grm1, grm2]
+    tmps = [grm1, grm2, grm3]
     rm_tmps(tmps)
 
     outfiles_dict = {
@@ -224,40 +227,103 @@ def related_prune(geno_path, out_path, grm_cutoff=0.125):
     
 
 ################ Variant pruning methods ####################
-##### SPLIT THESE INTO SEPARATE FUNCTIONS!!!!
-
-# def variant_pruning(self, geno_path):
-
-#     out_path = self.out_path
+def variant_prune(geno_path, out_path):
     
-#     step = "VARIANT-LEVEL PRUNING"
-#     print(step)
+    step = "variant_prune"
+    print()
+    print(f"RUNNING: {step}")
+    print()
 
-#     # variant missingness
-#     bash1 = "plink --bfile " + geno_path + " --make-bed --out " + geno_path + "_geno --geno 0.05"
+    # make tmp names
+    # geno
+    geno_tmp1 = f'{out_path}_geno_tmp1'
+    # missingness by case-control
+    mis_tmp1 = f'{out_path}_mis_tmp1'
+    mis_tmp2 = f'{out_path}_mis_tmp2'
+    # missingness by haplotype
+    hap_tmp1 = f'{out_path}_hap_tmp1'
+    hap_tmp2 = f'{out_path}_hap_tmp2'
+    # HWE
+    hwe_tmp1 = f'{out_path}_hwe_tmp1'
 
-#     #missingness by case control (--test-missing), using P > 1E-4
-#     bash2 = "plink --bfile " + geno_path + "_geno --test-missing --out " + out_path + "missing_snps" 
-#     bash3 = "awk '{if ($5 <= 0.0001) print $2 }' " + out_path + "missing_snps.missing > " + out_path + "missing_snps_1E4.txt"
-#     bash4 = "plink --bfile " + geno_path + "_geno --exclude " + out_path + "missing_snps_1E4.txt --make-bed --out " + geno_path + "_geno_missingsnp"
+    
+    # variant missingness
+    plink_cmd1 = f"plink --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
 
-#     #missingness by haplotype (--test-mishap), using P > 1E-4
-#     bash5 = "plink --bfile " + geno_path + "_geno_missingsnp --test-mishap --out " + out_path + "missing_hap" 
-#     bash6 = "awk '{if ($8 <= 0.0001) print $9 }' " + out_path + "missing_hap.missing.hap > " + out_path + "missing_haps_1E4.txt"
-#     bash7 = "cat " + out_path + "missing_haps_1E4.txt | tr '|' '\n' > " + out_path + "missing_haps_1E4_final.txt"
-#     bash8 = "plink --bfile " + geno_path + "_geno_missingsnp --exclude " + out_path + "missing_haps_1E4_final.txt --make-bed --out " +  geno_path + "_geno_missingsnp_missinghap"
+    #missingness by case control (--test-missing), using P > 1E-4
+    plink_cmd2 = f"plink --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
 
+    cmds1 = [plink_cmd1, plink_cmd2]
+    for cmd in cmds1:
+        shell_do(cmd)
 
-#     ###### THIS DOES NOT WORK WITHOUT PHENOTYPES!!!!!!!!
-#     #HWE from controls only using P > 1E-4
-#     bash9 = "plink --bfile " + geno_path + "_geno_missingsnp_missinghap --filter-controls --hwe 1E-4 --write-snplist --out " + out_path + "hwe"
-#     bash10 = "plink --bfile " + geno_path + "_geno_missingsnp_missinghap --extract " + out_path + "hwe.snplist --make-bed --out " + geno_path + "_geno_missingsnp_missinghap_hwe"
-#     bash11 = "#### moved " + geno_path + "_geno_missingsnp_missinghap_hwe to " + geno_path + "_variant #####"
-#     cmds = [bash1, bash2, bash3, bash4, bash5, bash6, bash7, bash8, bash9, bash10, bash11]
+    mis = pd.read_csv(f'{mis_tmp1}.missing', sep='\s+')
+    exclude = mis[mis.P <= 0.0001].loc[:,'SNP']
+    exclude.to_csv(f'{mis_tmp1}.exclude', sep='\t', header=False, index=False)
 
-#     self.run_cmds(cmds, step)
+    plink_cmd3 = f"plink --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
 
-#     exts = [".bed",".bim",".fam",".log"]
-#     for ext in exts:
-        
-#         shutil.move(geno_path + "_geno_missingsnp_missinghap_hwe" + ext, geno_path + "_variant" + ext)
+    # missingness by haplotype (--test-mishap), using P > 1E-4
+    plink_cmd4 = f"plink --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
+
+    cmds2 = [plink_cmd3, plink_cmd4]
+
+    for cmd in cmds2:
+        shell_do(cmd)
+
+    # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
+    mis_hap = pd.read_csv(f'{hap_tmp1}.missing.hap', sep='\s+')
+    mis_hap_snps = list(mis_hap[mis_hap.P <= 0.0001].loc[:,'FLANKING'].str.split('|'))
+    snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
+    snp_ls_df['snp'].to_csv(f'{hap_tmp1}.exclude',sep='\t', header=False, index=False)
+
+    plink_cmd5 = f"plink --bfile {mis_tmp2} --exclude {hap_tmp1}.exclude --make-bed --out {hap_tmp2}"
+
+    # HWE from controls only using P > 1E-4
+    plink_cmd6 = f"plink --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
+    plink_cmd7 = f"plink --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
+    
+    cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
+    for cmd in cmds3:
+        shell_do(cmd)
+
+    # get counts for each step
+    initial_snp_count = count_file_lines(f'{geno_path}.bim')
+    # geno
+    geno_snp_count = count_file_lines(f'{geno_tmp1}.bim')
+    geno_rm_count = initial_snp_count - geno_snp_count
+    # mis
+    mis_snp_count = count_file_lines(f'{mis_tmp2}.bim')
+    mis_rm_count = geno_snp_count - mis_snp_count
+    # hap
+    hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
+    hap_rm_count = mis_snp_count - hap_snp_count
+    # hwe
+    final_snp_count = count_file_lines(f'{out_path}.bim')
+    hwe_rm_count = hap_snp_count - final_snp_count
+    # total
+    total_rm_count = initial_snp_count - final_snp_count
+
+    # remove temp files
+    tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
+    rm_tmps(tmps)
+
+    outfiles_dict = {
+        'plink_out': out_path
+    }
+
+    removed_dict = {
+        'geno_removed_count': geno_rm_count,
+        'mis_removed_count': mis_rm_count,
+        'haplotype_removed_count': hap_rm_count,
+        'hwe_removed_count': hwe_rm_count,
+        'total_removed_count': total_rm_count
+    }
+
+    out_dict = {
+        'step': step,
+        'snps_removed': removed_dict,
+        'output': outfiles_dict
+    }
+
+    return out_dict
