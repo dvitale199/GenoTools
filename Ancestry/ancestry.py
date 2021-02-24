@@ -24,7 +24,6 @@ import joblib
 from QC.utils import shell_do, get_common_snps, rm_tmps
 
 
-
 def ancestry_prune(geno_path, out_path=None):
     geno_ancestry_prune_tmp = f'{geno_path}_ancestry_prune_tmp'
     
@@ -124,6 +123,7 @@ def pca_projection(geno_path, inmeansd, inload, outproj):
         }
     return out_dict
 
+
 def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
     '''
     Input: 
@@ -139,13 +139,25 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         3-D scatterplot (plotly.express.scatter_3d). If plot_out included, will write .png static image and .html interactive to plot_out filename
         
     '''    
-    fig = px.scatter_3d(labeled_df, x=x, y=y, z=z, color=color, symbol=symbol, title=title, color_discrete_sequence=px.colors.qualitative.Bold)
-    if x_range:
-        fig.update_layout(xaxis_range=x_range)
-    if y_range:
-        fig.update_layout(yaxis_range=y_range)
-    if z_range:
-        fig.update_layout(zaxis_range=z_range)
+    fig = px.scatter_3d(
+        labeled_df,
+        x=x,
+        y=y,
+        z=z,
+        color=color,
+        symbol=symbol,
+        title=title,
+        color_discrete_sequence=px.colors.qualitative.Bold,
+        range_x=x_range,
+        range_y=y_range,
+        range_z=z_range
+    )
+    # if x_range:
+    #     fig.update_layout(xaxis=dict(range=x_range))
+    # if y_range:
+    #     fig.update_layout(yaxis=dict(range=y_range))
+    # if z_range:
+    #     fig.update_layout(zaxis=dict(range=z_range))
 
     fig.show()
 
@@ -363,17 +375,18 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     print('predicted:\n', projected.label.value_counts())
     print()
 
-    projected[['FID','IID','label']].to_csv(f'{out}_umap_linearsvc_predicted_labels.txt', sep='\t')
+    projected[['FID','IID','label']].to_csv(f'{out}_umap_linearsvc_predicted_labels.txt', sep='\t', index=False)
 
     data_out = {
+        'ids': projected.loc[:,['FID','IID','label']],
         'X_new': X_new,
         'y_pred': ancestry_pred,
         'label_encoder': le
     }
 
-    metrics_dict = {
-        'predicted_labels_counts': projected.label.value_counts()
-    }
+    # metrics_dict = {
+    #     'predicted_labels_counts': projected.label.value_counts()
+    # }
 
     outfiles_dict = {
         'labels_outpath': f'{out}_umap_linearsvc_predicted_labels.txt'
@@ -381,7 +394,7 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
 
     out_dict = {
         'data': data_out,
-        'metrics': metrics_dict,
+        'metrics': projected.label.value_counts(),
         'output': outfiles_dict
     }
 
@@ -486,15 +499,27 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         label_encoder=train_split['label_encoder'],
         fitted_pipe_grid=trained_clf['fitted_pipe_grid']
     )
+    
+    x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
+    y_min, y_max = min(umap_transforms['total_umap'].iloc[:,1]), max(umap_transforms['total_umap'].iloc[:,1])
+    z_min, z_max = min(umap_transforms['total_umap'].iloc[:,2]), max(umap_transforms['total_umap'].iloc[:,2])
+
+    x_range = [x_min-5, x_max+5]
+    y_range = [y_min-5, y_max+5]
+    z_range = [z_min-5, z_max+5]
 
     plot_3d(
         umap_transforms['total_umap'],
         color='label',
         symbol='dataset',
         plot_out=f'{plot_dir}/plot_total_umap',
+        title='UMAP of New and Reference Samples',
         x=0,
         y=1,
-        z=2
+        z=2,
+        x_range=x_range,
+        y_range=y_range,
+        z_range=z_range
     )
 
     plot_3d(
@@ -502,18 +527,27 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         color='label',
         symbol='dataset',
         plot_out=f'{plot_dir}/plot_ref_umap',
+        title="UMAP of Reference Samples",
         x=0,
         y=1,
-        z=2
+        z=2,
+        x_range=x_range,
+        y_range=y_range,
+        z_range=z_range
     )
+
     plot_3d(
         umap_transforms['new_samples_umap'],
         color='label',
         symbol='dataset',
         plot_out=f'{plot_dir}/plot_predicted_samples_umap',
+        title='UMAP of New Samples',
         x=0,
         y=1,
-        z=2
+        z=2,
+        x_range=x_range,
+        y_range=y_range,
+        z_range=z_range
     )
 
     # return more stuff as needed but for now, just need predicted labels, predicted labels out path, and predicted counts

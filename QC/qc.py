@@ -345,7 +345,7 @@ def variant_prune(geno_path, out_path):
     return out_dict
 
 
-def get_avg_miss_rates(geno_path, out_path):
+def avg_miss_rates(geno_path, out_path):
     plink_miss_cmd = f'\
 plink \
 --bfile {geno_path} \
