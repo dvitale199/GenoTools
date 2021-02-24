@@ -414,10 +414,11 @@ def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitte
     ref_umap.loc[:,'label'] = le.inverse_transform(y_ref)
 
     new_samples_umap = pd.DataFrame(umapper.transform(X_new))
-    y_pred_labels = le.inverse_transform(y_pred)
     # pred = pipe_clf.predict(X_new)
     # new_samples_umap.loc[:,'label'] = le.inverse_transform(pred)
-    new_samples_umap.loc[:,'label'] = y_pred_labels
+    
+    # y_pred_labels = le.inverse_transform(y_pred)
+    new_samples_umap.loc[:,'label'] = y_pred
 
     ref_umap.loc[:,'dataset'] = 'ref'
     new_samples_umap.loc[:, 'dataset'] = 'predicted'
@@ -432,7 +433,7 @@ def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitte
     return out_dict
 
 
-def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
+def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=None):
     step = "predict_ancestry"
     print()
     print(f"RUNNING: {step}")
@@ -446,7 +447,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
     # create directories if not already in existence
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(temp_dir, exist_ok=True)
+    os.makedirs(pc_dir, exist_ok=True)
 
     calc_pcs = calculate_pcs(
         geno=geno_path,
@@ -459,14 +460,6 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
 
     train_split = munge_training_pca_loadings(calc_pcs['labeled_ref_pca'])
 
-    test_param_grid = {
-            "umap__n_neighbors": [5],
-            "umap__n_components": [15],
-            "umap__a":[1.5],
-            "umap__b": [0.25],
-            "svc__C": [10**-3],
-        }
-
     trained_clf = train_umap_classifier(
         X_train=train_split['X_train'],
         X_test=train_split['X_test'],
@@ -475,7 +468,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
         label_encoder=train_split['label_encoder'],
         plot_dir=plot_dir,
         model_dir=model_dir,
-        input_param_grid=test_param_grid
+        input_param_grid=train_param_grid
     )
 
     pred = predict_ancestry_from_pcs(
@@ -486,9 +479,9 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
     )
 
     umap_transforms = umap_transform_with_fitted(
-        X_new=pred['X_new'],
+        X_new=pred['data']['X_new'],
         X_ref=train_split['X_all'],
-        y_pred=pred['y_pred'],
+        y_pred=pred['data']['y_pred'],
         y_ref=train_split['y_all'],
         label_encoder=train_split['label_encoder'],
         fitted_pipe_grid=trained_clf['fitted_pipe_grid']
@@ -537,7 +530,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
     }
     
     out_dict = {
-        'step': step
+        'step': step,
         'data': data_dict,
         'metrics': metrics_dict,
         'output': outfiles_dict
