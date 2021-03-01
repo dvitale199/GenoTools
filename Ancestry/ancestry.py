@@ -15,16 +15,23 @@ from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 import plotly.express as px
 import plotly
-# from sklearn.externals import joblib
-# import sklearn.externals.joblib as extjoblib
 import joblib
 
 #local imports
-# from gwas.qc import QC
 from QC.utils import shell_do, get_common_snps, rm_tmps
 
 
 def ancestry_prune(geno_path, out_path=None):
+    '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.
+    
+    Parameters: 
+    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
+    out_path (string): path to output plink genotype (everything before .bed/.bim/.fam).
+    
+    Returns:
+    None.
+    '''
+
     geno_ancestry_prune_tmp = f'{geno_path}_ancestry_prune_tmp'
     
     if out_path:
@@ -64,16 +71,20 @@ def ancestry_prune(geno_path, out_path=None):
         shell_do(cmd)
     
     rm_tmps([f'{geno_ancestry_prune_tmp}'], ['bed','bim','fam','log'])
-    
-    #replaced by rm_tmps()
-    # for suffix in ['bed','bim','fam','log']:
-    #     try:
-    #         os.remove(f'{geno_ancestry_prune_tmp}.{suffix}')
-    #     except OSError:
-    #         pass
 
         
 def flash_pca(geno_path, out_name, dim=20):
+
+    """Runs flashpca on input genotype.
+
+    Parameters:
+    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
+    out_path (string): path to flashpca output (everything before .pcs/.vec/.loadings).
+
+    Returns:
+    dict: output paths to flashpca output files.
+    """
+
     flashpca_cmd = f'\
     flashpca --bfile {geno_path}\
      -d {dim}\
@@ -101,9 +112,17 @@ def flash_pca(geno_path, out_name, dim=20):
     
 def pca_projection(geno_path, inmeansd, inload, outproj):
     
+    '''Project new samples on to PCs in flashpca format. Must use the EXACT same snps (use get_common_snps() below).
+
+    Parameters:
+    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
+    inmeansd (string): path to flashpca meansd file
+    inload (string): path to flashpca loadings file
+    outproj (string): path to output projected samples
+    
+    Returns:
+    dict: paths to output files
     '''
-    project new samples onto other PCs in flashpca format
-    Must use the EXACT same snps (use get_common_snps() below)'''
     
     project_geno_pcs_cmd = f'\
     flashpca --bfile {geno_path}\
@@ -126,17 +145,21 @@ def pca_projection(geno_path, inmeansd, inload, outproj):
 
 def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
     '''
-    Input: 
-        labeled_df: Pandas dataframe. labeled ancestry dataframe
-        color: String. color of ancestry label. column name containing labels for ancestry in labeled_pcs_df
-        symbol: String. symbol of secondary label (for example, predicted vs reference ancestry). default: None
-        plot_out: String. filename to output filename for .png and .html plotly images
-        x: String. column name of x-dimension
-        y: String. column name of y-dimension
-        z: String. column name of z-dimension
+    Parameters: 
+    labeled_df (Pandas dataframe): labeled ancestry dataframe
+    color (string): color of ancestry label. column name containing labels for ancestry in labeled_pcs_df
+    symbol (string): symbol of secondary label (for example, predicted vs reference ancestry). default: None
+    plot_out (string): filename to output filename for .png and .html plotly images
+    x (string): column name of x-dimension
+    y (string): column name of y-dimension
+    z (string): column name of z-dimension
+    title (string, optional): title of output scatterplot
+    x_range (list of floats [min, max], optional): range for x-axis
+    y_range (list of floats [min, max], optional): range for y-axis
+    z_range (list of floats [min, max], optional): range for z-axis
 
-    Output:
-        3-D scatterplot (plotly.express.scatter_3d). If plot_out included, will write .png static image and .html interactive to plot_out filename
+    Returns:
+    3-D scatterplot (plotly.express.scatter_3d). If plot_out included, will write .png static image and .html interactive to plot_out filename
         
     '''    
     fig = px.scatter_3d(
@@ -152,12 +175,6 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         range_y=y_range,
         range_z=z_range
     )
-    # if x_range:
-    #     fig.update_layout(xaxis=dict(range=x_range))
-    # if y_range:
-    #     fig.update_layout(yaxis=dict(range=y_range))
-    # if z_range:
-    #     fig.update_layout(zaxis=dict(range=z_range))
 
     fig.show()
 
@@ -167,6 +184,24 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
 
 
 def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
+
+    '''Calculate Principal Components for reference (.bed/.bim/.fam) and project new samples. Plot PCs.
+
+    Parameters:
+    geno (string): path to plink genotype (everything before .bed/.bim/.fam).
+    ref (string): path to reference genotype (everything before .bed/.bim/.fam)
+    labels (string): path to tab-separated file containing labels (FID,IID,label)
+    plotdir (string): path to directory where plots will be written to
+    keep_temp (boolean): Default=True. if false, delete intermediate files
+    
+    Returns:
+    out_dict = {
+        'labeled_ref_pca': labeled reference pca df (pandas dataframe),
+        'new_samples_projected': projected sample pca df (pandas dataframe),
+        'outpaths': paths to output files (dictionary of strings),
+        'temp_paths': paths to temp files (dictionary of strings)
+        }
+    '''
 
     step = "calculate_pcs"
     print()
@@ -260,7 +295,10 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
 
 
 def munge_training_pca_loadings(labeled_pca):
-
+    """ Train/test split and label encode labeled PCA data for training
+    
+    
+    """
     step = "munge_pca_loadings"
     print()
     print(f"RUNNING: {step}")
@@ -298,6 +336,10 @@ def munge_training_pca_loadings(labeled_pca):
 
 def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
     
+    """Train UMAP classifier pipeline
+    
+    
+    """
     step = "train_umap_classifier"
     print()
     print(f"RUNNING: {step}")
@@ -325,11 +367,13 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy')
     pipe_grid.fit(X_train, y_train)
 
-    print(f'Train Accuracy: {pipe_grid.best_score_}')
+    train_acc = pipe_grid.best_score_
+    print(f'Training Balanced Accuracy: {train_acc}')
     print(f'Best Parameters: {pipe_grid.best_params_}')
 
     pipe_clf = pipe_grid.best_estimator_
-    print(f"Balanced Accuracy on Test Set: {pipe_clf.score(X_test, y_test)}")
+    test_acc = pipe_clf.score(X_test, y_test)
+    print(f"Balanced Accuracy on Test Set: {test_acc}")
     pipe_clf_pred = pipe_clf.predict(X_test)
 
     pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
@@ -351,7 +395,9 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
         'classifier': pipe_clf,
         'best_params': pipe_grid.best_params_,
         'confusion_matrix': pipe_clf_c_matrix,
-        'fitted_pipe_grid': pipe_grid
+        'fitted_pipe_grid': pipe_grid,
+        'train_accuracy': train_acc,
+        'test_accuracy': test_acc
     }
     
     return out_dict
@@ -385,7 +431,7 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     }
 
     # metrics_dict = {
-    #     'predicted_labels_counts': projected.label.value_counts()
+    #     'predicted_labels_counts': projected.label.value_counts(),
     # }
 
     outfiles_dict = {
@@ -444,6 +490,33 @@ def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitte
     }
 
     return out_dict
+
+
+def split_cohort_ancestry(geno_path, labels_path, out_path):
+    pred_labels = pd.read_csv(labels_path, sep='\t')
+    labels_list = list()
+    outfiles = list()
+    for label in pred_labels.label.unique():
+        labels_list.append(label)
+        outname = f'{out_path}_{label}'
+        outfiles.append(outname)
+        ancestry_group_outpath = f'{outname}.samples'
+        pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
+
+        plink_cmd = f'\
+plink --bfile {geno_path} \
+--keep {ancestry_group_outpath} \
+--make-bed \
+--out {outname}'
+
+        shell_do(plink_cmd)
+    
+    output_dict = {
+        'labels': labels_list,
+        'paths': outfiles
+    }
+    
+    return output_dict
 
 
 def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=None):
@@ -556,7 +629,9 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         }
 
     metrics_dict = {
-        'predicted_metrics': pred['metrics']
+        'predicted_metrics': pred['metrics'],
+        'train_accuracy': trained_clf['train_accuracy'],
+        'test_accuracy': trained_clf['test_accuracy']
         }
 
     outfiles_dict = {
