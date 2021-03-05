@@ -1,7 +1,11 @@
 import pandas as pd
+
+# local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, avg_miss_rates
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
+
+
 
 steps = []
 
