@@ -19,5 +19,5 @@ PHENOTYPES OR SEVERAL STEPS WILL FAIL
 `--out`: Path and prefix to output QC'd and ancestry-predicted genotype in Plink (.bed/.bim/.fam) format. Include everything up to .bed/.bim/.fam. For now, this just outputs a log file but will include function to move output files soon.
 
 ## Core Pipeline Overview
-
+COMING SOON
 
