@@ -1,4 +1,5 @@
 import pandas as pd
+import argparse
 
 # local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, avg_miss_rates
@@ -6,6 +7,25 @@ from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
 
+parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data in Plink .bim/.bam/.fam format)')
+parser.add_argument('--geno', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format genotype file, everything before the *.bed/bim/fam [default: nope].')
+parser.add_argument('--ref', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
+parser.add_argument('--ref_labels', type=str, default='nope', help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
+parser.add_argument('--out', type=str, default='out', help='Prefix for output (including path)')
+# parser.add_argument('--rare', default=False, action="store_true", help='Pruning toggle for rare variants. If --rare is used, final MAF pruning (0.01) will not be conducted, otherwise, rare variants will be pruned')
+
+args = parser.parse_args()
+
+geno_path = args.geno
+ref_panel = args.ref
+ref_labels = args.ref_labels
+out = args.out
+
+# geno_path = '/data/CARD/PD/GP2/raw_genotypes/shulman_ny/plink/shulman'
+# hard code in reference for now--- definitely change later
+# ref_dir_path = '/data/LNG/vitaled2/1kgenomes'
+# ref_panel = f'{ref_dir_path}/1kg_ashkj_ref_panel_gp2_pruned'
+# ref_labels = f'{ref_dir_path}/ref_panel_ancestry.txt'
 
 steps = []
 
@@ -23,9 +43,6 @@ steps.append(sex)
 
 # ancestry estimation
 ancestry_out = f'{sex_out}_ancestry'
-ref_dir_path = '/data/LNG/vitaled2/1kgenomes'
-ref_panel = f'{ref_dir_path}/1kg_ashkj_ref_panel_gp2_pruned'
-ref_labels = f'{ref_dir_path}/ref_panel_ancestry.txt'
 ancestry = run_ancestry(geno_path=sex_out, out_path=ancestry_out, ref_panel=ref_panel, ref_labels=ref_labels)
 
 # split cohort by ancestry group
@@ -62,7 +79,7 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 
     steps2 = [het_dict, related_dict, variant_dict]
 
-with open(f'{out_path}/QC_REPORT.txt', 'w') as f:
+with open(f'{out}_QC_REPORT.txt', 'w') as f:
     f.write("QC REPORT\n")
     f.write("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n")
     f.write("$$$$$$$$$$$$$$ Whole cohort steps $$$$$$$$$$$$$$$\n")
