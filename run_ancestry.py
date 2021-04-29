@@ -40,9 +40,6 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels):
             "svc__C": [10**-3],
         }
 
-    plot_out = '/data/vitaled2/test_data/mcgill/plot_ancestry'
-    model_out = '/data/vitaled2/test_data/mcgill/models'
-
     trained_clf = train_umap_classifier(
         X_train=train_split['X_train'],
         X_test=train_split['X_test'],
