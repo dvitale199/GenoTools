@@ -55,7 +55,8 @@ Python Function | Parameters | Returns |
 
 Python Function | Parameters | Returns |
 ------------ | ------------- | ------------- |
-`shell_do(command, log=False, return_log=False)` <br /><br /> Run shell commands from Python | `command` *str*:  Command to be run in shell. <br /><br /> `log` *str*: Default=False. If True, print stdout <br /><br /> `return_log` *str*: Default=False. if True, return stdout | `stdout` <br /><br /> *datatype dependent on input command* 
+`shell_do(command, log=False, return_log=False)` <br /><br /> Run shell commands from Python  | `command` *str*:  Command to be run in shell. <br /><br /> `log` *str*: Default=False. If True, print stdout <br /><br /> `return_log` *str*: Default=False. if True, return stdout | `stdout` <br /><br /> *datatype dependent on input command*
+`merge_genos(geno_path1, geno_path2, out_name)` <br /><br /> Merge 2 Plink Genotypes <br /><br /> *NEEDS TO BE FIXED TO RETURN OUTPUT FILE PATHS AND IMPORTANT METRICS. WILL CHANGE `out_name` to `out_path`* | `geno_path1` *str*:  Path to the Plink genotypes (everything before .bed/.bim/.fam). `geno_path2` *str*:  Path to the Plink genotypes (everything before .bed/.bim/.fam). | `None` <br /><br /> *Currently does not return anything but outputs Plink files to out_name* 
 
 ## Genotype Calling via Illumina Gencall CLI
 
