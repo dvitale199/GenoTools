@@ -51,6 +51,12 @@ Python Function | Parameters | Returns |
 `variant_prune(geno_path, out_path)` <br /><br /> Variant Pruning. Missingness by: 1. case/control, 2. haplotype. Filtering controls for Hardy-Weinberg Equilibrium (remove hwe_p > 1e-4 | `geno_path` *str*:  Path to the Plink genotypes (everything before .bed/.bim/.fam). <br /><br /> `out_path` *str*: Path to the output Plink genotypes (everything before .bed/.bim/.fam). <br /><br /> | *dict* <br /><br />`'step'` *str*:  Name of step in pipeline <br /><br /> `'metrics'` *dict*: metrics from step with keys:  <br />`'geno_removed_count'`, `'mis_removed_count'`,`'haplotype_removed_count'`,`'hwe_removed_count'`,`'total_removed_count'` <br /><br />`'output'` *dict*: paths to output files with keys:  <br />`'plink_out'`
 `avg_miss_rates(geno_path, out_path)` <br /><br /> Calculate average missingness rates (sample-level and variant-level. | `geno_path` *str*:  Path to the Plink genotypes (everything before .bed/.bim/.fam). <br /><br /> `out_path` *str*: Path to the output Plink genotypes (everything before .bed/.bim/.fam). <br /><br /> | *dict* <br /><br />`'step'` *str*:  Name of step in pipeline <br /><br /> `'metrics'` *dict*: metrics from step with keys:  <br />`'avg_lmiss'`, `'avg_imiss'` <br /><br />
 
+### QC.utils
+
+Python Function | Parameters | Returns |
+------------ | ------------- | ------------- |
+`shell_do(command, log=False, return_log=False)` <br /><br /> Run shell commands from Python | `command` *str*:  Command to be run in shell. <br /><br /> `log` *str*: Default=False. If True, print stdout <br /><br /> `return_log` *str*: Default=False. if True, return stdout | `stdout` <br /><br /> *datatype dependent on input command* 
+
 ## Genotype Calling via Illumina Gencall CLI
 
 Genotypes can be called from .idats in parallel as follows:
