@@ -73,7 +73,7 @@ Genotypes can be called from .idats in parallel as follows:
 
 `ped_dir` is the directory which the .ped file will be output to 
 
-`-f {idat}` is the idat file that is actually being called (everything before .idat)
+`-f {idat_dir}` is the directory that contains .idat files. In our case, each directory contains all of the idats for a single chip.
 
 `-p` means "output .ped"
 
@@ -91,7 +91,7 @@ with open(f'{swarm_scripts_dir}/idat_to_ped.swarm', 'w') as f:
 {bpm} \
 {cluster_file} \
 {ped_dir}/ \
--f {idat_dir}/{code} \
+-f {idat_dir} \
 -p \
 -t 8'
         f.write(f'{idat_to_ped_cmd}\n')
