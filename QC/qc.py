@@ -320,9 +320,9 @@ def variant_prune(geno_path, out_path):
     # total
     total_rm_count = initial_snp_count - final_snp_count
 
-    # remove temp files
-    tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
-    rm_tmps(tmps)
+    # remove temp files- TAKING THIS OUT FOR NOW BECAUSE SOME FILES NOT CREATED IF THERE ARE NO CONTROLS IN A PREDICTED ANCESTRY LABEL GROUP
+#     tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
+#     rm_tmps(tmps)
 
     outfiles_dict = {
         'plink_out': out_path
