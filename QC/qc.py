@@ -33,9 +33,11 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     shutil.move(f'{out_path}.irem', outliers_out)
     
     outlier_count = sum(1 for line in open(f'{outliers_out}'))
-
+    
+    process_complete = True
+    
     outfiles_dict = {
-        'outliers_path': f'{outliers_out}',
+        'pruned_samples': f'{outliers_out}',
         'plink_out': f'{out_path}',
         'phenos_path': f'{phenos_out}'
     }
@@ -45,6 +47,7 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     }
 
     out_dict = {
+        'pass': process_complete,
         'step': step,
         'metrics': metrics_dict,
         'output': outfiles_dict
@@ -95,10 +98,12 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     # remove tmp files
     tmps = [sex_tmp1, sex_tmp2]
     rm_tmps(tmps)
-
+    
+    process_complete = True
+    
     # log outputs
     outfiles_dict = {
-        'sex_fails': sex_fails,
+        'pruned_samples': sex_fails,
         'plink_out': out_path
     }
 
@@ -107,6 +112,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     }
 
     out_dict = {
+        'pass': process_complete,
         'step': step,
         'metrics': metrics_dict,
         'output': outfiles_dict
@@ -136,30 +142,52 @@ def het_prune(geno_path, out_path):
 
     for cmd in cmds1:
         shell_do(cmd)
-
-    het = pd.read_csv(f'{het_tmp3}.het', sep='\s+')
-    het_outliers = het[((het.F <= -0.25) | (het.F >= 0.25))]
-    outlier_count = het_outliers.shape[0]
-    het_outliers.to_csv(f'{outliers_out}', sep='\t', index=False)
     
-    plink_cmd4 = f"plink --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+    # check if het_tmp3 is created. if not, skip this.
+    # NOTE: there may be legitimate reasons for this, for example, if only one sample in genotype file (sometimes happens in ancestry split method)
+    hetpath = f'{het_tmp3}.het'
+    if os.path.isfile(hetpath):
+        het = pd.read_csv(hetpath, sep='\s+')
+        het_outliers = het[((het.F <= -0.25) | (het.F >= 0.25))]
+        outlier_count = het_outliers.shape[0]
+        het_outliers.to_csv(f'{outliers_out}', sep='\t', index=False)
 
-    shell_do(plink_cmd4)
+        plink_cmd4 = f"plink --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
-    # remove tmp files
-    tmps = [het_tmp, het_tmp2, het_tmp3]
-    rm_tmps(tmps)
+        shell_do(plink_cmd4)
 
-    outfiles_dict = {
-        'het_outliers': outliers_out,
-        'plink_out': out_path
-    }
+#         # remove tmp files
+#         tmps = [het_tmp, het_tmp2, het_tmp3]
+#         rm_tmps(tmps)
 
-    metrics_dict = {
-        'outlier_count': outlier_count
-    }
+        outfiles_dict = {
+            'pruned_samples': outliers_out,
+            'plink_out': out_path
+        }
 
+        metrics_dict = {
+            'outlier_count': outlier_count
+        }
+        
+        process_complete = True
+    
+    else:
+        print(f'Heterozygosity pruning failed!')
+        print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
+        
+        outfiles_dict = {
+            'pruned_samples': 'Heterozygosity Pruning Failed!',
+            'plink_out': [het_tmp, het_tmp2, het_tmp3]
+        }
+
+        metrics_dict = {
+            'outlier_count': 0
+        }
+    
+        process_complete = False
+    
     out_dict = {
+        'pass': process_complete,
         'step': step,
         'metrics': metrics_dict,
         'output': outfiles_dict
@@ -189,9 +217,10 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     # see if any samples are duplicated (grm cutoff >= 0.95)
     gcta_cmd3 = f"gcta --grm {grm1} --grm-cutoff {duplicated_grm_cutoff} --make-grm --out {grm3}"
 
-    cmds = [gcta_cmd1,gcta_cmd2,plink_cmd1, gcta_cmd3]
+    cmds = [gcta_cmd1, gcta_cmd2, plink_cmd1, gcta_cmd3]
     for cmd in cmds:
         shell_do(cmd)
+    
     
     # get sample counts
     total_count = sum(1 for line in open(f'{geno_path}.fam'))
@@ -218,12 +247,14 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     grm_pruned.drop_duplicates(subset=['FID', 'IID'], keep='last', inplace=True)
     grm_pruned.to_csv(related_out, sep='\t', header=True, index=False)
     
-    # remove temp files
-    tmps = [grm1, grm2, grm3]
-    rm_tmps(tmps)
-
+#     # remove temp files
+#     tmps = [grm1, grm2, grm3]
+#     rm_tmps(tmps)
+    
+    process_complete = True
+    
     outfiles_dict = {
-        'relateds': related_out,
+        'pruned_samples': related_out,
         'plink_out': out_path
     }
 
@@ -233,6 +264,7 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     }
 
     out_dict = {
+        'pass': process_complete,
         'step': step,
         'metrics': metrics_dict,
         'output': outfiles_dict
@@ -243,6 +275,7 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     
 
 ################ Variant pruning methods ####################
+# this will eventually be broken up into multiple functions!!!!
 def variant_prune(geno_path, out_path):
     
     step = "variant_prune"
@@ -262,81 +295,126 @@ def variant_prune(geno_path, out_path):
     # HWE
     hwe_tmp1 = f'{out_path}_hwe_tmp1'
 
+    # get initial snp count
+    initial_snp_count = count_file_lines(f'{geno_path}.bim')
     
     # variant missingness
     plink_cmd1 = f"plink --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
-
-    #missingness by case control (--test-missing), using P > 1E-4
-    plink_cmd2 = f"plink --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
-
-    cmds1 = [plink_cmd1, plink_cmd2]
-    for cmd in cmds1:
-        shell_do(cmd)
-
-    mis = pd.read_csv(f'{mis_tmp1}.missing', sep='\s+')
-    exclude = mis[mis.P <= 0.0001].loc[:,'SNP']
-    exclude.to_csv(f'{mis_tmp1}.exclude', sep='\t', header=False, index=False)
-
-    plink_cmd3 = f"plink --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
-
-    # missingness by haplotype (--test-mishap), using P > 1E-4
-    plink_cmd4 = f"plink --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
-
-    cmds2 = [plink_cmd3, plink_cmd4]
-
-    for cmd in cmds2:
-        shell_do(cmd)
-
-    # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
-    mis_hap = pd.read_csv(f'{hap_tmp1}.missing.hap', sep='\s+')
-    mis_hap_snps = list(mis_hap[mis_hap.P <= 0.0001].loc[:,'FLANKING'].str.split('|'))
-    snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
-    snp_ls_df['snp'].to_csv(f'{hap_tmp1}.exclude',sep='\t', header=False, index=False)
-
-    plink_cmd5 = f"plink --bfile {mis_tmp2} --exclude {hap_tmp1}.exclude --make-bed --out {hap_tmp2}"
-
-    # HWE from controls only using P > 1E-4
-    plink_cmd6 = f"plink --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
-    plink_cmd7 = f"plink --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
+    shell_do(plink_cmd1)
     
-    cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
-    for cmd in cmds3:
-        shell_do(cmd)
-
-    # get counts for each step
-    initial_snp_count = count_file_lines(f'{geno_path}.bim')
-    # geno
+    # geno pruned count
     geno_snp_count = count_file_lines(f'{geno_tmp1}.bim')
     geno_rm_count = initial_snp_count - geno_snp_count
-    # mis
-    mis_snp_count = count_file_lines(f'{mis_tmp2}.bim')
-    mis_rm_count = geno_snp_count - mis_snp_count
-    # hap
-    hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
-    hap_rm_count = mis_snp_count - hap_snp_count
-    # hwe
-    final_snp_count = count_file_lines(f'{out_path}.bim')
-    hwe_rm_count = hap_snp_count - final_snp_count
-    # total
-    total_rm_count = initial_snp_count - final_snp_count
+    
+    
+    fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None, usecols=[5], names=['case'])
+    # check if this contains both cases and controls
+    if  all(x in fam['case'].unique() for x in [1, 2]):
+        #missingness by case control (--test-missing), using P > 1E-4
+        plink_cmd2 = f"plink --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
+        shell_do(plink_cmd2)
+    #         cmds1 = [plink_cmd1, plink_cmd2]
+    #         for cmd in cmds1:
+    #             shell_do(cmd)
+        mis1 = f'{mis_tmp1}.missing'
+        if os.path.isfile(mis1):
 
-    # remove temp files- TAKING THIS OUT FOR NOW BECAUSE SOME FILES NOT CREATED IF THERE ARE NO CONTROLS IN A PREDICTED ANCESTRY LABEL GROUP
-#     tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
-#     rm_tmps(tmps)
+            mis = pd.read_csv(mis1, sep='\s+')
+            exclude = mis[mis.P <= 0.0001].loc[:,'SNP']
+            exclude.to_csv(f'{mis_tmp1}.exclude', sep='\t', header=False, index=False)
 
-    outfiles_dict = {
-        'plink_out': out_path
-    }
+            plink_cmd3 = f"plink --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
+            shell_do(plink_cmd3)
 
-    metrics_dict = {
-        'geno_removed_count': geno_rm_count,
-        'mis_removed_count': mis_rm_count,
-        'haplotype_removed_count': hap_rm_count,
-        'hwe_removed_count': hwe_rm_count,
-        'total_removed_count': total_rm_count
-    }
+            # mis purned count
+            mis_snp_count = count_file_lines(f'{mis_tmp2}.bim')
+            mis_rm_count = geno_snp_count - mis_snp_count
+
+        else:
+            print()
+            print(f'Case/Control Missingness pruning failed!')
+            print(f'Check {mis_tmp1}.log for more information')
+            print()
+            mis_snp_count = count_file_lines(f'{geno_tmp1}.bim')
+            mis_rm_count = 0
+
+            # if this step fails because case/control status unknown, set mis_tmp1=geno_tmp1 from previous step to continue pipeline
+            mis_tmp2 = geno_tmp1
+
+        # missingness by haplotype (--test-mishap), using P > 1E-4
+        plink_cmd4 = f"plink --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
+        shell_do(plink_cmd4)
+
+    #     cmds2 = [plink_cmd3, plink_cmd4]
+
+    #     for cmd in cmds2:
+    #         shell_do(cmd)
+
+        # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
+        mis_hap = pd.read_csv(f'{hap_tmp1}.missing.hap', sep='\s+')
+        mis_hap_snps = list(mis_hap[mis_hap.P <= 0.0001].loc[:,'FLANKING'].str.split('|'))
+        snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
+        snp_ls_df['snp'].to_csv(f'{hap_tmp1}.exclude',sep='\t', header=False, index=False)
+
+        plink_cmd5 = f"plink --bfile {mis_tmp2} --exclude {hap_tmp1}.exclude --make-bed --out {hap_tmp2}"
+
+        # HWE from controls only using P > 1E-4
+        plink_cmd6 = f"plink --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
+        plink_cmd7 = f"plink --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
+
+        cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
+        for cmd in cmds3:
+            shell_do(cmd)
+
+        # hap pruned count
+        hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
+        hap_rm_count = mis_snp_count - hap_snp_count
+        # hwe pruned count
+        final_snp_count = count_file_lines(f'{out_path}.bim')
+        hwe_rm_count = hap_snp_count - final_snp_count
+        # total pruned count
+        total_rm_count = initial_snp_count - final_snp_count
+
+        # remove temp files
+    #     tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
+    #     rm_tmps(tmps)
+        
+        process_complete = True
+        
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'geno_removed_count': geno_rm_count,
+            'mis_removed_count': mis_rm_count,
+            'haplotype_removed_count': hap_rm_count,
+            'hwe_removed_count': hwe_rm_count,
+            'total_removed_count': total_rm_count
+        }
+        
+    else:
+        print()
+        print(f'Case/control pruning failed! May be missing Controls!')
+        print(f'Check number of Cases/Controls')
+        print()
+        
+        process_complete = False
+        
+        outfiles_dict = {
+            'plink_out': 'FAILED! Check Case/Control Status'
+        }
+
+        metrics_dict = {
+            'geno_removed_count': 0,
+            'mis_removed_count': 0,
+            'haplotype_removed_count': 0,
+            'hwe_removed_count': 0,
+            'total_removed_count': 0
+        }
 
     out_dict = {
+        'pass': process_complete,
         'step': step,
         'metrics': metrics_dict,
         'output': outfiles_dict

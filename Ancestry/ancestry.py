@@ -629,7 +629,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         }
 
     metrics_dict = {
-        'predicted_metrics': pred['metrics'],
+        'predicted_counts': pred['metrics'],
         'train_accuracy': trained_clf['train_accuracy'],
         'test_accuracy': trained_clf['test_accuracy']
         }
