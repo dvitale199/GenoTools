@@ -30,10 +30,14 @@ def callrate_prune(geno_path, out_path, mind=0.02):
 
     shell_do(plink_cmd1)
     
-    shutil.move(f'{out_path}.irem', outliers_out)
-    
-    outlier_count = sum(1 for line in open(f'{outliers_out}'))
-    
+    if os.path.isfile(f'{out_path}.irem'):
+        shutil.move(f'{out_path}.irem', outliers_out)
+
+        outlier_count = sum(1 for line in open(f'{outliers_out}'))
+        
+    else:
+        outlier_count = 0
+        
     process_complete = True
     
     outfiles_dict = {
@@ -96,8 +100,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     shell_do(plink_cmd3)
 
     # remove tmp files
-    tmps = [sex_tmp1, sex_tmp2]
-    rm_tmps(tmps)
+#     tmps = [sex_tmp1, sex_tmp2]
+#     rm_tmps(tmps)
     
     process_complete = True
     
