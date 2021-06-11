@@ -22,8 +22,9 @@ ref_labels = args.ref_labels
 out_path = args.out
 
 # sample-level pruning and metrics
-avg_miss = avg_miss_rates(geno_path, f'{geno_path}_missing')
-avg_miss
+missing_path = f'{geno_path}_missing'
+avg_miss = avg_miss_rates(geno_path, missing_path)
+# avg_miss
 
 callrate_out = f'{geno_path}_callrate'
 callrate = callrate_prune(geno_path, callrate_out)
@@ -44,7 +45,6 @@ ancestry_counts_df.columns = ['label', 'count']
 # split cohort into individual ancestry groups
 pred_labels_path = ancestry['output']['predicted_labels']['labels_outpath']
 cohort_split = split_cohort_ancestry(geno_path=sex_out, labels_path=pred_labels_path, out_path=ancestry_out)
-
 
 # ancestry-specific pruning steps
 het_dict = dict()
@@ -72,6 +72,16 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
         variant = variant_prune(related_out, variant_out)
         variant_dict[label] = variant
 
+
+
+# move output to out_path
+for label, data in variant_dict.items():
+    if data['pass']:
+        for suffix in ['bed','bim','fam','hh','log']:
+            plink_file = f"{data['output']['plink_out']}.{suffix}"
+            plink_outfile = f'{out_path}_{label}.{suffix}'
+            shutil.copyfile(src=plink_file, dst=plink_outfile)
+        
 
 # build report- eventually make this an individual method
 steps = [callrate, sex]

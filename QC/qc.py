@@ -229,9 +229,9 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     # get sample counts
     total_count = sum(1 for line in open(f'{geno_path}.fam'))
     unrelated_count = sum(1 for line in open(f'{grm2}.grm.id'))
-    related_count = total_count - unrelated_count
     nonduplicated_count = sum(1 for line in open(f'{grm3}.grm.id'))
     duplicated_count = total_count - nonduplicated_count
+    related_count = total_count - unrelated_count - duplicated_count
 
     # get related sample ids
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None, usecols=[0,1], names=['FID','IID'])
