@@ -249,7 +249,7 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     print()
 
     # plot it!
-    plot_3d(labeled_pca, color='label', title='Reference Panel PCA', plot_out=f'{plot_dir}/plot_ref_pcs', x='PC1', y='PC2', z='PC3')
+#     plot_3d(labeled_pca, color='label', title='Reference Panel PCA', plot_out=f'{plot_dir}/plot_ref_pcs', x='PC1', y='PC2', z='PC3')
 
     # get reference alleles from ref_common_snps
     ref_common_snps_ref_alleles = f'{ref_common_snps}.ref_allele'
@@ -276,7 +276,7 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     projected['label'] = 'new'
     total_pca = labeled_pca.append(projected)
 
-    plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_PCA_projected_new_samples', x='PC1', y='PC2', z='PC3')
+#     plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_PCA_projected_new_samples', x='PC1', y='PC2', z='PC3')
 
     # write output files
     labeled_pca.to_csv(f'{out}_labeled_ref_pca.txt', sep='\t', index=None)
@@ -380,19 +380,20 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     
     # eventually make this separate function
     # need to get x and y tick labels from 
-    fig, ax = plt.subplots(figsize=(10,10))
-    sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
-                xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
-    plt.ylabel('Actual')
-    plt.xlabel('Predicted')
-    plt.show()
-    fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
+#     fig, ax = plt.subplots(figsize=(10,10))
+#     sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
+#                 xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
+#     plt.ylabel('Actual')
+#     plt.xlabel('Predicted')
+#     plt.show()
+#     fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
     # dump best estimator to pkl
     joblib.dump(pipe_clf, f'{model_dir}/umap_linearsvc_ancestry_model.pkl')
 
     out_dict = {
         'classifier': pipe_clf,
+        'label_encoder' : le,
         'best_params': pipe_grid.best_params_,
         'confusion_matrix': pipe_clf_c_matrix,
         'fitted_pipe_grid': pipe_grid,
@@ -573,59 +574,66 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         fitted_pipe_grid=trained_clf['fitted_pipe_grid']
     )
     
-    x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
-    y_min, y_max = min(umap_transforms['total_umap'].iloc[:,1]), max(umap_transforms['total_umap'].iloc[:,1])
-    z_min, z_max = min(umap_transforms['total_umap'].iloc[:,2]), max(umap_transforms['total_umap'].iloc[:,2])
+#     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
+#     y_min, y_max = min(umap_transforms['total_umap'].iloc[:,1]), max(umap_transforms['total_umap'].iloc[:,1])
+#     z_min, z_max = min(umap_transforms['total_umap'].iloc[:,2]), max(umap_transforms['total_umap'].iloc[:,2])
 
-    x_range = [x_min-5, x_max+5]
-    y_range = [y_min-5, y_max+5]
-    z_range = [z_min-5, z_max+5]
+#     x_range = [x_min-5, x_max+5]
+#     y_range = [y_min-5, y_max+5]
+#     z_range = [z_min-5, z_max+5]
 
-    plot_3d(
-        umap_transforms['total_umap'],
-        color='label',
-        symbol='dataset',
-        plot_out=f'{plot_dir}/plot_total_umap',
-        title='UMAP of New and Reference Samples',
-        x=0,
-        y=1,
-        z=2,
-        x_range=x_range,
-        y_range=y_range,
-        z_range=z_range
-    )
+#     plot_3d(
+#         umap_transforms['total_umap'],
+#         color='label',
+#         symbol='dataset',
+#         plot_out=f'{plot_dir}/plot_total_umap',
+#         title='UMAP of New and Reference Samples',
+#         x=0,
+#         y=1,
+#         z=2,
+#         x_range=x_range,
+#         y_range=y_range,
+#         z_range=z_range
+#     )
 
-    plot_3d(
-        umap_transforms['ref_umap'],
-        color='label',
-        symbol='dataset',
-        plot_out=f'{plot_dir}/plot_ref_umap',
-        title="UMAP of Reference Samples",
-        x=0,
-        y=1,
-        z=2,
-        x_range=x_range,
-        y_range=y_range,
-        z_range=z_range
-    )
+#     plot_3d(
+#         umap_transforms['ref_umap'],
+#         color='label',
+#         symbol='dataset',
+#         plot_out=f'{plot_dir}/plot_ref_umap',
+#         title="UMAP of Reference Samples",
+#         x=0,
+#         y=1,
+#         z=2,
+#         x_range=x_range,
+#         y_range=y_range,
+#         z_range=z_range
+#     )
 
-    plot_3d(
-        umap_transforms['new_samples_umap'],
-        color='label',
-        symbol='dataset',
-        plot_out=f'{plot_dir}/plot_predicted_samples_umap',
-        title='UMAP of New Samples',
-        x=0,
-        y=1,
-        z=2,
-        x_range=x_range,
-        y_range=y_range,
-        z_range=z_range
-    )
+#     plot_3d(
+#         umap_transforms['new_samples_umap'],
+#         color='label',
+#         symbol='dataset',
+#         plot_out=f'{plot_dir}/plot_predicted_samples_umap',
+#         title='UMAP of New Samples',
+#         x=0,
+#         y=1,
+#         z=2,
+#         x_range=x_range,
+#         y_range=y_range,
+#         z_range=z_range
+#     )
 
     # return more stuff as needed but for now, just need predicted labels, predicted labels out path, and predicted counts
     data_dict = {
-        'predict_data': pred['data']
+        'predict_data': pred['data'],
+        'confusion_matrix': trained_clf['confusion_matrix'],
+        'ref_pcs': calc_pcs['labeled_ref_pca'],
+        'projected_pcs': calc_pcs['new_samples_projected'],
+        'total_umap': umap_transforms['total_umap'],
+        'ref_umap': umap_transforms['ref_umap'],
+        'new_samples_umap': umap_transforms['new_samples_umap'],
+        'label_encoder': train_split['label_encoder']
         }
 
     metrics_dict = {

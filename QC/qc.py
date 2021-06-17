@@ -30,10 +30,14 @@ def callrate_prune(geno_path, out_path, mind=0.02):
 
     shell_do(plink_cmd1)
     
-    shutil.move(f'{out_path}.irem', outliers_out)
-    
-    outlier_count = sum(1 for line in open(f'{outliers_out}'))
-    
+    if os.path.isfile(f'{out_path}.irem'):
+        shutil.move(f'{out_path}.irem', outliers_out)
+
+        outlier_count = sum(1 for line in open(f'{outliers_out}'))
+        
+    else:
+        outlier_count = 0
+        
     process_complete = True
     
     outfiles_dict = {
@@ -96,8 +100,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     shell_do(plink_cmd3)
 
     # remove tmp files
-    tmps = [sex_tmp1, sex_tmp2]
-    rm_tmps(tmps)
+#     tmps = [sex_tmp1, sex_tmp2]
+#     rm_tmps(tmps)
     
     process_complete = True
     
@@ -225,9 +229,9 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     # get sample counts
     total_count = sum(1 for line in open(f'{geno_path}.fam'))
     unrelated_count = sum(1 for line in open(f'{grm2}.grm.id'))
-    related_count = total_count - unrelated_count
     nonduplicated_count = sum(1 for line in open(f'{grm3}.grm.id'))
     duplicated_count = total_count - nonduplicated_count
+    related_count = total_count - unrelated_count - duplicated_count
 
     # get related sample ids
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None, usecols=[0,1], names=['FID','IID'])
