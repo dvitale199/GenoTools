@@ -1,5 +1,6 @@
 import pandas as pd
 import argparse
+import shutil
 
 # local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, avg_miss_rates
