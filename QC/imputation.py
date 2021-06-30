@@ -5,6 +5,7 @@ import requests
 import json
 import time
 import glob
+import shutil
 
 # local imports
 from QC.utils import shell_do
@@ -16,35 +17,58 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
     https://www.well.ox.ac.uk/~wrayner/tools/
     '''
     
-
     out_dir = out_path.rsplit('/', 1)[0]
     workdir = os.getcwd()
     os.chdir(out_dir)
-
-    plink1 = f'plink --bfile {geno_path} --freq --out {out_path}'
-    check_bim_cmd = f'perl {check_bim_pl} -b {geno_path}.bim -f {out_path}.frq -r {ref_panel} -h'
+    
+    plink_files = [f'{geno_path}.{suffix}' for suffix in ['bed','bim','fam']]
+    ref_files = [ref_panel, check_bim_pl]
+    
+    cp_files = plink_files + ref_files
+    
+    for file in cp_files:
+        if os.path.isfile(file):
+            shutil.copy(file, out_dir)
+        else:
+            print(f'ERROR: {file} does not exist!')
+            
+    
+    geno_path2 = geno_path.split('/')[-1]
+    out_path2 = out_path.split('/')[-1]
+    ref_panel2 = ref_panel.split('/')[-1]
+    check_bim_pl2 = check_bim_pl.split('/')[-1]
+    
+    
+    plink1 = f'plink --bfile {geno_path2} --freq --out {out_path2}'
+    check_bim_cmd = f'perl {check_bim_pl2} -b {geno_path2}.bim -f {out_path2}.frq -r {ref_panel2} -h'
     bash1 = 'sh Run-plink.sh'
 
     cmds = [plink1, check_bim_cmd, bash1]
 
     for cmd in cmds:
-        shell_do(cmd)
 
-    os.chdir(workdir)
+        shell_do(cmd, log=True, return_log=True)
+
+
     
-    mk_vcf_cmds = [f'plink --bfile {out_path}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path}_chr{str(i)}' for i in range(1,24)]   
+    mk_vcf_cmds = [f'plink --bfile {geno_path2}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path2}_chr{str(i)}' for i in range(1,24)]   
 
     for cmd in mk_vcf_cmds:
+
         shell_do(cmd)
 
-    # ## then sort and zip
-    sort_zip_cmds = [f'vcf-sort {out_path}_chr{str(i)}.vcf | bgzip -c > {out_path}_pre_impute_chr{str(i)}.vcf.gz' for i in range(1,24)]
+    # then sort and zip
+    sort_zip_cmds = [f'vcf-sort {out_path2}_chr{str(i)}.vcf | bgzip -c > {out_path2}_pre_impute_chr{str(i)}.vcf.gz' for i in range(1,24)]
 
     for cmd in sort_zip_cmds:
+
         subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+    
+    os.chdir(workdir)
     
     vcf_outpaths = [f'{out_path}_pre_impute_chr{str(i)}.vcf.gz' for i in range(1,24)]
     return {'vcfs': vcf_outpaths}
+
 
 
 def check_impute_status(token, job_id):
@@ -146,11 +170,16 @@ def submit_job(vcf_list,
     return r.json()
 
 
-def run_auto_imputation(geno_path, temp_path, out_path, token,  ref_panel, check_bim_pl, password='imputer'):
+
+
+def run_auto_imputation(vcf_list, out_path, token, password='imputer'):
     
-    impute_data = impute_data_prep(geno_path, temp_path, ref_panel, check_bim_pl)
+
+#     impute_data = impute_data_prep(geno_path, temp_path, ref_panel, check_bim_pl)    
+#     job_json = submit_job(impute_data['vcfs'], password=password, token=token)
+
+    job_json = submit_job(vcf_list, password=password, token=token)
     
-    job_json = submit_job(impute_data['vcfs'], password=password, token=token)
     job_id = job_json['id']
     
     imp_state = 0
