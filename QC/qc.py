@@ -317,9 +317,7 @@ def variant_prune(geno_path, out_path):
         #missingness by case control (--test-missing), using P > 1E-4
         plink_cmd2 = f"plink --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
         shell_do(plink_cmd2)
-    #         cmds1 = [plink_cmd1, plink_cmd2]
-    #         for cmd in cmds1:
-    #             shell_do(cmd)
+
         mis1 = f'{mis_tmp1}.missing'
         if os.path.isfile(mis1):
 
@@ -348,11 +346,6 @@ def variant_prune(geno_path, out_path):
         # missingness by haplotype (--test-mishap), using P > 1E-4
         plink_cmd4 = f"plink --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
         shell_do(plink_cmd4)
-
-    #     cmds2 = [plink_cmd3, plink_cmd4]
-
-    #     for cmd in cmds2:
-    #         shell_do(cmd)
 
         # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
         mis_hap = pd.read_csv(f'{hap_tmp1}.missing.hap', sep='\s+')
