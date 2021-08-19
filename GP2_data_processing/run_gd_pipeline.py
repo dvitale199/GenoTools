@@ -69,7 +69,7 @@ for label, data in het_dict.items():
 
 # build report- eventually make this an individual method
 steps = [callrate, sex]
-steps2 = [het_dict, related_dict, variant_dict]
+steps2 = [het_dict, related_dict]
 metrics_df = pd.DataFrame()
 
 for item in steps:

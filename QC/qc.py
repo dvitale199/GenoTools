@@ -155,7 +155,7 @@ def het_prune(geno_path, out_path):
         het_outliers = het[((het.F <= -0.25) | (het.F >= 0.25))]
         outlier_count = het_outliers.shape[0]
         het_outliers.to_csv(f'{outliers_out}', sep='\t', index=False)
-
+    
         plink_cmd4 = f"plink --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
         shell_do(plink_cmd4)
@@ -164,16 +164,39 @@ def het_prune(geno_path, out_path):
 #         tmps = [het_tmp, het_tmp2, het_tmp3]
 #         rm_tmps(tmps)
 
-        outfiles_dict = {
-            'pruned_samples': outliers_out,
-            'plink_out': out_path
-        }
+        if os.path.isfile(f'{out_path}.bed'):
+            outfiles_dict = {
+                'pruned_samples': outliers_out,
+                'plink_out': out_path
+            }
 
-        metrics_dict = {
-            'outlier_count': outlier_count
-        }
+            metrics_dict = {
+                'outlier_count': outlier_count
+            }
+
+            process_complete = True
         
-        process_complete = True
+        else:
+            print(f'Heterozygosity pruning failed!')
+            print(f'Check {out_path}.log for more information')
+
+            outfiles_dict = {
+                'pruned_samples': 'Heterozygosity Pruning Failed!',
+                'plink_out': [het_tmp, het_tmp2, het_tmp3, out_path]
+            }
+
+            metrics_dict = {
+                'outlier_count': 0
+            }
+
+            process_complete = False
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }          
     
     else:
         print(f'Heterozygosity pruning failed!')
