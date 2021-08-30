@@ -1,6 +1,7 @@
 import pandas as pd
 import argparse
 import shutil
+import os
 
 # local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, avg_miss_rates
@@ -87,6 +88,7 @@ for label, data in variant_dict.items():
 steps = [callrate, sex]
 steps2 = [het_dict, related_dict, variant_dict]
 metrics_df = pd.DataFrame()
+pruned_samples_df = pd.DataFrame()
 
 for item in steps:
     
@@ -98,8 +100,14 @@ for item in steps:
     for metric, value in item['metrics'].items():
         tmp_metrics_df = pd.DataFrame({'step':[step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
         metrics_df = metrics_df.append(tmp_metrics_df)
-
-
+    
+    samplefile = item['output']['pruned_samples']
+    if os.path.isfile(samplefile):
+        pruned = pd.read_csv(samplefile, sep='\t')
+        if pruned.shape[0] > 0:
+            pruned.loc[:,'step'] = step
+            pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+        
 for item in steps2:
     for ancestry_label, metrics in item.items():
         
@@ -108,6 +116,14 @@ for item in steps2:
         
         if step in ['het_prune','related_prune']:
             level = 'sample'
+
+            samplefile = metrics['output']['pruned_samples']
+            if os.path.isfile(samplefile):
+                pruned = pd.read_csv(samplefile, sep='\t')
+                if pruned.shape[0] > 0:
+                    pruned.loc[:,'step'] = step
+                    pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+            
         else:
             level = 'variant'
 
@@ -135,6 +151,7 @@ new_samples_umap = ancestry['data']['new_samples_umap']
 pred_ancestry_labels = ancestry['data']['predict_data']['ids']
 
 metrics_df.to_hdf(metrics_outfile, key='QC', mode='w')
+pruned_samples_df.to_hdf(metrics_outfile, key='pruned_samples')
 ancestry_counts_df.to_hdf(metrics_outfile, key='ancestry_counts')
 pred_ancestry_labels.to_hdf(metrics_outfile, key='ancestry_labels')
 conf_mat_df.to_hdf(metrics_outfile, key='confusion_matrix', index=True)
