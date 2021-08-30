@@ -67,6 +67,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
     os.chdir(workdir)
     
     vcf_outpaths = [f'{out_path}_pre_impute_chr{str(i)}.vcf.gz' for i in range(1,24)]
+    
     return {'vcfs': vcf_outpaths}
 
 
@@ -136,8 +137,7 @@ def pull_imputed_data(out_path, token, job_id, password):
     os.chdir(workdir)
     
 
-def submit_job(vcf_list,
-               password, token=None):
+def submit_job(vcf_list, password, token=None):
     # test topmed server
     url = 'https://imputation.biodatacatalyst.nhlbi.nih.gov/api/v2'
     

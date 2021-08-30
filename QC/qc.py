@@ -20,18 +20,20 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     print()
     
     outliers_out = f'{out_path}.outliers'
-    phenos_out = f'{geno_path}.phenos'
+#     phenos_out = f'{geno_path}.phenos'
 
 
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None)
-    fam[[0,1,5]].to_csv(phenos_out, sep='\t', header=False, index=False)
+#     fam[[0,1,5]].to_csv(phenos_out, sep='\t', header=False, index=False)
     
     plink_cmd1 = f"plink --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
 
     shell_do(plink_cmd1)
     
     if os.path.isfile(f'{out_path}.irem'):
-        shutil.move(f'{out_path}.irem', outliers_out)
+        irem = pd.read_csv(f'{out_path}.irem', sep='\s+', header=None, names=['FID','IID'])
+        irem.to_csv(outliers_out, sep='\t', header=True, index=False)
+#         shutil.move(f'{out_path}.irem', outliers_out)
 
         outlier_count = sum(1 for line in open(f'{outliers_out}'))
         
@@ -43,7 +45,6 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     outfiles_dict = {
         'pruned_samples': f'{outliers_out}',
         'plink_out': f'{out_path}',
-        'phenos_path': f'{phenos_out}'
     }
 
     metrics_dict = {
@@ -71,7 +72,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     # create filenames
     sex_tmp1 = f"{out_path}_tmp1"
     sex_tmp2 = f"{out_path}_tmp2"
-    sex_fails = f"{out_path}.fails"
+    sex_fails = f"{out_path}.outliers"
 
     # check sex 2 methods
     plink_cmd1 = f"plink --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
@@ -92,16 +93,12 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     sex_fail_df = sex_fail1.append(sex_fail2)
     sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
     sex_fail_count = sex_fail_ids.shape[0]
-    sex_fail_ids.to_csv(sex_fails, sep='\t', index=False)
+    sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 
     # remove sex fail samples from geno
     plink_cmd3 = f"plink --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
     
     shell_do(plink_cmd3)
-
-    # remove tmp files
-#     tmps = [sex_tmp1, sex_tmp2]
-#     rm_tmps(tmps)
     
     process_complete = True
     
@@ -154,15 +151,11 @@ def het_prune(geno_path, out_path):
         het = pd.read_csv(hetpath, sep='\s+')
         het_outliers = het[((het.F <= -0.25) | (het.F >= 0.25))]
         outlier_count = het_outliers.shape[0]
-        het_outliers.to_csv(f'{outliers_out}', sep='\t', index=False)
+        het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
     
         plink_cmd4 = f"plink --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
         shell_do(plink_cmd4)
-
-#         # remove tmp files
-#         tmps = [het_tmp, het_tmp2, het_tmp3]
-#         rm_tmps(tmps)
 
         if os.path.isfile(f'{out_path}.bed'):
             outfiles_dict = {
