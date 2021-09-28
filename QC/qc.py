@@ -216,7 +216,7 @@ def het_prune(geno_path, out_path):
     return out_dict
 
 
-def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_cutoff=0.95):
+def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_cutoff=0.95, prune_related=True, prune_duplicated=True):
     
     # what step are we running?
     step = "related_prune"
@@ -224,18 +224,34 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     print(f"RUNNING: {step}")
     print()
 
-    # make temp filenames
-    related_out = f"{out_path}.related" 
-    grm1 = f"{out_path}_total_grm_tmp"
-    grm2 = f"{out_path}_unrelated_grm_tmp"
-    grm3 = f"{out_path}_duplicated_grm_tmp"
-
+    # make filenames
+    related_out = f"{out_path}.related"
+    related_pruned_out = f"{out_path}.pruned
+    
+    grm1 = f"{out_path}_total_grm"
+    grm2 = f"{out_path}_unrelated_grm"
+    grm3 = f"{out_path}_duplicated_grm"
+    
     # calculate grm and select relatedness <= grm_cutoff
     gcta_cmd1 = f"gcta --bfile {geno_path} --autosome --maf 0.05 --make-grm --out {grm1}" 
+    # see if any samples are related (includes duplicates)
     gcta_cmd2 = f"gcta --grm {grm1} --grm-cutoff {related_grm_cutoff} --make-grm --out {grm2}"
-    plink_cmd1 = f"plink --bfile {geno_path} --keep {grm2}.grm.id --make-bed --out {out_path}"
     # see if any samples are duplicated (grm cutoff >= 0.95)
     gcta_cmd3 = f"gcta --grm {grm1} --grm-cutoff {duplicated_grm_cutoff} --make-grm --out {grm3}"
+    
+    
+    if prune_related and prune_duplicated:
+        plink_cmd1 = f"plink --bfile {geno_path} --keep {grm2}.grm.id --make-bed --out {out_path}"
+        
+    if prune_duplicated and not prune_related:
+        plink_cmd1 = f"plink --bfile {geno_path} --keep {grm3}.grm.id --make-bed --out {out_path}"
+    
+    if not prune_related and not prune_duplicated:
+        plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
+    
+    if not prune_duplicated and prune_related:
+        print('This option is invalid. Cannot prune related without also pruning duplicated')
+    
 
     cmds = [gcta_cmd1, gcta_cmd2, plink_cmd1, gcta_cmd3]
     for cmd in cmds:
@@ -261,20 +277,37 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     merge_dup = fam.merge(nonduplicated.drop_duplicates(), on=['FID','IID'], how='left', indicator=True)
     duplicated =  merge_dup[merge_dup['_merge'] == 'left_only'].drop(columns=['_merge'])
     duplicated['status'] = 'duplicated'
-
+    
+    # combine full list of related and duplicated
+    grm_related = related.append(duplicated)
+    grm_related.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+    grm_related.to_csv(related_out, sep='\t', header=True, index=False)
+    
     # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
-    grm_pruned = related.append(duplicated)
-    grm_pruned.drop_duplicates(subset=['FID', 'IID'], keep='last', inplace=True)
-    grm_pruned.to_csv(related_out, sep='\t', header=True, index=False)
+    if prune_related and prune_duplicated:
+        grm_pruned = related.append(duplicated)
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+        process_complete = True
     
-#     # remove temp files
-#     tmps = [grm1, grm2, grm3]
-#     rm_tmps(tmps)
-    
-    process_complete = True
+    if prune_duplicated and not prune_related:
+        grm_pruned = duplicated
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+        process_complete = True
+        
+    if not prune_related and not prune_duplicated:
+        plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
+        related_pruned_out = None
+        process_complete = True
+        
+    if not prune_duplicated and prune_related:
+        print('This option is invalid. Cannot prune related without also pruning duplicated')
+        process_complete = False
     
     outfiles_dict = {
-        'pruned_samples': related_out,
+        'pruned_samples': related_pruned_out,
+        'related_samples': related_out,
         'plink_out': out_path
     }
 
