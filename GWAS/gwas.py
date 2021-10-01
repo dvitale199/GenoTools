@@ -237,7 +237,9 @@ def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
         
         # otherwise just write to weights file
         else:
+            glm_hits = glm_hits.dropna()
             glm_hits.loc[:,['ID','A1','BETA']].to_csv(weights, sep='\t', header=True, index=False)
+
         
         # get clump SNPs
         clump = pd.read_csv(f'{out_path}_clump.clumped', sep='\s+')
