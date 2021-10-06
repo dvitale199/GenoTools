@@ -65,6 +65,7 @@ def assoc(geno_path, covar_path, out_path, model):
     print(f'RUNNING: {step}')
     print()
 
+    pheno_counts_out = f'{out_path}.pheno.counts'
     hits_info_out = f'{out_path}.hits.info'
     hits_id_out = f'{out_path}.hits'
 
@@ -75,7 +76,8 @@ def assoc(geno_path, covar_path, out_path, model):
     phenos = fam[5].unique()
 
     # get phenotype counts for debugging
-    pheno_counts = fam[5].value_counts().to_dict()
+    pheno_counts = fam[5].value_counts()
+    pheno_counts.to_csv(pheno_counts_out, sep='\t', header=False)
 
     # check if multiple phenotypes present
     if(len(phenos) == 1):
@@ -88,16 +90,18 @@ def assoc(geno_path, covar_path, out_path, model):
             print(f'Association failed!')
             print(f'Only one phenotype present in the {geno_path}.fam file')
         
+        print(f'Phenotype Counts: {pheno_counts.to_dict()}')
+        
         process_complete = False
 
         outfiles_dict = {
+            'pheno_counts': pheno_counts_out,
             'hits': 'Association Failed!',
             'hits_info': 'Association Failed!',
             'plink_out': out_path
         }
 
         metrics_dict = {
-            'phenotype_counts': pheno_counts,
             'hits': 0
         }
     
@@ -107,17 +111,18 @@ def assoc(geno_path, covar_path, out_path, model):
         if(model == 'logistic' and (not all(x in binary_phenos for x in phenos))):
             print(f'Association failed!')
             print(f'Binary phenotypes coded incorrectly in the {geno_path}.fam file')
+            print(f'Phenotype Counts: {pheno_counts.to_dict()}')
 
             process_complete = False
 
             outfiles_dict = {
+                'pheno_counts': pheno_counts_out,
                 'hits': 'Association Failed!',
                 'hits_info': 'Association Failed!',
                 'plink_out': out_path
             }
 
             metrics_dict = {
-                'phenotype_counts': pheno_counts,
                 'hits': 0
             }
 
@@ -156,13 +161,13 @@ def assoc(geno_path, covar_path, out_path, model):
                 process_complete = True
 
                 outfiles_dict = {
+                    'pheno_counts': pheno_counts_out,
                     'hits': hits_id_out,
                     'hits_info': hits_info_out, 
                     'plink_out': out_path
                 }
 
                 metrics_dict = {
-                    'phenotype_counts': pheno_counts,
                     'hits': hits_count
                 }
             
@@ -173,13 +178,13 @@ def assoc(geno_path, covar_path, out_path, model):
                 process_complete = False
 
                 outfiles_dict = {
+                    'pheno_counts': pheno_counts_out,
                     'hits': 'Association Failed!',
                     'hits_info': 'Association Failed!',
                     'plink_out': out_path
                 }
 
                 metrics_dict = {
-                    'phenotype_counts': pheno_counts,
                     'hits': 0
                 }
     
@@ -193,7 +198,7 @@ def assoc(geno_path, covar_path, out_path, model):
     return out_dict
 
 
-def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
+def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
     # clump and prs as one function keeps things simple for user
     # if user wants to LD clump for another purpose the clump output is availiable
 
@@ -212,9 +217,9 @@ def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
     clump_cmd = f'\
     plink \
     --bfile {geno_path} \
-    --clump-p1 {clump[0]} \
-    --clump-r2 {clump[1]} \
-    --clump-kb {clump[2]} \
+    --clump-p1 {clump_p1} \
+    --clump-r2 {clump_r2} \
+    --clump-kb {clump_kb} \
     --clump {assoc} \
     --clump-snp-field ID \
     --clump-field P \
@@ -274,18 +279,6 @@ def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
         # check if three .sscore files are created
         if os.path.isfile(s1) and os.path.isfile(s2) and os.path.isfile(s3):
             process_complete = True
-
-            outfiles_dict = {
-                'SNP_weights': weights,
-                'clump_SNPs': clump_snps,
-                'SNP_pvals': snp_pvals,
-                'ranges': range,
-                'plink_out': out_path
-            }
-
-            metrics_dict = {
-                'num_clumps': num_clumps
-            }
         
         else:
             print(f'PRS failed!')
@@ -293,17 +286,20 @@ def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
 
             process_complete = False
 
-            outfiles_dict = {
-                'SNP_weights': weights,
-                'clump_SNPs': clump_snps,
-                'SNP_pvals': snp_pvals,
-                'ranges': range,
-                'plink_out': out_path
-            }
+        outfiles_dict = {
+            'SNP_weights': weights,
+            'clump_SNPs': clump_snps,
+            'SNP_pvals': snp_pvals,
+            'ranges': range,
+            'plink_out': out_path
+        }
 
-            metrics_dict = {
-                'num_clumps': num_clumps
-            }
+        metrics_dict = {
+            'clump_pval': clump_p1,
+            'clump_r2': clump_r2,
+            'clump_kb': clump_kb,
+            'num_clumps': num_clumps
+        }
 
     else:
         print(f'PRS failed!')
@@ -320,8 +316,11 @@ def prs(geno_path, out_path, assoc, clump=[1e-3, 0.50, 250]):
         }
 
         metrics_dict = {
+                'clump_pval': clump_p1,
+                'clump_r2': clump_r2,
+                'clump_kb': clump_kb,
                 'num_clumps': 0
-            }
+        }
     
     out_dict = {
         'pass': process_complete,
@@ -363,10 +362,14 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
         
         process_complete = True
 
+    metrics_dict = {
+        'inflation': inflation
+    }
+
     out_dict = {
         'pass': process_complete,
         'step': step,
-        'inflation': inflation
+        'metrics': metrics_dict
     }
 
     return(out_dict)
