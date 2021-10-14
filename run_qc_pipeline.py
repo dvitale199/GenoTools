@@ -56,7 +56,7 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 
     # related
     related_out = f'{geno}_related'
-    related = related_prune(geno, related_out)
+    related = related_prune(geno, related_out, prune_related=False)
     related_dict[label] = related
     
     # het
@@ -75,14 +75,20 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 
 
 
-# move output to out_path
+# copy output to out_path
 for label, data in variant_dict.items():
     if data['pass']:
         for suffix in ['bed','bim','fam','hh','log']:
             plink_file = f"{data['output']['plink_out']}.{suffix}"
             plink_outfile = f'{out_path}_{label}.{suffix}'
             shutil.copyfile(src=plink_file, dst=plink_outfile)
-        
+
+# copy list of related samples to out_path
+for label, data in related_dict.items():
+    if data['pass']:
+        related_file = f"{data['output']['related_samples']}"
+        related_outfile = f"{out_path}_{label}.related"
+        shutil.copyfile(src=related_file, dst=related_outfile)
 
 # build report- eventually make this an individual method
 steps = [callrate, sex]
