@@ -226,7 +226,7 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
 
     # make filenames
     related_out = f"{out_path}.related"
-    related_pruned_out = f"{out_path}.pruned
+    related_pruned_out = f"{out_path}.pruned"
     
     grm1 = f"{out_path}_total_grm"
     grm2 = f"{out_path}_unrelated_grm"
@@ -253,7 +253,7 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
         print('This option is invalid. Cannot prune related without also pruning duplicated')
     
 
-    cmds = [gcta_cmd1, gcta_cmd2, plink_cmd1, gcta_cmd3]
+    cmds = [gcta_cmd1, gcta_cmd2, gcta_cmd3, plink_cmd1]
     for cmd in cmds:
         shell_do(cmd)
     

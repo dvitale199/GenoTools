@@ -71,7 +71,8 @@ for label, data in related_dict.items():
     if data['pass']:
         related_file = f"{data['output']['related_samples']}"
         related_outfile = f"{out_path}_{label}.related"
-
+        shutil.copyfile(src=related_file, dst=related_outfile)
+        
 # build report- eventually make this an individual method
 steps = [callrate, sex]
 steps2 = [het_dict, related_dict]
