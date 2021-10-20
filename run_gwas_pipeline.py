@@ -4,6 +4,7 @@ import os
 
 # local imports
 from GWAS.gwas import *
+from GWAS.utils import *
 
 parser = argparse.ArgumentParser(description='Arguments for GWAS and PRS (data in Plink .bim/.bam/.fam format)')
 parser.add_argument('--geno', type=str, default='nope', help='Genotype: (string file path). Path to QC\'d and imputed PLINK format genotype file, everything before the *.bed/bim/fam [defualt: nope].')
@@ -94,6 +95,7 @@ for scores in [s1, s2, s3]:
     scores_mean = scores['SCORE1_AVG'].mean()
     scores_std = scores['SCORE1_AVG'].std()
     scores['Z'] = (scores['SCORE1_AVG']-scores_mean)/scores_std
+    scores['P'] = zscore_pval_conversion(scores['Z'])
 
 
 # merging ma format data and coordinates to output to .h5 file
