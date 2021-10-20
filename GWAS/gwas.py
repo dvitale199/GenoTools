@@ -18,7 +18,12 @@ def plink_pca(geno_path, out_path, n_pcs=10):
     print()
 
     # run pca
-    pca_cmd = f'plink2 --bfile {geno_path} --pca {n_pcs} --out {out_path}'
+    pca_cmd = f' \
+    plink2 \
+    --bfile {geno_path} \
+    --pca {n_pcs} \
+    --out {out_path}'
+
     shell_do(pca_cmd)
 
     # check if .eigenvec is created
@@ -80,9 +85,9 @@ def assoc(geno_path, covar_path, out_path, model):
     pheno_counts.to_csv(pheno_counts_out, sep='\t', header=False)
 
     # check if multiple phenotypes present
-    if(len(phenos) == 1):
+    if len(phenos)== 1:
         # check if phenotypes exist
-        if(phenos[0] == -9):
+        if phenos[0] == -9:
             print(f'Association failed!')
             print(f'No phenotypes present in the {geno_path}.fam file')
         # phenotypes exist but only one present
@@ -108,7 +113,7 @@ def assoc(geno_path, covar_path, out_path, model):
     else:
         # check if binary phenotypes are correct
         binary_phenos = [-9,1,2]
-        if(model == 'logistic' and (not all(x in binary_phenos for x in phenos))):
+        if model == 'logistic' and (not all(x in binary_phenos for x in phenos)):
             print(f'Association failed!')
             print(f'Binary phenotypes coded incorrectly in the {geno_path}.fam file')
             print(f'Phenotype Counts: {pheno_counts.to_dict()}')
@@ -208,6 +213,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
     print(f'RUNNING: {step}')
     print()
 
+    assoc_file = f'{out_path}.assoc'
     weights = f'{out_path}_weights.tab'
     clump_snps = f'{out_path}_clump.snps'
     snp_pvals = f'{out_path}_pvals.snps'
@@ -233,18 +239,13 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
         # get weights
         glm = pd.read_csv(assoc, sep='\s+')
         glm_hits = glm.loc[(glm.TEST=='ADD')].copy()
+        glm_hits = glm_hits.dropna()
 
         # convert OR if logistic
-        if('logistic' in assoc):
+        if 'logistic' in assoc:
             glm_hits.loc[:,'BETA'] = np.log10(glm_hits.loc[:,'OR'])
-            glm_hits = glm_hits.dropna()
-            glm_hits.loc[:,['ID','A1','BETA']].to_csv(weights, sep='\t', header=True, index=False)
         
-        # otherwise just write to weights file
-        else:
-            glm_hits = glm_hits.dropna()
-            glm_hits.loc[:,['ID','A1','BETA']].to_csv(weights, sep='\t', header=True, index=False)
-
+        glm_hits.loc[:,['ID','A1','BETA']].to_csv(weights, sep='\t', header=True, index=False)
         
         # get clump SNPs
         clump = pd.read_csv(f'{out_path}_clump.clumped', sep='\s+')
@@ -253,6 +254,9 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
 
         # get SNP pvals
         glm_hits.loc[:,['ID','P']].to_csv(snp_pvals, sep='\t', header=False, index=False)
+
+        # get assoc file
+        glm_hits.to_csv(assoc_file, sep='\t', header=True, index=False)
 
         # writing ranges
         lines = ["s1 0 0.001","s2 0 0.05","s3 0 0.1"]
@@ -291,6 +295,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
             'clump_SNPs': clump_snps,
             'SNP_pvals': snp_pvals,
             'ranges': range,
+            'assoc': assoc_file,
             'plink_out': out_path
         }
 
@@ -312,6 +317,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
             'clump_SNPs': 'PRS Failed!',
             'SNP_pvals': 'PRS Failed!',
             'ranges': 'PRS Failed!',
+            'assoc': 'PRS Failed!',
             'plink_out': out_path
         }
 
@@ -341,7 +347,7 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
     print()
 
     # need cases and controls if normalizing
-    if(normalize and (not ncases or not ncontrols)):
+    if normalize and (not ncases or not ncontrols):
         print(f'Inflation Calculation failed!')
         print(f'If normalizing, please add ncases and ncontrols')
 
@@ -356,7 +362,7 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
         inflation = np.nanmedian(num)/denom
 
         # normalize when necessary
-        if(normalize):
+        if normalize:
             inflation1000 = 1 + (inflation -1) * (1/ncases+ 1/ncontrols)/(1/1000 + 1/1000)
             inflation = inflation1000
         
@@ -372,4 +378,134 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
         'metrics': metrics_dict
     }
 
-    return(out_dict)
+    return out_dict
+
+
+def munge(geno_path, out_path, assoc, ref_panel):
+
+    # what step are we running?
+    step = 'munge'
+    print()
+    print(f'RUNNING: {step}')
+    print()
+
+    # get plink frequency report
+    freq_cmd = f'\
+    plink2 \
+    --bfile {geno_path} \
+    --freq \
+    --out {out_path}'
+
+    shell_do(freq_cmd)
+
+    # making sure .afreq is created
+    if os.path.isfile(f'{out_path}.afreq'):
+        # read frequnecy report
+        freq_df = pd.read_csv(f'{out_path}.afreq', sep='\s+')
+
+        # read association file
+        assoc_df = pd.read_csv(assoc, sep='\s+')
+
+        # merge on ID
+        merge_df = assoc_df.merge(freq_df, how='inner', on='ID')
+
+        # creating A2 column
+        # when A1 (effect allele) is the ALT allele, A2 is the REF
+        # when A1 (effect allele) is the REF allele, A2 is the ALT
+        merge_df = merge_df.assign(A2=np.where(merge_df.A1 == merge_df.ALT_x, merge_df.REF_x, merge_df.ALT_x))
+
+        # creating freq column - assigning freq to A1 (effect allele)
+        # when A1 (effect allele) is the ALT allele, freq is ALT_FREQS
+        # when A1 (effect allele) is the REF allele, freq is 1-ALT_FREQS
+        merge_df = merge_df.assign(freq=np.where(merge_df.A1 == merge_df.ALT_x, merge_df.ALT_FREQS, 1-merge_df.ALT_FREQS))
+
+        # fix MAF - make sure A1 (effect allele) is the minor allele
+        # if freq > 0.5, flip alleles and sign of B
+        maf_df = merge_df.copy()
+        maf_df.A1, maf_df.A2 = np.where(maf_df.freq > 0.5, (maf_df.A2, maf_df.A1), (maf_df.A1, maf_df.A2))
+        maf_df.BETA = np.where(maf_df.freq > 0.5, -maf_df.BETA, maf_df.BETA)
+        maf_df.freq = np.where(maf_df.freq > 0.5, 1-maf_df.freq, maf_df.freq)
+
+        # rename columns and isolate needed ones
+        maf_df = maf_df.rename(columns={'#CHROM_x':'chr','POS':'bp','ID':'SNP',
+                                        'OBS_CT_x':'n','P':'p','BETA':'b','LOG(OR)_SE':'se'})
+        maf_df = maf_df.loc[:,['SNP','chr','bp','A1','A2','freq','b','se','p','n']]
+
+        # read in reference panel .bim and create ID
+        bim1k = pd.read_csv(f'{ref_panel}.bim', sep='\s+', header=None)
+        bim1k.columns = ['chr','rsid','loc','bp','a1','a2']
+        bim1k['ID'] = bim1k['chr'].astype('str') + ':' + bim1k['bp'].astype('str')
+
+        # isolate ID, rsid for merging
+        ref_rsids = bim1k.loc[:,['ID','rsid']]
+
+        # seperate maf_df into rsid snps and non-rsid snps
+        rsid = maf_df[maf_df['SNP'].str.contains('rs')]
+        non_rsid = maf_df[~maf_df['SNP'].str.contains('rs')]
+
+        # create ID for non-rs SNPs
+        non_rsid_cp = non_rsid.copy()
+        non_rsid_cp['ID'] = non_rsid_cp['chr'].astype('str') + ':' + non_rsid_cp['bp'].astype('str')
+
+        # merge with reference
+        add_rsid = non_rsid_cp.merge(ref_rsids, how='inner', on='ID')
+        add_rsid = add_rsid.loc[:,['rsid','chr','bp','A1','A2','freq','b','se','p','n']]
+        add_rsid = add_rsid.rename(columns={'rsid':'SNP'})
+
+        # append to rsid
+        new_rsid_df = rsid.append(add_rsid)
+        new_rsid_df = new_rsid_df.reset_index(drop=True)
+
+        # sort by chr and bp
+        new_rsid_df.sort_values(['chr','bp'], ascending=[True,True], inplace=True)
+
+        # getting correctly formatted output and coordinates
+        ma_out = new_rsid_df.loc[:, ['SNP','A1','A2','freq','b','se','p','n']]
+        coords = new_rsid_df.loc[:, ['SNP','chr','bp']]
+
+        # get num_snps
+        num_snps = ma_out.shape[0]
+
+        process_complete = True
+
+        data_dict = {
+            'ma_format_df': ma_out,
+            'coordinates': coords
+        }
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'num_snps': num_snps
+        }
+
+    else:
+        print(f'Munge Failed!')
+        print(f'Check {out_path}.log for more information')
+
+        process_complete = False
+
+        data_dict = {
+            'ma_format_df': 'Munge Failed!',
+            'coordinates': 'Munge Failed!'
+        }
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'num_snps': 0
+        }
+    
+    out_dict = {
+        'pass': process_complete,
+        'step': step,
+        'data': data_dict,
+        'metrics': metrics_dict,
+        'output': outfiles_dict
+    }
+
+    return out_dict
