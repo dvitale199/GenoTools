@@ -10,6 +10,8 @@ import os
 import shutil
 from umap import UMAP
 from sklearn import preprocessing, metrics
+from sklearn.impute import SimpleImputer
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
@@ -71,76 +73,6 @@ def ancestry_prune(geno_path, out_path=None):
         shell_do(cmd)
     
     rm_tmps([f'{geno_ancestry_prune_tmp}'], ['bed','bim','fam','log'])
-
-        
-def flash_pca(geno_path, out_name, dim=20):
-
-    """Runs flashpca on input genotype.
-
-    Parameters:
-    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
-    out_path (string): path to flashpca output (everything before .pcs/.vec/.loadings).
-
-    Returns:
-    dict: output paths to flashpca output files.
-    """
-
-    flashpca_cmd = f'\
-    flashpca --bfile {geno_path}\
-     -d {dim}\
-     --outpc {out_name}.pcs\
-     --outvec {out_name}.vec\
-     --outval {out_name}.val\
-     --outpve {out_name}.pve\
-     --outload {out_name}.loadings\
-     --outmeansd {out_name}.meansd'
-    
-    shell_do(flashpca_cmd)
-
-    out_dict = {
-        'outpc':f'{out_name}.pcs',
-        'outvec': f'{out_name}.vec',
-        'outval': f'{out_name}.val',
-        'outpve': f'{out_name}.pve',
-        'outload': f'{out_name}.loadings',
-        'outmeansd': f'{out_name}.meansd'
-        }
-        
-    return out_dict
-
-
-    
-def pca_projection(geno_path, inmeansd, inload, outproj):
-    
-    '''Project new samples on to PCs in flashpca format. Must use the EXACT same snps (use get_common_snps() below).
-
-    Parameters:
-    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
-    inmeansd (string): path to flashpca meansd file
-    inload (string): path to flashpca loadings file
-    outproj (string): path to output projected samples
-    
-    Returns:
-    dict: paths to output files
-    '''
-    
-    project_geno_pcs_cmd = f'\
-    flashpca --bfile {geno_path}\
-     --project\
-     --inmeansd {inmeansd}\
-     --inload {inload}\
-     --outproj {outproj}\
-     -v'
-
-    shell_do(project_geno_pcs_cmd)
-
-    out_dict = {
-        'outpc':f'{outproj}.pcs',
-        'outvec': f'{outproj}.vec',
-        'outval': f'{outproj}.val',
-        'outload': f'{outproj}.loadings',
-        }
-    return out_dict
 
 
 def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
@@ -212,8 +144,6 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     out_paths = {}
     temp_paths = {}
 
-    # ref_labeled_pca_out = f'{out}/'
-
     ref_common_snps = f'{outdir}/ref_common_snps'
 
     # get common snps between ref panel and geno
@@ -222,23 +152,50 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     # add common_snps_files output paths to temp_paths
     temp_paths = {**temp_paths, **common_snps_files}
 
-    # run pca on ref panel
-    ref_common_snps_pca = f'{ref_common_snps}'
-    ref_pca = flash_pca(ref_common_snps, ref_common_snps_pca, dim=50)
+    # get raw version of common snps - reference panel
+    raw_ref_cmd = f'plink2 --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
+    shell_do(raw_ref_cmd)
 
-    # add ref_pca to out_paths
-    out_paths = {**out_paths, **ref_pca}
+    # read in raw common snps
+    raw_ref = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
+
+    ref_ids = raw_ref[['FID','IID']]
+    ref_snps = raw_ref.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
+
+    # mean imputation for missing SNPs data
+    mean_imp = SimpleImputer(missing_values=np.nan, strategy='mean')
+    ref_snps = mean_imp.fit_transform(ref_snps)
+
+    # flashPCA-style scaling (https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0093766)
+    ref_mean = ref_snps.mean(axis=0)
+    ref_mean = np.array(ref_mean)
+    ref_flash_sd = np.sqrt((ref_mean/2)*(1-(ref_mean/2)))
+    ref_snps = (ref_snps-ref_mean)/ref_flash_sd
+
+    # set up pca
+    n_pcs = 50
+    sk_pca = PCA(n_components=n_pcs)
+
+    # column names for PCA
+    col_names = ['FID','IID']
+    pc_labels = ['PC'+str(i+1) for i in range(n_pcs)]
+    col_names = col_names + pc_labels
+
+    # fit transform on reference snps
+    ref_pca = sk_pca.fit_transform(ref_snps)
+    ref_pca = pd.DataFrame(ref_pca)
+
+    # create pca dataframe
+    ref_pca = pd.concat([ref_ids, ref_pca], axis=1)
+    ref_pca.columns = col_names
 
     # read ancestry file with reference labels 
     ancestry = pd.read_csv(f'{labels}', sep='\t', header=None, names=['FID','IID','label'])
     ref_fam = pd.read_csv(f'{ref}.fam', sep=' ', header=None)
     ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
 
-    
-    pca = pd.read_csv(ref_pca['outpc'], sep='\t')
-
     # combined_labels
-    labeled_pca = pca.merge(ref_labeled, how='left', on=['FID','IID'])
+    labeled_pca = ref_pca.merge(ref_labeled, how='left', on=['FID','IID'])
     labeled_pca.drop(columns=[0,1,2,3,4,5],inplace=True)
 
     print()
@@ -249,7 +206,7 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     print()
 
     # plot it!
-#     plot_3d(labeled_pca, color='label', title='Reference Panel PCA', plot_out=f'{plot_dir}/plot_ref_pcs', x='PC1', y='PC2', z='PC3')
+    # plot_3d(labeled_pca, color='label', title='Reference Panel PCA', plot_out=f'{plot_dir}/plot_ref_pcs', x='PC1', y='PC2', z='PC3')
 
     # get reference alleles from ref_common_snps
     ref_common_snps_ref_alleles = f'{ref_common_snps}.ref_allele'
@@ -262,21 +219,41 @@ def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
     common_snps = f'{ref_common_snps}.common_snps'
     out_paths['common_snps'] = common_snps
 
-    ext_snps_cmd = f'plink --bfile {geno} --extract {common_snps} --reference-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
-
+    # extracting common snps
+    ext_snps_cmd = f'plink2 --bfile {geno} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
     shell_do(ext_snps_cmd)
 
-    print(geno_common_snps, f'{ref_common_snps}.meansd', f'{ref_common_snps}.loadings', f'{geno_common_snps}.projections')
+    # getting raw version of common snps - genotype
+    raw_geno_cmd = f'plink2 --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
+    shell_do(raw_geno_cmd)
 
-    # project new samples onto ref pcs
-    projection = pca_projection(geno_common_snps, f'{ref_common_snps}.meansd', f'{ref_common_snps}.loadings', f'{geno_common_snps}.projections')
-    out_paths = {**out_paths, **projection}
+    # read in raw genotypes
+    raw_geno = pd.read_csv(f'{geno_common_snps}.raw', sep='\s+')
 
-    projected = pd.read_csv(f'{geno_common_snps}.projections', sep='\t')
+    geno_ids = raw_geno[['FID','IID']]
+    geno_snps = raw_geno.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
+
+    # mean imputation for missing SNPs data
+    geno_snps = mean_imp.fit_transform(geno_snps)
+
+    # flashPCA-style scaling based off reference panel
+    geno_mean = geno_snps.mean(axis=0)
+    geno_mean = np.array(geno_mean)
+    geno_snps = (geno_snps-ref_mean)/ref_flash_sd
+
+    # get PCA projections
+    projected = sk_pca.transform(geno_snps)
+    projected = pd.DataFrame(projected)
+
+    # create projected pca dataframe
+    projected = pd.concat([geno_ids, projected], axis=1)
+    projected.columns = col_names
     projected['label'] = 'new'
+
+    # gettting total pca dataframe
     total_pca = labeled_pca.append(projected)
 
-#     plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_PCA_projected_new_samples', x='PC1', y='PC2', z='PC3')
+    # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_PCA_projected_new_samples', x='PC1', y='PC2', z='PC3')
 
     # write output files
     labeled_pca.to_csv(f'{out}_labeled_ref_pca.txt', sep='\t', index=None)
