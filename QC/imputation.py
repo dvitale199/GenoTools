@@ -47,7 +47,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
     for cmd in cmds:
 
-        shell_do(cmd, log=True, return_log=True)
+        shell_do(cmd)
 
 
     
