@@ -44,7 +44,7 @@ ancestry_counts_df.columns = ['label', 'count']
 
 
 # split cohort into individual ancestry groups
-pred_labels_path = ancestry['output']['predicted_labels']['labels_outpath']
+pred_labels_path = ancestry['output']['adjusted_labels']['labels_outpath']
 cohort_split = split_cohort_ancestry(geno_path=sex_out, labels_path=pred_labels_path, out_path=ancestry_out)
 
 # ancestry-specific pruning steps
@@ -154,7 +154,7 @@ projected_pcs = ancestry['data']['projected_pcs']
 total_umap = ancestry['data']['total_umap']
 ref_umap = ancestry['data']['ref_umap']
 new_samples_umap = ancestry['data']['new_samples_umap']
-pred_ancestry_labels = ancestry['data']['predict_data']['ids']
+pred_ancestry_labels = ancestry['data']['admix_data']['ids']
 
 metrics_df.to_hdf(metrics_outfile, key='QC', mode='w')
 pruned_samples_df.to_hdf(metrics_outfile, key='pruned_samples')

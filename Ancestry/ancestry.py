@@ -20,7 +20,7 @@ import plotly
 import joblib
 
 #local imports
-from QC.utils import shell_do, get_common_snps, rm_tmps
+from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
 
 
 def ancestry_prune(geno_path, out_path=None):
@@ -115,163 +115,109 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         fig.write_html(f'{plot_out}.html')
 
 
-def calculate_pcs(geno, ref, labels, out, plot_dir, keep_temp=True):
-
-    '''Calculate Principal Components for reference (.bed/.bim/.fam) and project new samples. Plot PCs.
-
-    Parameters:
-    geno (string): path to plink genotype (everything before .bed/.bim/.fam).
-    ref (string): path to reference genotype (everything before .bed/.bim/.fam)
-    labels (string): path to tab-separated file containing labels (FID,IID,label)
-    plotdir (string): path to directory where plots will be written to
-    keep_temp (boolean): Default=True. if false, delete intermediate files
-    
-    Returns:
-    out_dict = {
-        'labeled_ref_pca': labeled reference pca df (pandas dataframe),
-        'new_samples_projected': projected sample pca df (pandas dataframe),
-        'outpaths': paths to output files (dictionary of strings),
-        'temp_paths': paths to temp files (dictionary of strings)
-        }
-    '''
-
-    step = "calculate_pcs"
+def get_raw_files(geno_path, ref_path, labels_path, out_path):
+    step = "get_raw_files"
     print()
     print(f"RUNNING: {step}")
     print()
 
-    outdir = os.path.dirname(out)
+    outdir = os.path.dirname(out_path)
     out_paths = {}
-    temp_paths = {}
 
     ref_common_snps = f'{outdir}/ref_common_snps'
 
     # get common snps between ref panel and geno
-    common_snps_files = get_common_snps(ref, geno, ref_common_snps)
+    common_snps_files = get_common_snps(ref_path, geno_path, ref_common_snps)
 
-    # add common_snps_files output paths to temp_paths
-    temp_paths = {**temp_paths, **common_snps_files}
+    # add common_snps_files output paths to out_paths
+    out_paths = {**out_paths, **common_snps_files}
 
     # get raw version of common snps - reference panel
-    raw_ref_cmd = f'plink2 --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
+    raw_ref_cmd = f'plink --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
     shell_do(raw_ref_cmd)
 
     # read in raw common snps
-    raw_ref = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
+    ref_raw = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
 
-    ref_ids = raw_ref[['FID','IID']]
-    ref_snps = raw_ref.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
+    # separate IDs and SNPs
+    ref_ids = ref_raw[['FID','IID']]
+    ref_snps = ref_raw.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
+    
+    col_names = ['FID','IID'] + list(ref_snps.columns)
 
     # mean imputation for missing SNPs data
     mean_imp = SimpleImputer(missing_values=np.nan, strategy='mean')
     ref_snps = mean_imp.fit_transform(ref_snps)
+    ref_snps = pd.DataFrame(ref_snps)
 
-    # flashPCA-style scaling (https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0093766)
-    ref_mean = ref_snps.mean(axis=0)
-    ref_mean = np.array(ref_mean)
-    ref_flash_sd = np.sqrt((ref_mean/2)*(1-(ref_mean/2)))
-    ref_snps = (ref_snps-ref_mean)/ref_flash_sd
-
-    # set up pca
-    n_pcs = 50
-    sk_pca = PCA(n_components=n_pcs)
-
-    # column names for PCA
-    col_names = ['FID','IID']
-    pc_labels = ['PC'+str(i+1) for i in range(n_pcs)]
-    col_names = col_names + pc_labels
-
-    # fit transform on reference snps
-    ref_pca = sk_pca.fit_transform(ref_snps)
-    ref_pca = pd.DataFrame(ref_pca)
-
-    # create pca dataframe
-    ref_pca = pd.concat([ref_ids, ref_pca], axis=1)
-    ref_pca.columns = col_names
+    ref_raw = pd.concat([ref_ids,ref_snps], axis=1)
+    ref_raw.columns = col_names
 
     # read ancestry file with reference labels 
-    ancestry = pd.read_csv(f'{labels}', sep='\t', header=None, names=['FID','IID','label'])
-    ref_fam = pd.read_csv(f'{ref}.fam', sep=' ', header=None)
+    ancestry = pd.read_csv(f'{labels_path}', sep='\t', header=None, names=['FID','IID','label'])
+    ref_fam = pd.read_csv(f'{ref_path}.fam', sep=' ', header=None)
     ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
 
     # combined_labels
-    labeled_pca = ref_pca.merge(ref_labeled, how='left', on=['FID','IID'])
-    labeled_pca.drop(columns=[0,1,2,3,4,5],inplace=True)
+    labeled_ref_raw = ref_raw.merge(ref_labeled, how='left', on=['FID','IID'])
+    labeled_ref_raw.drop(columns=[0,1,2,3,4,5],inplace=True)
 
     print()
     print()
     print("Labeled Reference Ancestry Counts:")
-    print(labeled_pca.label.value_counts())
+    print(labeled_ref_raw.label.value_counts())
     print()
     print()
-
-    # plot it!
-    # plot_3d(labeled_pca, color='label', title='Reference Panel PCA', plot_out=f'{plot_dir}/plot_ref_pcs', x='PC1', y='PC2', z='PC3')
 
     # get reference alleles from ref_common_snps
     ref_common_snps_ref_alleles = f'{ref_common_snps}.ref_allele'
     ref_common_snps_bim = pd.read_csv(f'{ref_common_snps}.bim', header=None, sep='\t')
     ref_common_snps_bim.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     ref_common_snps_bim[['rsid','a1']].to_csv(ref_common_snps_ref_alleles, sep='\t', header=False, index=False)
-    temp_paths['ref_alleles'] = ref_common_snps_ref_alleles
+    out_paths['ref_alleles'] = ref_common_snps_ref_alleles
 
-    geno_common_snps = f'{out}_common_snps'
+    geno_common_snps = f'{out_path}_common_snps'
     common_snps = f'{ref_common_snps}.common_snps'
-    out_paths['common_snps'] = common_snps
+    out_paths['geno_bed'] = geno_common_snps
 
     # extracting common snps
-    ext_snps_cmd = f'plink2 --bfile {geno} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+    ext_snps_cmd = f'plink --bfile {geno_path} --extract {common_snps} --reference-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
     shell_do(ext_snps_cmd)
 
     # getting raw version of common snps - genotype
-    raw_geno_cmd = f'plink2 --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
+    raw_geno_cmd = f'plink --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
     shell_do(raw_geno_cmd)
 
     # read in raw genotypes
     raw_geno = pd.read_csv(f'{geno_common_snps}.raw', sep='\s+')
 
+    # separate IDs and SNPs
     geno_ids = raw_geno[['FID','IID']]
     geno_snps = raw_geno.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
 
     # mean imputation for missing SNPs data
     geno_snps = mean_imp.fit_transform(geno_snps)
+    geno_snps = pd.DataFrame(geno_snps)
 
-    # flashPCA-style scaling based off reference panel
-    geno_mean = geno_snps.mean(axis=0)
-    geno_mean = np.array(geno_mean)
-    geno_snps = (geno_snps-ref_mean)/ref_flash_sd
+    raw_geno = pd.concat([geno_ids, geno_snps], axis=1)
+    raw_geno.columns = col_names
+    raw_geno['label'] = 'new'
 
-    # get PCA projections
-    projected = sk_pca.transform(geno_snps)
-    projected = pd.DataFrame(projected)
-
-    # create projected pca dataframe
-    projected = pd.concat([geno_ids, projected], axis=1)
-    projected.columns = col_names
-    projected['label'] = 'new'
-
-    # gettting total pca dataframe
-    total_pca = labeled_pca.append(projected)
-
-    # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_PCA_projected_new_samples', x='PC1', y='PC2', z='PC3')
-
-    # write output files
-    labeled_pca.to_csv(f'{out}_labeled_ref_pca.txt', sep='\t', index=None)
-    projected.to_csv(f'{out}_projected_new_pca.txt', sep='\t', index=None)
-    out_paths['ref_pca'] = f'{out}_labeled_ref_pca.txt'
-    out_paths['projected_pca'] = f'{out}_projected_new_pca.txt'
+    # merge reference panel with genotypes
+    merge_common_snps = f'{out_path}_merge_ref'
+    merge_genos(ref_common_snps, geno_common_snps, merge_common_snps)
+    out_paths['merge_bed'] = merge_common_snps
 
     out_dict = {
-        'labeled_ref_pca': labeled_pca,
-        'new_samples_projected': projected,
-        'outpaths': out_paths,
-        'temp_paths': temp_paths
-        }
+        'raw_ref': labeled_ref_raw,
+        'raw_geno': raw_geno,
+        'out_paths': out_paths
+    }
 
     return out_dict
 
 
-def munge_training_pca_loadings(labeled_pca):
+def munge_training_data(labeled_ref_raw):
     """ Train/test split and label encode labeled PCA data for training
     
     
@@ -281,8 +227,8 @@ def munge_training_pca_loadings(labeled_pca):
     print(f"RUNNING: {step}")
     print()
 
-    X = labeled_pca.drop(columns=['label'])
-    y = labeled_pca.label
+    X = labeled_ref_raw.drop(columns=['label'])
+    y = labeled_ref_raw.label
 
     #encode labels
     le = preprocessing.LabelEncoder()
@@ -306,13 +252,106 @@ def munge_training_pca_loadings(labeled_pca):
         'label_encoder': le,
         'X_all':X,
         'y_all':y
-        }
+    }
     
     return out_dict
 
 
-def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
+def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_geno, label_encoder, out, plot_dir):
+    step = "calculate_pcs"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
+    out_paths = {}
+
+    train_labels = label_encoder.inverse_transform(y_train)
+    test_labels = label_encoder.inverse_transform(y_test)
+
+    # mean and SD for flashPCA style scaling
+    # paper: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0093766
+    train_mean = X_train.mean(axis=0)
+    train_flash_sd = np.sqrt((train_mean/2)*(1-(train_mean/2)))
+
+    # set up pca
+    n_pcs = 50
+    sk_pca = PCA(n_components=n_pcs)
+
+    # column names for PCA
+    col_names = ['PC'+str(i+1) for i in range(n_pcs)]
+
+    # transform training data
+    train_pca = transform(X_train, train_mean, train_flash_sd, sk_pca, col_names, True)
+    X_train = train_pca.copy()
+    train_pca['label'] = train_labels
+    train_ids = train_ids.reset_index(drop=True)
+    train_pca = pd.concat([train_ids, train_pca], axis=1)
+
+    # plot_3d(train_pca, color='label', title='Reference Panel PCA - Training', plot_out=f'{plot_dir}/plot_train_skPCA', x='PC1', y='PC2', z='PC3')
+
+    # transform testing data
+    test_pca = transform(X_test, train_mean, train_flash_sd, sk_pca, col_names)
+    X_test = test_pca.copy()
+    test_pca['label'] = test_labels
+    test_ids = test_ids.reset_index(drop=True)
+    test_pca = pd.concat([test_ids, test_pca], axis=1)
+
+    # get full reference panel pca
+    ref_pca = train_pca.append(test_pca)
+
+    # plot_3d(ref_pca, color='label', title='Reference Panel PCA - All', plot_out=f'{plot_dir}/plot_ref_skPCA', x='PC1', y='PC2', z='PC3')
+
+    geno_ids = raw_geno[['FID','IID','label']]
+    geno_snps = raw_geno.drop(columns=['FID','IID','label'], axis=1)
+
+    # transform new samples
+    projected = transform(geno_snps, train_mean, train_flash_sd, sk_pca, col_names)
+    projected['label'] = geno_ids['label']
+
+    # project new samples onto reference panel
+    total_pca = ref_pca.append(projected)
+
+    # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_projected_skPCA', x='PC1', y='PC2', z='PC3')
+
+    projected = pd.concat([geno_ids[['FID','IID']], projected], axis=1)
     
+    train_pca.to_csv(f'{out}_labeled_train_pca.txt', sep='\t', index=None)
+    ref_pca.to_csv(f'{out}_labeled_ref_pca.txt', sep='\t', index=None)
+    projected.to_csv(f'{out}_projected_new_pca.txt', sep='\t', index=None)
+    out_paths['train_pca'] = f'{out}_labeled_train_pca.txt'
+    out_paths['ref_pca'] = f'{out}_labeled_ref_pca.txt'
+    out_paths['projected_pca'] = f'{out}_projected_new_pca.txt'
+
+    out_dict = {
+        'X_train': X_train,
+        'X_test': X_test,
+        'labeled_train_pca': train_pca,
+        'labeled_ref_pca': ref_pca,
+        'new_samples_projected': projected,
+        'out_paths': out_paths
+    }
+
+    return out_dict
+
+
+def transform(data, mean, sd, pca, col_names, fit=False):
+    # flashPCA-style scaling
+    data = (data-mean)/sd
+
+    # fit-transform or transform data with PCA
+    if fit:
+        data_pca = pca.fit_transform(data)
+    else:
+        data_pca = pca.transform(data)
+    
+    # dataframe and named columns
+    data_pca = pd.DataFrame(data_pca)
+    data_pca.columns = col_names
+
+    return data_pca
+
+
+def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
     """Train UMAP classifier pipeline
     
     
@@ -357,13 +396,13 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     
     # eventually make this separate function
     # need to get x and y tick labels from 
-#     fig, ax = plt.subplots(figsize=(10,10))
-#     sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
-#                 xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
-#     plt.ylabel('Actual')
-#     plt.xlabel('Predicted')
-#     plt.show()
-#     fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
+    # fig, ax = plt.subplots(figsize=(10,10))
+    # sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
+            #   xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
+    # plt.ylabel('Actual')
+    # plt.xlabel('Predicted')
+    # plt.show()
+    # fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
     # dump best estimator to pkl
     joblib.dump(pipe_clf, f'{model_dir}/umap_linearsvc_ancestry_model.pkl')
@@ -381,17 +420,45 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     return out_dict
 
 
+def load_umap_classifier(pkl_path, X_test, y_test):
+    step = "load_umap_classifier"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
+    # load trained umap classifier from pickle file
+    pipe_clf = joblib.load(pkl_path)
+
+    # test accuracy
+    test_acc = pipe_clf.score(X_test, y_test)
+    print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+    # confustion matrix
+    pipe_clf_pred = pipe_clf.predict(X_test)
+    pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
+
+    out_dict = {
+        'classifier': pipe_clf,
+        'confusion_matrix': pipe_clf_c_matrix,
+        'test_accuracy': test_acc
+    }
+
+    return out_dict
+
+
 def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
-    
+    step = "predict_ancestry"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     le = label_encoder
 
     # set new samples aside for labeling after training the model
     X_new = projected.drop(columns=['FID','IID','label'])
-    # X_new_ids = projected[['FID','IID']]
 
     # predict new samples
     y_pred = pipe_clf.predict(X_new)
-    # X_new_ids.loc[:,'label'] = le.inverse_transform(ancestry_pred)
     ancestry_pred = le.inverse_transform(y_pred)
     projected.loc[:,'label'] = ancestry_pred
 
@@ -408,10 +475,6 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
         'label_encoder': le
     }
 
-    # metrics_dict = {
-    #     'predicted_labels_counts': projected.label.value_counts(),
-    # }
-
     outfiles_dict = {
         'labels_outpath': f'{out}_umap_linearsvc_predicted_labels.txt'
     }
@@ -425,38 +488,141 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     return out_dict
 
 
-def umap_transform_with_fitted(X_new, X_ref, y_pred, y_ref, label_encoder, fitted_pipe_grid=None):
+def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
+    step = "run_admixture"
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
+    # making sure FID and IID are good for merging
+    predicted_labels['FID'] = predicted_labels['FID'].astype(str)
+    predicted_labels['IID'] = predicted_labels['IID'].astype(str)
+
+    # change AFR and AAC predictions to '-' for supervised admixture .pop file
+    predicted_pop = predicted_labels.copy()
+    predicted_pop.loc[predicted_pop['label'] == 'AAC', 'label'] = '-'
+    predicted_pop.loc[predicted_pop['label'] == 'AFR', 'label'] = '-'
+
+    # get training labels
+    train_labels = train_pca[['FID','IID','label']]
+
+    # change AAC to AFR for supervised admixture with 7 ancestry groups
+    train_labels.loc[train_labels['label'] == 'AAC', 'label'] = 'AFR'
+
+    # append train_labels to predictions
+    combined_labels = predicted_pop.append(train_labels)
+    combined_labels['FID'] = combined_labels['FID'].astype(str)
+    combined_labels['IID'] = combined_labels['IID'].astype(str)
+
+    # write to text file
+    combined_labels_path = f'{out_path}_train_and_projected_ids.txt'
+    combined_labels[['FID','IID']].to_csv(combined_labels_path, sep='\t', index=None, header=None)
     
-    le = label_encoder
-    pipe_grid = fitted_pipe_grid
-    # pipe_clf = pipe_grid.best_estimator_
+    # plink command to keep only training set and new ids for running admixture
+    keep_out = f'{out_path}_merge_train'
+    keep_cmd = f'plink --bfile {merged_geno_path} --keep {combined_labels_path} --make-bed --out {keep_out}'
+    shell_do(keep_cmd)
 
-    # X_new = X_new_pred.drop(columns=['FID','IID','label'])
-    X_ = X_ref.drop(columns=['FID','IID'])
+    # read in fam file to match up labels
+    fam = pd.read_csv(f'{keep_out}.fam', sep='\s+', header=None)
+    fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+    fam['FID'] = fam['FID'].astype(str)
+    fam['IID'] = fam['IID'].astype(str)
 
-    # if fitted_pipe_grid provided, use those params else, use UMAP defaults
-    if fitted_pipe_grid:
-        a = pipe_grid.best_params_['umap__a']
-        b = pipe_grid.best_params_['umap__b']
+    # merge fam file and labels and write to .pop file for supervised admixture
+    merge = fam.merge(combined_labels, how='inner', on=['FID','IID'])
+    merge['label'].to_csv(f'{keep_out}.pop', sep='\t', index=None, header=None)
 
-        n_components = pipe_grid.best_params_['umap__n_components']
-        n_neighbors = pipe_grid.best_params_['umap__n_neighbors']
+    # run admixture
+    admixture_cmd = f'admixture {keep_out}.bed 7 --supervised'
+    shell_do(admixture_cmd)
+    
+    # read admixture results
+    admix_results = f"{keep_out.split('/')[-1]}.7.Q"
+    q_df = pd.read_csv(admix_results, sep='\s+', header=None)
+    q_df.columns = [f'pop{i}' for i in range(1,8)]
+
+    # get IDs from fam file
+    q_df['FID'], q_df['IID'] = fam['FID'], fam['IID']
+    q_df['FID'] = q_df['FID'].astype(str)
+    q_df['IID'] = q_df['IID'].astype(str)
+
+    # only adjust the new samples that were intially labelled AFR or AAC
+    q_pop = q_df.merge(predicted_labels, left_on=['FID','IID'], right_on=['FID','IID'])
+    q_pop_aac = q_pop[q_pop['label'] == 'AAC']
+    q_pop_afr = q_pop[q_pop['label'] == 'AFR']
+    q_pop_afr = q_pop_afr.append(q_pop_aac)
+    
+    # finding AFR column
+    max_val = 0
+    max_col = None
+    for col in q_pop_afr.columns:
+        if col not in ['FID','IID','label']:
+            if q_pop_afr[col].mean() > max_val:
+                max_col = col
+    
+    # making admixture adjustment
+    q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
+    q_pop.loc[(q_pop['label'] == 'AFR') & (q_pop[max_col] < 0.9), 'label'] = 'AAC'
+
+    adjusted_labels = q_pop[['FID','IID','label']]
+    adjusted_labels_path = f'{out_path}_adjusted_labels.txt'
+    adjusted_labels.to_csv(adjusted_labels_path, sep='\t', index=None)
+
+    print()
+    print('adjusted:\n', q_pop.label.value_counts())
+    print()
+
+    data_out = {
+        'ids': adjusted_labels,
+        'admix_proportions': q_pop
+    }
+
+    outfiles_dict = {
+        'labels_outpath': adjusted_labels_path
+    }
+
+    out_dict = {
+        'data': data_out,
+        'metrics': q_pop.label.value_counts(),
+        'output': outfiles_dict
+    }
+
+    return out_dict 
+
+
+def umap_transform_with_fitted(ref_pca, X_new, y_pred, classifier=None):
+    # 
+    y_ref = ref_pca.loc[:,'label']
+    X_ = ref_pca.drop(columns=['FID','IID','label'])
+
+    y_pred = y_pred.drop(columns=['FID','IID'])
+
+    # if classifier provided, use those params else, use UMAP defaults
+    if classifier:
+        params = classifier.get_params()
+
+        a = params['umap__a']
+        b = params['umap__b']
+
+        n_components = params['umap__n_components']
+        n_neighbors = params['umap__n_neighbors']
 
         umapper = UMAP(random_state=123, n_components=n_components, n_neighbors=n_neighbors, a=a, b=b).fit(X_)
     
     else:
         umapper = UMAP(random_state=123).fit(X_)
 
+    # transform and assign labels
     ref_umap = pd.DataFrame(umapper.transform(X_))
-    ref_umap.loc[:,'label'] = le.inverse_transform(y_ref)
+    y_ref = y_ref.reset_index(drop=True)
+    ref_umap = ref_umap.reset_index(drop=True)
+    ref_umap.loc[:,'label'] = y_ref
 
     new_samples_umap = pd.DataFrame(umapper.transform(X_new))
-    # pred = pipe_clf.predict(X_new)
-    # new_samples_umap.loc[:,'label'] = le.inverse_transform(pred)
-    
-    # y_pred_labels = le.inverse_transform(y_pred)
     new_samples_umap.loc[:,'label'] = y_pred
 
+    # assign dataset and get full UMAP
     ref_umap.loc[:,'dataset'] = 'ref'
     new_samples_umap.loc[:, 'dataset'] = 'predicted'
     total_umap = ref_umap.append(new_samples_umap)
@@ -506,34 +672,52 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
     model_dir = f'{outdir}/models'
-    pc_dir = f'{outdir}/pcs'
 
     # create directories if not already in existence
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(pc_dir, exist_ok=True)
 
-    calc_pcs = calculate_pcs(
-        geno=geno_path,
-        ref=ref_panel,
-        labels=ref_labels,
-        out=pc_dir,
-        plot_dir=plot_dir,
-        keep_temp=True
+    raw = get_raw_files(
+        geno_path=geno_path,
+        ref_path=ref_panel,
+        labels_path=ref_labels,
+        out_path=out_path
     )
 
-    train_split = munge_training_pca_loadings(calc_pcs['labeled_ref_pca'])
+    train_split = munge_training_data(labeled_ref_raw=raw['raw_ref'])
 
-    trained_clf = train_umap_classifier(
-        X_train=train_split['X_train'],
+    calc_pcs = calculate_pcs(
+        X_train=train_split['X_train'], 
         X_test=train_split['X_test'],
         y_train=train_split['y_train'],
         y_test=train_split['y_test'],
+        train_ids=train_split['train_ids'],
+        test_ids=train_split['test_ids'],
+        raw_geno=raw['raw_geno'],
         label_encoder=train_split['label_encoder'],
-        plot_dir=plot_dir,
-        model_dir=model_dir,
-        input_param_grid=train_param_grid
+        out=out_path,
+        plot_dir=plot_dir
     )
+
+    pkl_path = f'{model_dir}/umap_linearsvc_ancestry_model.pkl'
+
+    if os.path.isfile(pkl_path):
+        trained_clf = load_umap_classifier(
+            pkl_path=pkl_path,
+            X_test=calc_pcs['X_test'],
+            y_test=train_split['y_test']
+        )
+
+    else:
+        trained_clf = train_umap_classifier(
+            X_train=calc_pcs['X_train'],
+            X_test=calc_pcs['X_test'],
+            y_train=train_split['y_train'],
+            y_test=train_split['y_test'],
+            label_encoder=train_split['label_encoder'],
+            plot_dir=plot_dir,
+            model_dir=model_dir
+        )
 
     pred = predict_ancestry_from_pcs(
         projected=calc_pcs['new_samples_projected'],
@@ -542,13 +726,18 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         out=out_path
     )
 
+    admix = run_admixture(
+        merged_geno_path=raw['out_paths']['merge_bed'],
+        predicted_labels=pred['data']['ids'],
+        train_pca=calc_pcs['labeled_train_pca'],
+        out_path=out_path
+    )
+
     umap_transforms = umap_transform_with_fitted(
+        ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
-        X_ref=train_split['X_all'],
-        y_pred=pred['data']['y_pred'],
-        y_ref=train_split['y_all'],
-        label_encoder=train_split['label_encoder'],
-        fitted_pipe_grid=trained_clf['fitted_pipe_grid']
+        y_pred=admix['data']['ids'],
+        classifier=trained_clf['classifier']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
@@ -605,22 +794,25 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
     data_dict = {
         'predict_data': pred['data'],
         'confusion_matrix': trained_clf['confusion_matrix'],
+        'train_pcs': calc_pcs['labeled_train_pca'],
         'ref_pcs': calc_pcs['labeled_ref_pca'],
         'projected_pcs': calc_pcs['new_samples_projected'],
+        'admix_data': admix['data'],
         'total_umap': umap_transforms['total_umap'],
         'ref_umap': umap_transforms['ref_umap'],
         'new_samples_umap': umap_transforms['new_samples_umap'],
         'label_encoder': train_split['label_encoder']
-        }
+    }
 
     metrics_dict = {
         'predicted_counts': pred['metrics'],
-        'train_accuracy': trained_clf['train_accuracy'],
+        'adjusted_counts': admix['metrics'],
         'test_accuracy': trained_clf['test_accuracy']
-        }
+    }
 
     outfiles_dict = {
-        'predicted_labels': pred['output']
+        'predicted_labels': pred['output'],
+        'adjusted_labels': admix['output']
     }
     
     out_dict = {
