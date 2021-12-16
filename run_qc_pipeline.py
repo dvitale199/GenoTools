@@ -39,7 +39,7 @@ ancestry_out = f'{sex_out}_ancestry'
 ancestry = run_ancestry(geno_path=sex_out, out_path=ancestry_out, ref_panel=ref_panel, ref_labels=ref_labels)
 
 # get ancestry counts to add to output .h5 later
-ancestry_counts_df = pd.DataFrame(ancestry['metrics']['predicted_counts']).reset_index()
+ancestry_counts_df = pd.DataFrame(ancestry['metrics']['adjusted_counts']).reset_index()
 ancestry_counts_df.columns = ['label', 'count']
 
 
