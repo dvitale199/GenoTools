@@ -538,7 +538,8 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     shell_do(admixture_cmd)
     
     # read admixture results
-    admix_results = f"{keep_out.split('/')[-1]}.7.Q"
+    # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
+    admix_results = f"{keep_out}.7.Q"
     q_df = pd.read_csv(admix_results, sep='\s+', header=None)
     q_df.columns = [f'pop{i}' for i in range(1,8)]
 
