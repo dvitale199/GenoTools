@@ -534,7 +534,8 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     merge['label'].to_csv(f'{keep_out}.pop', sep='\t', index=None, header=None)
 
     # run admixture
-    admixture_cmd = f'admixture {keep_out}.bed 7 --supervised'
+    out_dir = os.path.split(f'{keep_out}.bed')[0]
+    admixture_cmd = f'cd {out_dir}; admixture {keep_out}.bed 7 --supervised'
     shell_do(admixture_cmd)
     
     # read admixture results
@@ -675,7 +676,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
     model_dir = f'{outdir}/models'
 
     # create directories if not already in existence
-    os.makedirs(plot_dir, exist_ok=True)
+    # os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
     raw = get_raw_files(
