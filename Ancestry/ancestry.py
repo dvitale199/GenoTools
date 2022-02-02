@@ -133,7 +133,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     out_paths = {**out_paths, **common_snps_files}
 
     # get raw version of common snps - reference panel
-    raw_ref_cmd = f'exec/plink2 --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
+    raw_ref_cmd = f'/data/vitaled2/GenoTools_dev/GenoTools/exec/plink2 --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
     shell_do(raw_ref_cmd)
 
     # read in raw common snps
@@ -181,11 +181,11 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     out_paths['geno_bed'] = geno_common_snps
 
     # extracting common snps
-    ext_snps_cmd = f'exec/plink2 --bfile {geno_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+    ext_snps_cmd = f'/data/vitaled2/GenoTools_dev/GenoTools/exec/plink2 --bfile {geno_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
     shell_do(ext_snps_cmd)
 
     # getting raw version of common snps - genotype
-    raw_geno_cmd = f'exec/plink2 --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
+    raw_geno_cmd = f'/data/vitaled2/GenoTools_dev/GenoTools/exec/plink2 --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
     shell_do(raw_geno_cmd)
 
     # read in raw genotypes
@@ -535,8 +535,11 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
 
     # run admixture
     out_dir = os.path.split(f'{keep_out}.bed')[0]
-    admixture_cmd = f'cd {out_dir}; admixture {keep_out}.bed 7 --supervised'
-    shell_do(admixture_cmd)
+    admixture_cmd = f'cd {out_dir} && admixture {keep_out}.bed 7 --supervised'
+#     shell_do(admixture_cmd)
+    # should grab exit status from here to catch errors. coming soon
+    os.system(admixture_cmd)
+    
     
     # read admixture results
     # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
