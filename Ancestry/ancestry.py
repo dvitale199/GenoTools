@@ -178,6 +178,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
 
     geno_common_snps = f'{out_path}_common_snps'
     common_snps = f'{ref_common_snps}.common_snps'
+    ref_common_snps_bim[['rsid']].to_csv(f'{geno_common_snps}.txt', sep='\t', header=False, index=False)
     out_paths['geno_bed'] = geno_common_snps
 
     # extracting common snps
@@ -351,7 +352,7 @@ def transform(data, mean, sd, pca, col_names, fit=False):
     return data_pca
 
 
-def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_dir, model_dir, input_param_grid=None):
+def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, plot_dir, input_param_grid=None):
     """Train UMAP classifier pipeline
     
     
@@ -405,7 +406,8 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
     # fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
     # dump best estimator to pkl
-    joblib.dump(pipe_clf, f'{model_dir}/umap_linearsvc_ancestry_model.pkl')
+    model_path = f'{out}_umap_linearsvc_ancestry_model.pkl'
+    joblib.dump(pipe_clf, model_path)
 
     out_dict = {
         'classifier': pipe_clf,
@@ -414,7 +416,8 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, plot_
         'confusion_matrix': pipe_clf_c_matrix,
         'fitted_pipe_grid': pipe_grid,
         'train_accuracy': train_acc,
-        'test_accuracy': test_acc
+        'test_accuracy': test_acc,
+        'model_path': model_path
     }
     
     return out_dict
@@ -668,7 +671,7 @@ plink --bfile {geno_path} \
     return output_dict
 
 
-def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=None):
+def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_param_grid=None):
     step = "predict_ancestry"
     print()
     print(f"RUNNING: {step}")
@@ -676,11 +679,9 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
 
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
-    model_dir = f'{outdir}/models'
 
     # create directories if not already in existence
     # os.makedirs(plot_dir, exist_ok=True)
-    os.makedirs(model_dir, exist_ok=True)
 
     raw = get_raw_files(
         geno_path=geno_path,
@@ -704,11 +705,9 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
         plot_dir=plot_dir
     )
 
-    pkl_path = f'{model_dir}/umap_linearsvc_ancestry_model.pkl'
-
-    if os.path.isfile(pkl_path):
+    if model_path:
         trained_clf = load_umap_classifier(
-            pkl_path=pkl_path,
+            pkl_path=model_path,
             X_test=calc_pcs['X_test'],
             y_test=train_split['y_test']
         )
@@ -720,8 +719,8 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, train_param_grid=No
             y_train=train_split['y_train'],
             y_test=train_split['y_test'],
             label_encoder=train_split['label_encoder'],
-            plot_dir=plot_dir,
-            model_dir=model_dir
+            out=out_path,
+            plot_dir=plot_dir
         )
 
     pred = predict_ancestry_from_pcs(
