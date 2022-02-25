@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data 
 parser.add_argument('--geno', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format genotype file, everything before the *.bed/bim/fam [default: nope].')
 parser.add_argument('--ref', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
 parser.add_argument('--ref_labels', type=str, default='nope', help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
+parser.add_argument('--model', type=str, default=None, help='Path to pickle file with trained ancestry model for passed reference panel')
 parser.add_argument('--out', type=str, default='nope', help='Prefix for output (including path)')
 
 args = parser.parse_args()
@@ -20,6 +21,7 @@ args = parser.parse_args()
 geno_path = args.geno
 ref_panel = args.ref
 ref_labels = args.ref_labels
+model_path = args.model
 out_path = args.out
 
 # sample-level pruning and metrics
@@ -36,15 +38,15 @@ sex = sex_prune(callrate_out, sex_out)
 
 # run ancestry methods
 ancestry_out = f'{sex_out}_ancestry'
-ancestry = run_ancestry(geno_path=sex_out, out_path=ancestry_out, ref_panel=ref_panel, ref_labels=ref_labels)
+ancestry = run_ancestry(geno_path=sex_out, out_path=ancestry_out, ref_panel=ref_panel, ref_labels=ref_labels, model_path=model_path)
 
 # get ancestry counts to add to output .h5 later
-ancestry_counts_df = pd.DataFrame(ancestry['metrics']['predicted_counts']).reset_index()
+ancestry_counts_df = pd.DataFrame(ancestry['metrics']['adjusted_counts']).reset_index()
 ancestry_counts_df.columns = ['label', 'count']
 
 
 # split cohort into individual ancestry groups
-pred_labels_path = ancestry['output']['predicted_labels']['labels_outpath']
+pred_labels_path = ancestry['output']['adjusted_labels']['labels_outpath']
 cohort_split = split_cohort_ancestry(geno_path=sex_out, labels_path=pred_labels_path, out_path=ancestry_out)
 
 # ancestry-specific pruning steps
@@ -154,7 +156,7 @@ projected_pcs = ancestry['data']['projected_pcs']
 total_umap = ancestry['data']['total_umap']
 ref_umap = ancestry['data']['ref_umap']
 new_samples_umap = ancestry['data']['new_samples_umap']
-pred_ancestry_labels = ancestry['data']['predict_data']['ids']
+pred_ancestry_labels = ancestry['data']['admix_data']['ids']
 
 metrics_df.to_hdf(metrics_outfile, key='QC', mode='w')
 pruned_samples_df.to_hdf(metrics_outfile, key='pruned_samples')
