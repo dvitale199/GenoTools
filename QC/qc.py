@@ -469,7 +469,7 @@ def variant_prune(geno_path, out_path):
     return out_dict
 
 
-def avg_miss_rates(geno_path, out_path):
+def miss_rates(geno_path, out_path, max_threshold=0.05):
     plink_miss_cmd = f'\
 plink \
 --bfile {geno_path} \
@@ -483,12 +483,35 @@ plink \
     imiss = pd.read_csv(f'{out_path}.imiss', sep='\s+')
     avg_lmiss = lmiss.F_MISS.mean()
     avg_imiss = imiss.F_MISS.mean()
-    print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
-    print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
+    # print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
+    # print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
 
+    i_total = imiss.shape[0]
+    thresh_list = np.arange(0.0, max_threshold+0.01, 0.01)
+    
+    # suggest most-stringent threshold which retains >= 90% of samples
+    accept_list = []
+    
+    for thresh in thresh_list:
+        
+        i_pass = imiss.loc[imiss.F_MISS<=thresh]
+        pass_prop = i_pass.shape[0]/i_total
+
+        if pass_prop < 0.9:
+            pass
+        else:
+            accept_list.append(thresh)
+    
+    if len(accept_list) > 0:
+        suggested_threshold = min(accept_list)
+    else:
+        print('No acceptable threshold found! Try a less-stringent max_threshold')
+        suggested_threshold = None
+        
     metrics = {
         'avg_lmiss': avg_lmiss,
-        'avg_imiss': avg_imiss
+        'avg_imiss': avg_imiss,
+        'suggested_threshold': suggested_threshold
     }
 
     return metrics
