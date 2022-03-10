@@ -4,7 +4,7 @@ import shutil
 import os
 
 # local imports
-from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, avg_miss_rates
+from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune #, avg_miss_rates
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
@@ -25,8 +25,8 @@ model_path = args.model
 out_path = args.out
 
 # sample-level pruning and metrics
-missing_path = f'{geno_path}_missing'
-avg_miss = avg_miss_rates(geno_path, missing_path)
+# missing_path = f'{geno_path}_missing'
+# avg_miss = avg_miss_rates(geno_path, missing_path)
 # avg_miss
 
 callrate_out = f'{geno_path}_callrate'
