@@ -124,10 +124,20 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     outdir = os.path.dirname(out_path)
     out_paths = {}
 
-    ref_common_snps = f'{outdir}/ref_common_snps'
+    # callrate prune ref panel and geno before getting common snps
+    ref_prune_path = f'{outdir}/ref_callrate_pruned'
+    ref_prune_cmd = f'plink --bfile {ref_path} --geno 0.1 --make-bed --out {ref_prune_path}'
+    shell_do(ref_prune_cmd)
+    out_paths['ref_pruned_bed'] = ref_prune_path
+
+    geno_prune_path = f'{out_path}_callrate_pruned'
+    geno_prune_cmd = f'plink --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
+    shell_do(geno_prune_cmd)
+    out_paths['geno_pruned_bed'] = geno_prune_path
 
     # get common snps between ref panel and geno
-    common_snps_files = get_common_snps(ref_path, geno_path, ref_common_snps)
+    ref_common_snps = f'{outdir}/ref_common_snps'
+    common_snps_files = get_common_snps(ref_prune_path, geno_prune_path, ref_common_snps)
 
     # add common_snps_files output paths to out_paths
     out_paths = {**out_paths, **common_snps_files}
@@ -179,10 +189,11 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     geno_common_snps = f'{out_path}_common_snps'
     common_snps = f'{ref_common_snps}.common_snps'
     ref_common_snps_bim[['rsid']].to_csv(f'{geno_common_snps}.txt', sep='\t', header=False, index=False)
-    out_paths['geno_bed'] = geno_common_snps
+    out_paths['geno_common_snps_bed'] = geno_common_snps
 
     # extracting common snps
-    ext_snps_cmd = f'{plink2} --bfile {geno_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+    ext_snps_cmd = f'{plink2} --bfile {geno_prune_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+
     shell_do(ext_snps_cmd)
 
     # getting raw version of common snps - genotype
