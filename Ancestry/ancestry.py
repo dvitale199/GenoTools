@@ -193,6 +193,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
 
     # extracting common snps
     ext_snps_cmd = f'{plink2} --bfile {geno_prune_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+
     shell_do(ext_snps_cmd)
 
     # getting raw version of common snps - genotype

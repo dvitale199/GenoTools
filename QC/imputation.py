@@ -47,7 +47,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
     for cmd in cmds:
 
-        shell_do(cmd, log=True, return_log=True)
+        shell_do(cmd)
 
 
     
@@ -57,8 +57,10 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
         shell_do(cmd)
 
-    # then sort and zip
-    sort_zip_cmds = [f'vcf-sort {out_path2}_chr{str(i)}.vcf | bgzip -c > {out_path2}_pre_impute_chr{str(i)}.vcf.gz' for i in range(1,24)]
+    # then sort, add chr prefix for hg38 and zip
+    sort_zip_cmds = [f'''vcf-sort {out_path2}_chr{str(i)}.vcf | awk -F"\t" '{{if ($0 !~ /^#/) {{print "chr"$0}} else{{print $0}}}}' | bgzip -c > {out_path2}_pre_impute_chr{str(i)}.vcf.gz''' for i in range(1,24)]
+#     sort_zip_cmds = [f"vcf-sort {out_path2}_chr{str(i)}.vcf | bgzip -c > {out_path2}_pre_impute_chr{str(i)}.vcf.gz" for i in range(1,24)]
+
 
     for cmd in sort_zip_cmds:
 
@@ -154,7 +156,8 @@ def submit_job(vcf_list, password, token=None):
             'input-password': password,
             'input-refpanel': 'apps@topmed-r2@1.0.0',
             'input-phasing': 'eagle',
-            'input-population': 'all'}
+            'input-population': 'all',
+            'build':'hg38'}
 
     r = requests.post(url + "/jobs/submit/imputationserver", files=files, headers=headers, data=data)
     if r.status_code != 200:
