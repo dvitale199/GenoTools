@@ -21,7 +21,8 @@ import joblib
 
 #local imports
 from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
-plink2 = f'{os.path.dirname(os.path.abspath(__file__))}/../exec/plink2'
+# plink2 = f'{os.path.dirname(os.path.abspath(__file__))}/../exec/plink2'
+plink2 = './plink2'
 
 def ancestry_prune(geno_path, out_path=None):
     '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.
@@ -687,7 +688,8 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     print()
     print(f"RUNNING: {step}")
     print()
-
+    
+    print(os.getcwd())
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
 
