@@ -45,43 +45,21 @@ bcftools norm --no-version -Oz -c w -f {grch38_fasta} > {vcf_path}/gp2_snps_{cod
     # --extra {vcf_path}/gp2_snps_{code}_metadata.tsv | \
 
 
-# sort vcf
-tmp_path = {vcf_path}/tmp
-os.mkdir(tmp_path, mode)
-with open(f'{swarm_scripts_dir}/bcftools_sort.swarm', 'w') as f:
-    for code in key.SentrixBarcode_A.unique():
-        sort_cmd = f'cd {vcf_path}; bcftools sort gp2_snps_{code}.vcf.gz -T ./tmp -Oz -o gp2_snps_sorted_{code}.vcf.gz'
-        f.write(f'{sort_cmd}\n')
-f.close()
+    # sort vcf
+    tmp_path = {out_tmp}
+    sort_cmd = f'cd {out_tmp}; bcftools sort gp2_snps_{code}.vcf.gz -T ./tmp -Oz -o gp2_snps_sorted_{code}.vcf.gz'
 
 
-# split indels and snps in vcf
-with open(f'{swarm_scripts_dir}/vcftools_remove_indels.swarm', 'w') as f:
-    for code in key.SentrixBarcode_A.unique():
-        ext_snps_cmd = f'cd {vcf_path}; vcftools --gzvcf gp2_snps_sorted_{code}.vcf.gz --remove-indels --recode --recode-INFO-all --out gp2_snps_sorted_snps_only_{code}'
-        f.write(f'{ext_snps_cmd}\n')
-f.close()
+    # split indels and snps in vcf
+    ext_snps_cmd = f'cd {vcf_path}; vcftools --gzvcf gp2_snps_sorted_{code}.vcf.gz --remove-indels --recode --recode-INFO-all --out gp2_snps_sorted_snps_only_{code}'
+
+    # split indels and snps in vcf
+    keep_indels_cmd = f'cd {vcf_path}; vcftools --gzvcf gp2_snps_sorted_{code}.vcf.gz --keep-only-indels --recode --recode-INFO-all --out gp2_snps_sorted_indels_only_{code}'
+
+    # get snp info from each vcf
+    get_logr_baf = f'python3 process_vcf_snps.py --vcf {vcf_path}/gp2_snps_sorted_snps_only_{code}.recode.vcf --gene_ref /data/CARD/PD/GP2/ref_panel/glist-hg38 --out {vcf_path}/gp2_snp_metrics_{code}.txt'
 
 
-# split indels and snps in vcf
-with open(f'{swarm_scripts_dir}/vcftools_keep_indels.swarm', 'w') as f:
-    for code in key.SentrixBarcode_A.unique():
-        keep_indels_cmd = f'cd {vcf_path}; vcftools --gzvcf gp2_snps_sorted_{code}.vcf.gz --keep-only-indels --recode --recode-INFO-all --out gp2_snps_sorted_indels_only_{code}'
-        f.write(f'{keep_indels_cmd}\n')
-f.close()
-
-
-# get snp info from each vcf
-with open(f'{swarm_scripts_dir}/get_logr_baf.swarm', 'w') as f:
-    for code in key.SentrixBarcode_A.unique():
-        get_logr_baf = f'python3 process_vcf_snps.py --vcf {vcf_path}/gp2_snps_sorted_snps_only_{code}.recode.vcf --gene_ref /data/CARD/PD/GP2/ref_panel/glist-hg38 --out {vcf_path}/gp2_snp_metrics_{code}.txt'
-        f.write(f'{get_logr_baf}\n')
-f.close()
-
-
-# get snp info from each vcf
-with open(f'{swarm_scripts_dir}/clean_snp_metrics.swarm', 'w') as f:
-    for code in key.SentrixBarcode_A.unique():
-        clean_snp_metrics = f'python3 clean_snp_metrics.py --infile {vcf_path}/gp2_snp_metrics_{code}.txt --outpath {vcf_path}/gp2_snp_metrics'
-        f.write(f'{clean_snp_metrics}\n')
-f.close()
+    # get snp info from each vcf
+    clean_snp_metrics = f'python3 clean_snp_metrics.py --infile {vcf_path}/gp2_snp_metrics_{code}.txt --outpath {vcf_path}/gp2_snp_metrics'
+   
