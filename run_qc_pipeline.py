@@ -14,6 +14,7 @@ parser.add_argument('--geno', type=str, default='nope', help='Genotype: (string 
 parser.add_argument('--ref', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
 parser.add_argument('--ref_labels', type=str, default='nope', help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
 parser.add_argument('--model', type=str, default=None, help='Path to pickle file with trained ancestry model for passed reference panel')
+parser.add_argument('--callrate', type=str, default=None, help='Minimum Callrate threshold for QC')
 parser.add_argument('--out', type=str, default='nope', help='Prefix for output (including path)')
 
 args = parser.parse_args()
@@ -22,11 +23,12 @@ geno_path = args.geno
 ref_panel = args.ref
 ref_labels = args.ref_labels
 model_path = args.model
+callrate = args.callrate
 out_path = args.out
 
 # sample-level pruning and metrics
 callrate_out = f'{geno_path}_callrate'
-callrate = callrate_prune(geno_path, callrate_out)
+callrate = callrate_prune(geno_path, callrate_out, mind=callrate)
 
 sex_out = f'{callrate_out}_sex'
 sex = sex_prune(callrate_out, sex_out)
