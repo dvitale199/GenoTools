@@ -24,7 +24,7 @@ def get_vcf_names(vcf_path):
 # gene_list = pd.read_csv(gene_ref, sep='\s+', header=None, names=['chr','start','end','symbol'], dtype={'chr':str,'start':int,'end':int})
 
 # out_colnames = ['CHROM','POS','ID','REF','ALT','sampleid','BAF','LRR']
-out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio']
+out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA']
 
 variant_metrics_out_df = pd.DataFrame(columns=out_colnames)
 variant_metrics_out_df.to_csv(out_path, header=True, index=False)
@@ -39,12 +39,12 @@ for chunk in vcf:
     chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
     chunk_melt = chunk.melt(id_vars=['CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO'], value_vars=IIDs, value_name='metrics')
     chunk_melt[['GT','GQ','IGC','BAF','LRR','NORMX','NORMY','R','THETA','X','Y']] = chunk_melt.metrics.str.split(':', expand=True)
-    chunk_melt.drop(columns=['QUAL','FILTER','INFO','GT','GQ','IGC','NORMX','NORMY','R','THETA','X','Y','metrics'], inplace=True)
+    chunk_melt.drop(columns=['QUAL','FILTER','INFO','GT','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
     chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
 #     print(chunk_melt)
     chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
-    chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','BAF','LRR']]
-    chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio']
+    chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','BAF','LRR', 'R', 'THETA']]
+    chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta']
     
     chunk_final.to_csv(out_path, header=False, index=False, mode='a')
 

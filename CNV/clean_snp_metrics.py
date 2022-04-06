@@ -26,8 +26,8 @@ df = pd.read_csv(infile,
 # cols = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio']
 
 for iid in df.Sample_ID.unique():
-    for chrom in df.chromosome.unique():
+    for chrom in sorted(df.chromosome.unique()):
         
-        outfile_name = f'{outfile}_{iid}_chr{chrom}.csv' 
+        outfile_name = f'{outfile}_{iid}_chr{chrom}.csv'
         out_df = df.loc[(df.chromosome==chrom) & (df.Sample_ID==iid)]
         out_df.to_csv(outfile_name, header=True, index=False)
