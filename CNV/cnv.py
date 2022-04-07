@@ -10,6 +10,73 @@ pd.options.mode.chained_assignment = None
 
 from QC.utils import shell_do
 
+
+
+def get_vcf_names(vcf_path):
+    with open(vcf_path, "r") as ifile:
+        for line in ifile:
+            if line.startswith("#CHROM"):
+                vcf_names = [x.strip('\n') for x in line.split('\t')]
+                break
+    ifile.close()
+    return vcf_names
+
+
+def process_vcf_snps(vcf, out_path):
+
+    # out_colnames = ['CHROM','POS','ID','REF','ALT','sampleid','BAF','LRR']
+    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA']
+
+    variant_metrics_out_df = pd.DataFrame(columns=out_colnames)
+    variant_metrics_out_df.to_csv(out_path, header=True, index=False)
+
+
+    names = get_vcf_names(vcf)        
+    vcf = pd.read_csv(vcf, comment='#', chunksize=10000, delim_whitespace=True, header=None, names=names, dtype={'#CHROM':str})
+    IIDs = [x for x in names if x not in ['#CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO','FORMAT']]
+
+    for chunk in vcf:
+
+        chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
+        chunk_melt = chunk.melt(id_vars=['CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO'], value_vars=IIDs, value_name='metrics')
+        chunk_melt[['GT','GQ','IGC','BAF','LRR','NORMX','NORMY','R','THETA','X','Y']] = chunk_melt.metrics.str.split(':', expand=True)
+        chunk_melt.drop(columns=['QUAL','FILTER','INFO','GT','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
+        chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
+    #     print(chunk_melt)
+        chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
+        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','BAF','LRR', 'R', 'THETA']]
+        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta']
+
+        chunk_final.to_csv(out_path, header=False, index=False, mode='a')
+
+        
+def clean_snp_metrics(metrics_in, out_path):
+    '''splits snp metrics files by chromosome and individual'''
+    
+    df = pd.read_csv(metrics_in,
+                     dtype={
+                         'chromosome':str,
+                         'position':int,
+                         'snpID':str,
+                         'Sample_ID':str,
+                         'Allele1':str,
+                         'Allele2':str,
+                         'BAlleleFreq':float,
+                         'LogRRatio':float,
+                         'R':float,
+                         'Theta':float
+                     })
+
+    for iid in df.Sample_ID.unique():
+        for chrom in sorted(df.chromosome.unique()):
+
+            outfile_name = f'{out_path}_{iid}_chr{chrom}.csv'
+            out_df = df.loc[(df.chromosome==chrom) & (df.Sample_ID==iid)]
+            out_df.to_csv(outfile_name, header=True, index=False)
+        
+        
+
+
 def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap=iaap):
     '''
     current structure of idat storage is such that a directory of each SentrixBarcode_A with all idats for that barcode in it
@@ -49,8 +116,7 @@ bcftools +gtc2vcf \
 --gtcs {barcode_out_path} \
 --fasta-ref {ref_fasta} | \
 bcftools norm --no-version -Oz -c w -f {ref_fasta} > {barcode_out_path}/{barcode}.vcf.gz'
-    
-    # --extra {vcf_path}/gp2_snps_{code}_metadata.tsv | \
+# use --extra to output .tsv of other info from gtc
 
     # sort vcf
     sort_cmd = f'\
@@ -58,7 +124,6 @@ bcftools \
 sort {barcode_out_path}/{barcode}.vcf.gz \
 -T {out_tmp}/ \
 -Oz -o {barcode_out_path}/{barcode}_sorted.vcf.gz'
-# cd {barcode_out_path} && \
 
     # split indels and snps in vcf
     ext_snps_cmd = f'\
@@ -68,42 +133,33 @@ vcftools --gzvcf \
 --recode \
 --recode-INFO-all \
 --out {barcode_out_path}/{barcode}_sorted_snps'
-# cd {barcode_out_path} && \
 
 
-    # split indels and snps in vcf
+#     split indels and snps in vcf
+# can bring this in later if needed. for now, only snps
 #     keep_indels_cmd = f'\
-# cd {barcode_out_path}; \
 # vcftools --gzvcf \
-# {barcode}_sorted.vcf.gz \
+# {barcode_out_path}/{barcode}_sorted.vcf.gz \
 # --keep-only-indels \
 # --recode \
 # --recode-INFO-all \
-# --out {code}_indels'
+# --out {barcode_out_path}/{barcode}_sorted_snps'
 
-    # get snp info from each vcf
-    get_logr_baf = f'\
-python3 process_vcf_snps.py \
---vcf {barcode_out_path}/{barcode}_sorted_snps.recode.vcf \
---outfile {barcode_out_path}/snp_metrics_{barcode}.csv'
-
-
-    # get snp info from each vcf
-    clean_snp_metrics = f'\
-python3 clean_snp_metrics.py \
---infile {barcode_out_path}/snp_metrics_{barcode}.csv \
---outfile {barcode_out_path}/snp_metrics'
-
-    cmds = [idat_to_gtc_cmd, gtc2vcf_cmd, sort_cmd, ext_snps_cmd, get_logr_baf, clean_snp_metrics]
-#     cmds = [get_logr_baf, clean_snp_metrics]
-#     cmds = [get_logr_baf]
-#     cmds = [clean_snp_metrics]
+    cmds = [idat_to_gtc_cmd, gtc2vcf_cmd, sort_cmd, ext_snps_cmd]
     for cmd in cmds:
         if cmd == gtc2vcf_cmd:
             subprocess.call(cmd, shell=True)
         else:
             shell_do(cmd)
             
+    # get snp info from each vcf
+    vcf_in = f'{barcode_out_path}/{barcode}_sorted_snps.recode.vcf'
+    snp_metrics_out = f'{barcode_out_path}/snp_metrics_{barcode}.csv'
+    process_vcf_snps(vcf=vcf_in, out_path=snp_metrics_out)
+    
+    metrics_in = f'{barcode_out_path}/snp_metrics_{barcode}.csv'
+    clean_metrics_out = f'{barcode_out_path}/snp_metrics'
+    clean_snp_metrics(metrics_in=metrics_in, out_path=clean_metrics_out)
  
     # output snp metrics paths
     chroms = [str(i) for i in range(1,23)] + ['X','Y']
@@ -116,30 +172,6 @@ python3 clean_snp_metrics.py \
             outfiles.append(outfile)
             
     return outfiles
-
-
-# idat_path = '/data/vitaled2/cnv_test/206046180074'
-# test_out = '/data/vitaled2/cnv_test'
-# # snp_metrics_files = idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, test_out)
-
-# with open(f'{swarm_scripts_dir}/call_cnvs.swarm', 'w') as f:
-    
-#     for mfile in snp_metrics_files:
-#         out_prefix = mfile.replace('.csv','').replace('snp_metrics_', '')
-# #         chrom = out_prefix.split('_')[-1]
-# #         gene_chrom_list = f'/data/CARD/PD/GP2/ref_panel/glist_hg38_{chrom}.csv'
-
-#         call_cnvs_cmd = f'\
-# python3 cnv_gene_caller_alpha.py \
-# --infile {mfile} \
-# --outfile {out_prefix} \
-# --intervals {gene_list}'
-
-#         f.write(f'{call_cnvs_cmd}\n')
-# f.close()
-
-
-
 
 
 def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_window=100):
