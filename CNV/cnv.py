@@ -3,6 +3,8 @@ import subprocess
 import numpy as np
 from numpy.core.numeric import NaN
 import pandas as pd
+import glob
+import shutil
 
 # Supress copy warning.
 
@@ -77,7 +79,7 @@ def clean_snp_metrics(metrics_in, out_path):
         
 
 
-def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap=iaap):
+def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap):
     '''
     current structure of idat storage is such that a directory of each SentrixBarcode_A with all idats for that barcode in it
     for ex.
@@ -187,7 +189,7 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
 
     # Break down L2R and BAF per gene.
 
-    print(f"Remember, we are only calling CNVs for genes with more than {str(min_variants)} variants.")
+#     print(f"Remember, we are only calling CNVs for genes with more than {str(min_variants)} variants.")
 
     results = []
 
@@ -200,9 +202,9 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
       interval_START = interval_START_gene - (kb_window*1000)
       interval_STOP = interval_STOP_gene + (kb_window*1000)
       temp_df = sample_df[(sample_df['chromosome'] == interval_CHR) & (sample_df['position'] >= interval_START) & (sample_df['position'] <= interval_STOP)]
-      print(f"Working on interval {INTERVAL} on CHR {str(interval_CHR)} from {str(interval_START)} to {str(interval_STOP)} containing {str(temp_df.shape[0])} variants within an window of +/- {str(kb_window)} kb.")
+#       print(f"Working on interval {INTERVAL} on CHR {str(interval_CHR)} from {str(interval_START)} to {str(interval_STOP)} containing {str(temp_df.shape[0])} variants within an window of +/- {str(kb_window)} kb.")
       if temp_df.shape[0] < min_variants:
-        print("This interval does not meet the minimum variant count requirement.")
+#         print("This interval does not meet the minimum variant count requirement.")
         results.append((INTERVAL, temp_df.shape[0], NaN, NaN, NaN, interval_START, interval_START_gene, interval_STOP_gene, interval_STOP))
       else:
         temp_df['BAF_insertion'] = np.where( (temp_df['BAlleleFreq'].between(0.65, 0.85, inclusive=False)) | (temp_df['BAlleleFreq'].between(0.15, 0.35, inclusive=False)), 1, 0)
@@ -219,10 +221,10 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
 #     output.to_csv(outpath + "-CNVs.csv", index=False)
     output.to_csv(out_path, index=False)
     pd.options.display.max_columns = 10
-    print("A summary of your results for this sample is below.")
-    print("Thanks for calling CNVs from genotypes with us!")
+#     print("A summary of your results for this sample is below.")
+#     print("Thanks for calling CNVs from genotypes with us!")
     desc = output.describe().T
     desc['count'] = desc['count'].astype(int)
-    print(desc)
+#     print(desc)
 
    
