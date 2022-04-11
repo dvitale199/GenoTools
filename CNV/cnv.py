@@ -173,6 +173,9 @@ vcftools --gzvcf \
             outfile = f'{barcode_out_path}/snp_metrics_{sample}_chr{chrom}.csv'
             outfiles.append(outfile)
             
+    out_df = pd.DataFrame({'path':outfiles})
+    out_df.to_csv(f'{barcode_out_path}/snp_metrics_{barcode}.log', header=False, index=False)
+            
     return outfiles
 
 
@@ -216,15 +219,12 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
         results.append((INTERVAL, temp_df.shape[0], PERCENT_BAF_INSERTION, PERCENT_L2R_DELETION, PERCENT_L2R_INSERTION, interval_START, interval_START_gene, interval_STOP_gene, interval_STOP))
 
     output = pd.DataFrame(results, columns=('INTERVAL', 'NUM_VARIANTS', 'PERCENT_BAF_INSERTION', 'PERCENT_L2R_DELETION','PERCENT_L2R_DUPLICATION','START_PLUS_WINDOW','START','STOP','STOP_PLUS_WINDOW'))
-
-#     outpath = outfile.replace('.csv','')
-#     output.to_csv(outpath + "-CNVs.csv", index=False)
     output.to_csv(out_path, index=False)
     pd.options.display.max_columns = 10
 #     print("A summary of your results for this sample is below.")
 #     print("Thanks for calling CNVs from genotypes with us!")
-    desc = output.describe().T
-    desc['count'] = desc['count'].astype(int)
+#     desc = output.describe().T
+#     desc['count'] = desc['count'].astype(int)
 #     print(desc)
 
    
