@@ -19,4 +19,4 @@ ref_fasta = args.ref_fasta
 iaap = args.iaap
 out_path = args.out_path
 
-snp_metrics_out = idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, test_out, iaap=iaap)
+snp_metrics_out = idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap=iaap)

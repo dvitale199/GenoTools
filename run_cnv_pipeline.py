@@ -9,10 +9,10 @@ parser.add_argument('--min_variants', type=int, default=10, help='Minimum number
 parser.add_argument('--kb_window', type=int, default=100, help='Kilobase window around each interval, a value of 100 would mean +/- 100kb.')
 args = parser.parse_args()
 
-idat_path = args.idat_path
+metrics = args.metrics
 out_path = args.out_path
 intervals = args.intervals
 min_variants = args.min_variants
 kb_window = args.kb_window
 
-call_cnvs(snp_metrics_file=mfile, out_path=out_path, intervals_file=intervals, min_variants=min_variants, kb_window=kb_window)
+call_cnvs(snp_metrics_file=metrics, out_path=out_path, intervals_file=intervals, min_variants=min_variants, kb_window=kb_window)
