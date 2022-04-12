@@ -187,7 +187,7 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
     temp_interval_df = pd.read_csv(intervals_file, engine='c')
     temp_interval_df.drop_duplicates(subset = ["NAME"], inplace=True, keep='first')
     intervals_df = temp_interval_df.copy()
-#     intervals_df = temp_interval_df[temp_interval_df.CHR.apply(lambda x: x.isnumeric())] # This deletes non-numeric CHRs.
+
 
     """# Now reduce just to the intervals of interest and summarize each interval."""
 
