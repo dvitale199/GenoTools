@@ -221,11 +221,107 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
 
     output = pd.DataFrame(results, columns=('INTERVAL', 'NUM_VARIANTS', 'PERCENT_BAF_INSERTION', 'PERCENT_L2R_DELETION','PERCENT_L2R_DUPLICATION','START_PLUS_WINDOW','START','STOP','STOP_PLUS_WINDOW'))
     output.to_csv(out_path, index=False)
-    pd.options.display.max_columns = 10
+#     pd.options.display.max_columns = 10
 #     print("A summary of your results for this sample is below.")
 #     print("Thanks for calling CNVs from genotypes with us!")
 #     desc = output.describe().T
 #     desc['count'] = desc['count'].astype(int)
 #     print(desc)
 
-   
+
+
+######## UNDER DEVELOPMENT #########
+
+def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
+    
+    chrom = str(chromosome)
+    
+    baf_out = f'{out_path}/CNV_chr{chrom}_BAF.csv'
+    lrr_del_out = f'{out_path}/CNV_chr{chrom}_LRR_DEL.csv'
+    lrr_dup_out = f'{out_path}/CNV_chr{chrom}_LRR_DUP.csv'
+    
+    chrom_baf = pd.DataFrame()
+    chrom_l2r_del = pd.DataFrame()
+    chrom_l2r_dup = pd.DataFrame()
+
+    
+    for sample in samples_list:
+        code = sample.split('_')[0]
+
+        cnv_file = f'{in_path}/{code}/CNV_{sample}_chr{chrom}.csv'
+        cnvs = pd.read_csv(cnv_file)
+        cnvs.loc[:,'sampleid'] = sample
+        cnvs.loc[:,'chr'] = chrom
+        cnvs_final = cnvs.loc[cnvs.NUM_VARIANTS>=10]
+        
+        baf = cnvs_final.loc[:,['PERCENT_BAF_INSERTION','INTERVAL','sampleid']]
+        baf_pivot = baf.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_BAF_INSERTION')
+        
+        l2r_del = cnvs_final.loc[:,['PERCENT_L2R_DELETION', 'INTERVAL', 'sampleid']]
+        l2r_del_pivot = l2r_del.pivot(index='sampleid', columns='INTERVAL', values='PERCENT_L2R_DELETION')
+        
+        l2r_dup = cnvs_final.loc[:,['PERCENT_L2R_DUPLICATION', 'INTERVAL', 'sampleid']]
+        l2r_dup_pivot = l2r_dup.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_L2R_DUPLICATION')
+        
+        chrom_baf = chrom_baf.append(baf_pivot)
+        chrom_l2r_del = chrom_l2r_del.append(l2r_del_pivot)
+        chrom_l2r_dup = chrom_l2r_dup.append(l2r_dup_pivot)
+
+    chrom_baf.columns = [x.replace('-','_') for x in chrom_baf.columns]
+    chrom_l2r_del.columns = [x.replace('-','_') for x in chrom_l2r_del.columns]
+    chrom_l2r_dup.columns = [x.replace('-','_') for x in chrom_l2r_dup.columns]
+    chrom_baf.columns = [x.replace('.','_') for x in chrom_baf.columns]
+    chrom_l2r_del.columns = [x.replace('.','_') for x in chrom_l2r_del.columns]
+    chrom_l2r_dup.columns = [x.replace('.','_') for x in chrom_l2r_dup.columns]
+    
+    chrom_baf.to_csv(baf_out, index=True, header=True)
+    chrom_l2r_del.to_csv(lrr_del_out, index=True, header=True)
+    chrom_l2r_dup.to_csv(lrr_dup_out, index=True, header=True)
+    
+
+
+cnv_dir = f'{basedir}/cnvs'
+for chrom in chroms:
+    create_cnv_dosage_matrices(in_path=ibx_idat_dir, samples_list=samples, chromosome=chrom, out_path=cnv_dir)
+    
+    baf = f'{cnv_dir}/CNV_chr{chrom}_BAF.csv'
+    lrr_del = f'{cnv_dir}/CNV_chr{chrom}_LRR_DEL.csv'
+    lrr_dup = f'{cnv_dir}/CNV_chr{chrom}_LRR_DUP.csv'
+    
+    
+    
+def CNV_WAS(cnv_dosage_file, pheno=None, covar=None):
+    
+    if pheno & covar:
+        # will add later
+        pass
+    
+    else:
+        scaler = MinMaxScaler()
+
+        data_df = pd.read_csv(cnv_dosage_file)
+
+        data_df.loc[:,'pheno'] = pheno
+        # predictor_list = data_df.columns.to_list()
+        predictor_list = [x for x in data_df.columns if x not in ['pheno']]
+
+        results = []
+        fails = []
+
+        for predictor in range(len(predictor_list)):
+            predictor_name = predictor_list[predictor]
+            this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
+            try:
+                fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
+        #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
+                beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
+                beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
+                p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
+                results.append((predictor_name, beta_coef, beta_se, p_val))
+            except:
+                print(f'{predictor_name} did not converge!!')
+                fails.append(predictor_name)
+
+
+
+    output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL'))
