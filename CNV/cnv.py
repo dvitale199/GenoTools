@@ -221,24 +221,15 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
 
     output = pd.DataFrame(results, columns=('INTERVAL', 'NUM_VARIANTS', 'PERCENT_BAF_INSERTION', 'PERCENT_L2R_DELETION','PERCENT_L2R_DUPLICATION','START_PLUS_WINDOW','START','STOP','STOP_PLUS_WINDOW'))
     output.to_csv(out_path, index=False)
-#     pd.options.display.max_columns = 10
-#     print("A summary of your results for this sample is below.")
-#     print("Thanks for calling CNVs from genotypes with us!")
-#     desc = output.describe().T
-#     desc['count'] = desc['count'].astype(int)
-#     print(desc)
-
-
-
-######## UNDER DEVELOPMENT #########
+    
 
 def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
     
     chrom = str(chromosome)
     
-    baf_out = f'{out_path}/CNV_chr{chrom}_BAF.csv'
-    lrr_del_out = f'{out_path}/CNV_chr{chrom}_LRR_DEL.csv'
-    lrr_dup_out = f'{out_path}/CNV_chr{chrom}_LRR_DUP.csv'
+    baf_out = f'{out_path}_chr{chrom}_BAF.csv'
+    l2r_del_out = f'{out_path}_chr{chrom}_L2R_DEL.csv'
+    l2r_dup_out = f'{out_path}_chr{chrom}_L2R_DUP.csv'
     
     chrom_baf = pd.DataFrame()
     chrom_l2r_del = pd.DataFrame()
@@ -275,53 +266,138 @@ def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
     chrom_l2r_dup.columns = [x.replace('.','_') for x in chrom_l2r_dup.columns]
     
     chrom_baf.to_csv(baf_out, index=True, header=True)
-    chrom_l2r_del.to_csv(lrr_del_out, index=True, header=True)
-    chrom_l2r_dup.to_csv(lrr_dup_out, index=True, header=True)
+    chrom_l2r_del.to_csv(l2r_del_out, index=True, header=True)
+    chrom_l2r_dup.to_csv(l2r_dup_out, index=True, header=True)
+    
+    out_dict = {
+        'baf_df': chrom_baf,
+        'l2r_del_df': chrom_l2r_del,
+        'l2r_dup_df': chrom_l2r_dup,
+        'baf_path': baf_out,
+        'l2r_del_path': l2r_del_out,
+        'l2r_dup_path': l2r_dup_out
+                 }
+    
+    return out_dict
     
 
+######## UNDER DEVELOPMENT #########
 
-cnv_dir = f'{basedir}/cnvs'
-for chrom in chroms:
-    create_cnv_dosage_matrices(in_path=ibx_idat_dir, samples_list=samples, chromosome=chrom, out_path=cnv_dir)
+# create dosage matrices
+# release2_cohorts = ['BCM','UMD','SYNAPS-KZ','MDGAP-QSBB','CORIELL']
+
+# release2_key = key.loc[key.study.isin(release2_cohorts)]
+# release2_key[['FID','GP2sampleID']].to_csv(f'{cnv_path}/release2.samples', sep='\t', header=False, index=False)
+# release2_key[['GP2sampleID','IID']].to_csv(f'{cnv_path}/release2_sample_id_key.csv')
+# release2_covars = release2_key.loc[:,['FID', 'GP2sampleID','sex_for_qc', 'age', 'age_of_onset']]
+# # release2_key[['sex_for_qc', 'age', 'age_of_onset']].to_csv(f')
+
+
+# labels = ['AAC','AFR','AJ','EAS','EUR','FIN','SAS','AMR','AMR_KZ']
+# # labels = ['AAC']
+
+# with open(f'{swarm_scripts_dir}/cnv_dosages.swarm', 'w') as f:
+#     for label in labels:
+#         geno = f'{cnv_path}/GP2_round2_{label}'
+
+#         cmd1 = f'\
+#     plink \
+#     --bfile {geno} \
+#     --keep {cnv_path}/release2.samples \
+#     --make-bed \
+#     --out {geno}_release2'
+
+#         cmd2 = f'plink \
+#     --bfile {geno}_release2 \
+#     --pca \
+#     --out {geno}_release2'
+
+#         cmds = [cmd1, cmd2]
+
+#         for cmd in cmds:
+#             shell_do(cmd)
+
+#         pcs = pd.read_csv(f'{geno}_release2.eigenvec', sep='\s+')
+#         pc_num = pcs.iloc[:, 2:].shape[1]
+#         pc_names = ['FID','GP2sampleID'] + [f'PC{i}' for i in range(1, pc_num+1)]
+#         pcs.columns = pc_names
+
+#         cov = pcs.merge(release2_covars, on=['FID','GP2sampleID'], how='left')
+#         cov.age.fillna(cov.age.mean(), inplace=True)
+#         cov.age_of_onset.fillna(cov.age_of_onset.mean(), inplace=True)
+#         cov.sex_for_qc.fillna(cov.sex_for_qc.median(), inplace=True)
+#         cov.rename(columns={'sex_for_qc':'sex'})
+#         cov.to_csv(f'{geno}_release2.cov', sep='\t', header=True, index=False)
+        
+#         samples = cov.merge(release2_key[['GP2sampleID','IID']], on='GP2sampleID', how='left')
+#         samples['IID'].to_csv(f'{geno}_release2_barcode.samples', header=False, index=False)
+        
+#         for chrom in chroms:
+#             dosage_cmd = f'\
+# python /data/vitaled2/GenoTools/run_cnv_dosage_pipeline.py \
+# --metrics_in {idat_path} \
+# --chrom {chrom} \
+# --samples {geno}_release2_barcode.samples \
+# --out_path {geno}'
+#             f.write(f'{dosage_cmd}\n')
+# f.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# cnv_dir = f'{basedir}/cnvs'
+# for chrom in chroms:
+#     create_cnv_dosage_matrices(in_path=ibx_idat_dir, samples_list=samples, chromosome=chrom, out_path=cnv_dir)
     
-    baf = f'{cnv_dir}/CNV_chr{chrom}_BAF.csv'
-    lrr_del = f'{cnv_dir}/CNV_chr{chrom}_LRR_DEL.csv'
-    lrr_dup = f'{cnv_dir}/CNV_chr{chrom}_LRR_DUP.csv'
+#     baf = f'{cnv_dir}/CNV_chr{chrom}_BAF.csv'
+#     lrr_del = f'{cnv_dir}/CNV_chr{chrom}_LRR_DEL.csv'
+#     lrr_dup = f'{cnv_dir}/CNV_chr{chrom}_LRR_DUP.csv'
     
     
     
-def CNV_WAS(cnv_dosage_file, pheno=None, covar=None):
+# def CNV_WAS(cnv_dosage_file, pheno=None, covar=None):
     
-    if pheno & covar:
-        # will add later
-        pass
+#     if pheno & covar:
+#         # will add later
+#         pass
     
-    else:
-        scaler = MinMaxScaler()
+#     else:
+#         scaler = MinMaxScaler()
 
-        data_df = pd.read_csv(cnv_dosage_file)
+#         data_df = pd.read_csv(cnv_dosage_file)
 
-        data_df.loc[:,'pheno'] = pheno
-        # predictor_list = data_df.columns.to_list()
-        predictor_list = [x for x in data_df.columns if x not in ['pheno']]
+#         data_df.loc[:,'pheno'] = pheno
+#         # predictor_list = data_df.columns.to_list()
+#         predictor_list = [x for x in data_df.columns if x not in ['pheno']]
 
-        results = []
-        fails = []
+#         results = []
+#         fails = []
 
-        for predictor in range(len(predictor_list)):
-            predictor_name = predictor_list[predictor]
-            this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
-            try:
-                fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
-        #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
-                beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
-                beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
-                p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
-                results.append((predictor_name, beta_coef, beta_se, p_val))
-            except:
-                print(f'{predictor_name} did not converge!!')
-                fails.append(predictor_name)
+#         for predictor in range(len(predictor_list)):
+#             predictor_name = predictor_list[predictor]
+#             this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
+#             try:
+#                 fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
+#         #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
+#                 beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
+#                 beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
+#                 p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
+#                 results.append((predictor_name, beta_coef, beta_se, p_val))
+#             except:
+#                 print(f'{predictor_name} did not converge!!')
+#                 fails.append(predictor_name)
 
 
 
-    output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL'))
+#     output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL'))
