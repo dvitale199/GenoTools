@@ -193,8 +193,6 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
 
     # Break down L2R and BAF per gene.
 
-#     print(f"Remember, we are only calling CNVs for genes with more than {str(min_variants)} variants.")
-
     results = []
 
     interval_list = intervals_df['NAME'].unique()
@@ -206,9 +204,9 @@ def call_cnvs(snp_metrics_file, out_path, intervals_file, min_variants=10, kb_wi
       interval_START = interval_START_gene - (kb_window*1000)
       interval_STOP = interval_STOP_gene + (kb_window*1000)
       temp_df = sample_df[(sample_df['chromosome'] == interval_CHR) & (sample_df['position'] >= interval_START) & (sample_df['position'] <= interval_STOP)]
-#       print(f"Working on interval {INTERVAL} on CHR {str(interval_CHR)} from {str(interval_START)} to {str(interval_STOP)} containing {str(temp_df.shape[0])} variants within an window of +/- {str(kb_window)} kb.")
+
       if temp_df.shape[0] < min_variants:
-#         print("This interval does not meet the minimum variant count requirement.")
+
         results.append((INTERVAL, temp_df.shape[0], NaN, NaN, NaN, interval_START, interval_START_gene, interval_STOP_gene, interval_STOP))
       else:
         temp_df['BAF_insertion'] = np.where( (temp_df['BAlleleFreq'].between(0.65, 0.85, inclusive=False)) | (temp_df['BAlleleFreq'].between(0.15, 0.35, inclusive=False)), 1, 0)
@@ -279,7 +277,45 @@ def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
                  }
     
     return out_dict
+ 
     
+def CNV_WAS(cnv_dosage_file, pheno, covar):
+    
+
+    scaler = MinMaxScaler()
+
+    data_df = pd.read_csv(cnv_dosage_file)
+
+    data_df.loc[:,'pheno'] = pheno
+    # predictor_list = data_df.columns.to_list()
+    predictor_list = [x for x in data_df.columns if x not in ['pheno']]
+
+    results = []
+    fails = []
+
+    for predictor in range(len(predictor_list)):
+        predictor_name = predictor_list[predictor]
+        this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
+        try:
+            fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
+    #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
+            beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
+            beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
+            p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
+            results.append((predictor_name, beta_coef, beta_se, p_val))
+        except:
+            print(f'{predictor_name} did not converge!!')
+            fails.append(predictor_name)
+
+
+
+    output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL')) 
+    
+    
+    
+    
+    
+
 
 ######## UNDER DEVELOPMENT #########
 
@@ -366,38 +402,3 @@ def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
     
     
     
-# def CNV_WAS(cnv_dosage_file, pheno=None, covar=None):
-    
-#     if pheno & covar:
-#         # will add later
-#         pass
-    
-#     else:
-#         scaler = MinMaxScaler()
-
-#         data_df = pd.read_csv(cnv_dosage_file)
-
-#         data_df.loc[:,'pheno'] = pheno
-#         # predictor_list = data_df.columns.to_list()
-#         predictor_list = [x for x in data_df.columns if x not in ['pheno']]
-
-#         results = []
-#         fails = []
-
-#         for predictor in range(len(predictor_list)):
-#             predictor_name = predictor_list[predictor]
-#             this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
-#             try:
-#                 fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
-#         #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
-#                 beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
-#                 beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
-#                 p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
-#                 results.append((predictor_name, beta_coef, beta_se, p_val))
-#             except:
-#                 print(f'{predictor_name} did not converge!!')
-#                 fails.append(predictor_name)
-
-
-
-#     output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL'))
