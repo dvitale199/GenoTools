@@ -5,6 +5,8 @@ from numpy.core.numeric import NaN
 import pandas as pd
 import glob
 import shutil
+from sklearn.preprocessing import MinMaxScaler
+import statsmodels.api as sm
 
 # Supress copy warning.
 
@@ -279,38 +281,57 @@ def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
     return out_dict
  
     
-def CNV_WAS(cnv_dosage_file, pheno, covar):
-    
-
+def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
     scaler = MinMaxScaler()
+    dosage_df = pd.read_csv(cnv_dosage_file, sep='\t')
+    pheno_df = pd.read_csv(pheno, sep='\t')
+    covar_df = pd.read_csv(covar, sep='\t')
 
-    data_df = pd.read_csv(cnv_dosage_file)
 
-    data_df.loc[:,'pheno'] = pheno
-    # predictor_list = data_df.columns.to_list()
-    predictor_list = [x for x in data_df.columns if x not in ['pheno']]
+    if covar_df.age_of_onset.isna().all():
+        covar_df.drop(columns=['age_of_onset'], inplace=True)
+    else:
+        covar_df.loc[:,'age_of_onset'] = scaler.fit_transform(covar_df[['age_of_onset']])
+
+    if covar_df.age.isna().all():
+        covar_df.drop(columns=['age'], inplace=True)
+    else:
+        covar_df.loc[:,'age'] = scaler.fit_transform(covar_df[['age']])
+
+    if covar_df.sex_for_qc.isna().all():
+        covar_df.drop(columns=['sex_for_qc'], inplace=True)
+
+    covar_df.drop(columns=['FID'], inplace=True)
+    covar_df.rename(columns={'GP2sampleID':'sampleid'}, inplace=True)
+
+    data_df = dosage_df.merge(covar_df, on='sampleid', how='left').merge(pheno_df, on='sampleid', how='left').set_index('sampleid')
+
+    rm_pred = [f'PC{i}' for i in range(1,21)] + ['sex_for_qc','age_of_onset','age','pheno']
+
+    pred_list = [x for x in data_df.columns if x not in rm_pred]
+    covars_list = [x for x in data_df.columns if x not in pred_list + [f'PC{i}' for i in range(11,21)] + ['pheno']]
 
     results = []
     fails = []
 
-    for predictor in range(len(predictor_list)):
-        predictor_name = predictor_list[predictor]
-        this_formula = "pheno ~ " + "data_df['" + predictor_list[predictor] + "']" #+ " + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8 + PC9 + age_at_baseline + PCT_USABLE_BASES + MALE"
-        try:
-            fitted = sm.formula.glm(formula=this_formula, family=sm.families.Binomial(), data=data_df).fit()
-    #     fitted = sm.formula.logit(formula=this_formula, data=data_df).fit()
-            beta_coef  = fitted.params.loc["data_df['" + predictor_name + "']"]
-            beta_se  = fitted.bse.loc["data_df['" + predictor_name + "']"]
-            p_val = fitted.pvalues.loc["data_df['" + predictor_name + "']"]
-            results.append((predictor_name, beta_coef, beta_se, p_val))
-        except:
-            print(f'{predictor_name} did not converge!!')
-            fails.append(predictor_name)
+    for pred in range(len(pred_list)):
+        pred_name = pred_list[pred]
+        formula = "pheno ~ " + pred_name + " + " + ' + '.join(covars_list)
+
+        fitted = sm.formula.glm(formula=formula, family=sm.families.Binomial(), data=data_df).fit()
+        beta_coef  = fitted.params.loc[pred_name]
+        beta_se  = fitted.bse.loc[pred_name]
+        p_val = fitted.pvalues.loc[pred_name]
+
+        results.append((pred_name, beta_coef, beta_se, p_val))
 
 
-
-    output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL')) 
+    output = pd.DataFrame(results, columns=('PREDICTOR', 'BETA_COEF', 'BETA_SE','P_VAL'))
+    output.to_csv(out_path, sep='\t', header=True, index=False)
     
+    
+
+
     
     
     
