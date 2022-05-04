@@ -22,7 +22,7 @@ out_path = args.out
 outdir = os.path.dirname(out_path)
 plot_dir = f'{outdir}/plot_ancestry'
 
-raw = get_raw_files(geno_path=geno_path, ref_path=ref_panel, labels_path=ref_labels, out_path=out_path)
+raw = get_raw_files(geno_path=geno_path, ref_path=ref_panel, labels_path=ref_labels, out_path=out_path, train=True)
 
 train_split = munge_training_data(labeled_ref_raw=raw['raw_ref'])
 
