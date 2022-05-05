@@ -10,6 +10,11 @@ import sys
 # local imports
 from QC.utils import shell_do, rm_tmps, count_file_lines
 
+import dependencies
+
+plink_exec = dependencies.check_plink()
+plink2_exec = dependencies.check_plink2()
+
 
 ################ Sample pruning methods ####################
 def callrate_prune(geno_path, out_path, mind=0.02):
@@ -27,7 +32,7 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None)
 #     fam[[0,1,5]].to_csv(phenos_out, sep='\t', header=False, index=False)
     
-    plink_cmd1 = f"plink --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
+    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
 
     shell_do(plink_cmd1)
     
@@ -76,8 +81,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     sex_fails = f"{out_path}.outliers"
 
     # check sex 2 methods
-    plink_cmd1 = f"plink --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
-    plink_cmd2 = f"plink --bfile {geno_path} --chr 23 --from-bp 2699520 --to-bp 154931043 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
+    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
+    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --chr 23 --from-bp 2699520 --to-bp 154931043 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
 
     cmds = [plink_cmd1, plink_cmd2]
     for cmd in cmds:
@@ -97,7 +102,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 
     # remove sex fail samples from geno
-    plink_cmd3 = f"plink --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+    plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
     
     shell_do(plink_cmd3)
     
@@ -136,9 +141,9 @@ def het_prune(geno_path, out_path):
     het_tmp3 = f"{out_path}_tmp3"
     outliers_out = f"{out_path}.outliers"
     
-    plink_cmd1 = f"plink --bfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
-    plink_cmd2 = f"plink --bfile {geno_path} --extract {het_tmp}.prune.in --make-bed --out {het_tmp2}"
-    plink_cmd3 = f"plink --bfile {het_tmp2} --het --out {het_tmp3}"
+    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
+    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {het_tmp}.prune.in --make-bed --out {het_tmp2}"
+    plink_cmd3 = f"{plink2_exec} --bfile {het_tmp2} --het --out {het_tmp3}"
 
     cmds1 = [plink_cmd1, plink_cmd2, plink_cmd3]
 
@@ -154,7 +159,7 @@ def het_prune(geno_path, out_path):
         outlier_count = het_outliers.shape[0]
         het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
     
-        plink_cmd4 = f"plink --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+        plink_cmd4 = f"{plink2_exec}--bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
         shell_do(plink_cmd4)
 
@@ -242,10 +247,10 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     
     
     if prune_related and prune_duplicated:
-        plink_cmd1 = f"plink --bfile {geno_path} --keep {grm2}.grm.id --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --keep {grm2}.grm.id --make-bed --out {out_path}"
         
     if prune_duplicated and not prune_related:
-        plink_cmd1 = f"plink --bfile {geno_path} --keep {grm3}.grm.id --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --keep {grm3}.grm.id --make-bed --out {out_path}"
     
     if not prune_related and not prune_duplicated:
         plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
@@ -353,7 +358,7 @@ def variant_prune(geno_path, out_path):
     initial_snp_count = count_file_lines(f'{geno_path}.bim')
     
     # variant missingness
-    plink_cmd1 = f"plink --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
+    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
     shell_do(plink_cmd1)
     
     # geno pruned count
@@ -365,7 +370,7 @@ def variant_prune(geno_path, out_path):
     # check if this contains both cases and controls
     if  all(x in fam['case'].unique() for x in [1, 2]):
         #missingness by case control (--test-missing), using P > 1E-4
-        plink_cmd2 = f"plink --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
+        plink_cmd2 = f"{plink_exec} --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
         shell_do(plink_cmd2)
 
         mis1 = f'{mis_tmp1}.missing'
@@ -375,7 +380,7 @@ def variant_prune(geno_path, out_path):
             exclude = mis[mis.P <= 0.0001].loc[:,'SNP']
             exclude.to_csv(f'{mis_tmp1}.exclude', sep='\t', header=False, index=False)
 
-            plink_cmd3 = f"plink --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
+            plink_cmd3 = f"{plink2_exec} --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
             shell_do(plink_cmd3)
 
             # mis purned count
@@ -394,7 +399,7 @@ def variant_prune(geno_path, out_path):
             mis_tmp2 = geno_tmp1
 
         # missingness by haplotype (--test-mishap), using P > 1E-4
-        plink_cmd4 = f"plink --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
+        plink_cmd4 = f"{plink_exec} --bfile {mis_tmp2} --test-mishap --out {hap_tmp1}"
         shell_do(plink_cmd4)
 
         # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
@@ -403,11 +408,11 @@ def variant_prune(geno_path, out_path):
         snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
         snp_ls_df['snp'].to_csv(f'{hap_tmp1}.exclude',sep='\t', header=False, index=False)
 
-        plink_cmd5 = f"plink --bfile {mis_tmp2} --exclude {hap_tmp1}.exclude --make-bed --out {hap_tmp2}"
+        plink_cmd5 = f"{plink2_exec} --bfile {mis_tmp2} --exclude {hap_tmp1}.exclude --make-bed --out {hap_tmp2}"
 
         # HWE from controls only using P > 1E-4
-        plink_cmd6 = f"plink --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
-        plink_cmd7 = f"plink --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
+        plink_cmd6 = f"{plink_exec} --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
+        plink_cmd7 = f"{plink2_exec} --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
 
         cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
         for cmd in cmds3:
@@ -471,11 +476,7 @@ def variant_prune(geno_path, out_path):
 
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
-    plink_miss_cmd = f'\
-plink \
---bfile {geno_path} \
---missing \
---out {out_path}'
+    plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
 

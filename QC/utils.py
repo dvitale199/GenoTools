@@ -7,6 +7,11 @@ import os
 import shutil
 import pandas as pd
 
+import dependencies
+
+plink_exec = dependencies.check_plink()
+plink2_exec = dependencies.check_plink2()
+
 def shell_do(command, log=False, return_log=False):
     print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
 
@@ -20,13 +25,13 @@ def shell_do(command, log=False, return_log=False):
 
 def merge_genos(geno_path1, geno_path2, out_name):
     # attempt 1 at merging genos
-    bash1 = f"plink --bfile {geno_path1} --allow-no-sex --bmerge {geno_path2} --out {out_name} --make-bed"
+    bash1 = f"{plink_exec} --bfile {geno_path1} --allow-no-sex --bmerge {geno_path2} --out {out_name} --make-bed"
     shell_do(bash1)
 
     # if {outname}-merge.missnp file created, snps need to be flipped and merge tried again
     if os.path.isfile(f'{out_name}-merge.missnp'):
-        bash2 = f"plink --bfile {geno_path1} --allow-no-sex --flip {out_name}-merge.missnp --make-bed --out {geno_path1}_flip"
-        bash3 = f"plink --bfile {geno_path1}_flip --allow-no-sex --bmerge {geno_path2} --out {out_name}_flip --make-bed"
+        bash2 = f"{plink_exec} --bfile {geno_path1} --allow-no-sex --flip {out_name}-merge.missnp --make-bed --out {geno_path1}_flip"
+        bash3 = f"{plink_exec} --bfile {geno_path1}_flip --allow-no-sex --bmerge {geno_path2} --out {out_name}_flip --make-bed"
 
         cmds1 = [bash2, bash3]
 
@@ -35,8 +40,8 @@ def merge_genos(geno_path1, geno_path2, out_name):
 
         #if another -merge.missnp file is created, these are likely triallelic positions and must be excluded and then try merge again
         if os.path.isfile(f'{geno_path1}_flip-merge.missnp'):
-            bash4 = f"plink --bfile {geno_path1}_flip --allow-no-sex --exclude {out_name}_flip-merge.missnp --out {geno_path1}_flip_pruned --make-bed"
-            bash5 = f"plink --bfile {geno_path1}_flip_pruned --allow-no-sex --bmerge {geno_path2} --out  {out_name} --make-bed"
+            bash4 = f"{plink_exec} --bfile {geno_path1}_flip --allow-no-sex --exclude {out_name}_flip-merge.missnp --out {geno_path1}_flip_pruned --make-bed"
+            bash5 = f"{plink_exec} --bfile {geno_path1}_flip_pruned --allow-no-sex --bmerge {geno_path2} --out  {out_name} --make-bed"
 
             cmds2 = [bash4, bash5]
 
@@ -57,8 +62,8 @@ def merge_genos(geno_path1, geno_path2, out_name):
         
 def ld_prune(geno_path, out_name, window_size=1000, step_size=50, rsq_thresh=0.05):
     # now prune for LD
-    ld_prune1 = f'plink --bfile {geno_path} --allow-no-sex --indep-pairwise {window_size} {step_size} {rsq_thresh} --autosome --out {geno_path}_pruned_data'
-    ld_prune2 = f'plink --bfile {geno_path} --allow-no-sex --extract {geno_path}_pruned_data.prune.in --make-bed --out {out_name}'
+    ld_prune1 = f'{plink_exec} --bfile {geno_path} --allow-no-sex --indep-pairwise {window_size} {step_size} {rsq_thresh} --autosome --out {geno_path}_pruned_data'
+    ld_prune2 = f'{plink_exec} --bfile {geno_path} --allow-no-sex --extract {geno_path}_pruned_data.prune.in --make-bed --out {out_name}'
 
     ld_prune_cmds = [ld_prune1, ld_prune2]
 
@@ -72,7 +77,7 @@ def random_sample_snps(geno_path, out_name, n=10000):
     ref_panel_random_sample = bim.sample(n, random_state=123)
     ref_panel_random_sample.to_csv(rand_samp_snplist, header=False, index=False, sep='\t')
 
-    rand_sample_cmd = f'plink --bfile {geno_path} --allow-no-sex --extract {rand_samp_snplist} --autosome --make-bed --out {out_name}'
+    rand_sample_cmd = f'{plink_exec} --bfile {geno_path} --allow-no-sex --extract {rand_samp_snplist} --autosome --make-bed --out {out_name}'
     
     shell_do(rand_sample_cmd)
     
@@ -94,7 +99,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
     
-    ext_snps_cmd = f'plink --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
+    ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     
     shell_do(ext_snps_cmd)
 
