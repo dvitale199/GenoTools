@@ -116,7 +116,7 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         fig.write_html(f'{plot_out}.html')
 
 
-def get_raw_files(geno_path, ref_path, labels_path, out_path):
+def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     step = "get_raw_files"
     print()
     print(f"RUNNING: {step}")
@@ -125,23 +125,27 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     outdir = os.path.dirname(out_path)
     out_paths = {}
 
-    # callrate prune ref panel and geno before getting common snps
-    ref_prune_path = f'{outdir}/ref_callrate_pruned'
-    ref_prune_cmd = f'plink --bfile {ref_path} --geno 0.1 --make-bed --out {ref_prune_path}'
-    shell_do(ref_prune_cmd)
-    out_paths['ref_pruned_bed'] = ref_prune_path
-
-    geno_prune_path = f'{out_path}_callrate_pruned'
+    # variant prune geno before getting common snps
+    geno_prune_path = f'{out_path}_variant_pruned'
     geno_prune_cmd = f'plink --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
     shell_do(geno_prune_cmd)
     out_paths['geno_pruned_bed'] = geno_prune_path
 
-    # get common snps between ref panel and geno
     ref_common_snps = f'{outdir}/ref_common_snps'
-    common_snps_files = get_common_snps(ref_prune_path, geno_prune_path, ref_common_snps)
+    common_snps_file = f'{ref_common_snps}.common_snps'
 
-    # add common_snps_files output paths to out_paths
-    out_paths = {**out_paths, **common_snps_files}
+    # during training get common snps between ref panel and geno
+    if train:
+        common_snps_files = get_common_snps(ref_path, geno_prune_path, ref_common_snps)
+        # add common_snps_files output paths to out_paths
+        out_paths = {**out_paths, **common_snps_files}
+    # otherwise extract common snps from training
+    else:
+        extract_cmd = f'plink --bfile {ref_path} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+        shell_do(extract_cmd)
+        # add to out_paths (same as common_snps_files)
+        out_paths['common_snps'] = common_snps_file
+        out_paths['bed'] = ref_common_snps
 
     # get raw version of common snps - reference panel
     raw_ref_cmd = f'{plink2} --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
@@ -150,10 +154,14 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     # read in raw common snps
     ref_raw = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
 
-    # separate IDs and SNPs
+    # separate IDs and snps
     ref_ids = ref_raw[['FID','IID']]
     ref_snps = ref_raw.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
     
+    # change snp column names to avoid sklearn warning/future error
+    ref_snps.columns = ref_snps.columns.str.extract('(.*)_')[0]
+
+    # col names to set post-imputation
     col_names = ['FID','IID'] + list(ref_snps.columns)
 
     # mean imputation for missing SNPs data
@@ -188,12 +196,9 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     out_paths['ref_alleles'] = ref_common_snps_ref_alleles
 
     geno_common_snps = f'{out_path}_common_snps'
-    common_snps = f'{ref_common_snps}.common_snps'
-    ref_common_snps_bim[['rsid']].to_csv(f'{geno_common_snps}.txt', sep='\t', header=False, index=False)
-    out_paths['geno_common_snps_bed'] = geno_common_snps
 
     # extracting common snps
-    ext_snps_cmd = f'{plink2} --bfile {geno_prune_path} --extract {common_snps} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+    ext_snps_cmd = f'{plink2} --bfile {geno_prune_path} --extract {common_snps_file} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
 
     shell_do(ext_snps_cmd)
 
@@ -207,6 +212,17 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path):
     # separate IDs and SNPs
     geno_ids = raw_geno[['FID','IID']]
     geno_snps = raw_geno.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
+
+    # change col names to match ref
+    geno_snps.columns = geno_snps.columns.str.extract('(.*)_')[0]
+
+    # adding missing snps when not training
+    if not train:
+        for col in ref_snps.columns:
+            if col not in geno_snps.columns:
+                geno_snps[col] = 0
+        # reordering columns to match ref for imputation
+        geno_snps = geno_snps[ref_snps.columns]
 
     # mean imputation for missing SNPs data
     geno_snps = mean_imp.fit_transform(geno_snps)
@@ -696,11 +712,17 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     # create directories if not already in existence
     # os.makedirs(plot_dir, exist_ok=True)
 
+    if model_path:
+        train=False
+    else:
+        train=True
+
     raw = get_raw_files(
         geno_path=geno_path,
         ref_path=ref_panel,
         labels_path=ref_labels,
-        out_path=out_path
+        out_path=out_path,
+        train=train
     )
 
     train_split = munge_training_data(labeled_ref_raw=raw['raw_ref'])
