@@ -81,8 +81,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     sex_fails = f"{out_path}.outliers"
 
     # check sex 2 methods
-    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
-    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --chr 23 --from-bp 2699520 --to-bp 154931043 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
+    plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
+    plink_cmd2 = f"{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2699520 --to-bp 154931043 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
 
     cmds = [plink_cmd1, plink_cmd2]
     for cmd in cmds:
