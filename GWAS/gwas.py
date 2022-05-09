@@ -381,7 +381,7 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
     return out_dict
 
 
-def munge(geno_path, out_path, assoc, ref_panel):
+def munge(geno_path, out_path, assoc, ref_panel, model):
 
     # what step are we running?
     step = 'munge'
@@ -426,9 +426,13 @@ def munge(geno_path, out_path, assoc, ref_panel):
         maf_df.BETA = np.where(maf_df.freq > 0.5, -maf_df.BETA, maf_df.BETA)
         maf_df.freq = np.where(maf_df.freq > 0.5, 1-maf_df.freq, maf_df.freq)
 
-        # rename columns and isolate needed ones
-        maf_df = maf_df.rename(columns={'#CHROM_x':'chr','POS':'bp','ID':'SNP',
-                                        'OBS_CT_x':'n','P':'p','BETA':'b','LOG(OR)_SE':'se'})
+        # rename columns and isolate needed ones (SE column is different for binary and continuous phenos)
+        rename_dict = {'#CHROM_x':'chr','POS':'bp','ID':'SNP','OBS_CT_x':'n','P':'p','BETA':'b'}
+        if model == 'logistic':
+            rename_dict['LOG(OR)_SE'] = 'se'
+        else:
+            rename_dict['SE'] = 'se'
+        maf_df = maf_df.rename(columns=rename_dict)
         maf_df = maf_df.loc[:,['SNP','chr','bp','A1','A2','freq','b','se','p','n']]
 
         # read in reference panel .bim and create ID
