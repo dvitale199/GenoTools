@@ -21,8 +21,11 @@ import joblib
 
 #local imports
 from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
-# plink2 = f'{os.path.dirname(os.path.abspath(__file__))}/../exec/plink2'
-plink2 = './plink2'
+
+import dependencies
+
+plink_exec = dependencies.check_plink()
+plink2_exec = dependencies.check_plink2()
 
 def ancestry_prune(geno_path, out_path=None):
     '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.
@@ -50,7 +53,7 @@ def ancestry_prune(geno_path, out_path=None):
     palindromes = geno_bim.loc[((geno_bim.a1 == 'A') & (geno_bim.a2 == 'T')) | ((geno_bim.a1 == 'T') & (geno_bim.a2 == 'A')) | ((geno_bim.a1 == 'C') & (geno_bim.a2 == 'G')) | ((geno_bim.a1 == 'G') & (geno_bim.a2 == 'C'))]
     palindromes['rsid'].to_csv(f'{geno_path}_palindromes.snplist', header=False, index=False, sep='\t')
 
-    plink_cmd1 = f'plink --bfile {geno_path}\
+    plink_cmd1 = f'{plink_exec} --bfile {geno_path}\
      --maf 0.05\
      --geno 0.01\
      --hwe 0.0001\
@@ -61,7 +64,7 @@ def ancestry_prune(geno_path, out_path=None):
      --out {geno_ancestry_prune_tmp}' 
 
     # exclude high-LD regions
-    plink_cmd2 = f'plink --bfile {geno_ancestry_prune_tmp}\
+    plink_cmd2 = f'{plink_exec} --bfile {geno_ancestry_prune_tmp}\
      --exclude range ref_data/hg19_exclusion_regions.txt\
      --autosome\
      --allow-no-sex\
@@ -127,7 +130,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
 
     # variant prune geno before getting common snps
     geno_prune_path = f'{out_path}_variant_pruned'
-    geno_prune_cmd = f'plink --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
+    geno_prune_cmd = f'{plink2_exec} --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
     shell_do(geno_prune_cmd)
     out_paths['geno_pruned_bed'] = geno_prune_path
 
@@ -141,14 +144,14 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         out_paths = {**out_paths, **common_snps_files}
     # otherwise extract common snps from training
     else:
-        extract_cmd = f'plink --bfile {ref_path} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+        extract_cmd = f'{plink2_exec} --bfile {ref_path} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
         shell_do(extract_cmd)
         # add to out_paths (same as common_snps_files)
         out_paths['common_snps'] = common_snps_file
         out_paths['bed'] = ref_common_snps
 
     # get raw version of common snps - reference panel
-    raw_ref_cmd = f'{plink2} --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
+    raw_ref_cmd = f'{plink2_exec} --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
     shell_do(raw_ref_cmd)
 
     # read in raw common snps
@@ -198,12 +201,12 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     geno_common_snps = f'{out_path}_common_snps'
 
     # extracting common snps
-    ext_snps_cmd = f'{plink2} --bfile {geno_prune_path} --extract {common_snps_file} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
+    ext_snps_cmd = f'{plink2_exec} --bfile {geno_prune_path} --extract {common_snps_file} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
 
     shell_do(ext_snps_cmd)
 
     # getting raw version of common snps - genotype
-    raw_geno_cmd = f'{plink2} --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
+    raw_geno_cmd = f'{plink2_exec} --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
     shell_do(raw_geno_cmd)
 
     # read in raw genotypes
@@ -551,7 +554,7 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     
     # plink command to keep only training set and new ids for running admixture
     keep_out = f'{out_path}_merge_train'
-    keep_cmd = f'plink --bfile {merged_geno_path} --keep {combined_labels_path} --make-bed --out {keep_out}'
+    keep_cmd = f'{plink2_exec} --bfile {merged_geno_path} --keep {combined_labels_path} --make-bed --out {keep_out}'
     shell_do(keep_cmd)
 
     # read in fam file to match up labels
@@ -683,11 +686,7 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
         ancestry_group_outpath = f'{outname}.samples'
         pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-        plink_cmd = f'\
-plink --bfile {geno_path} \
---keep {ancestry_group_outpath} \
---make-bed \
---out {outname}'
+        plink_cmd = f'{plink2_exec} --bfile {geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
 
         shell_do(plink_cmd)
     

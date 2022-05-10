@@ -8,6 +8,10 @@ from scipy.stats import ncx2
 
 from QC.utils import shell_do
 
+import dependencies
+
+plink_exec = dependencies.check_plink()
+plink2_exec = dependencies.check_plink2()
 
 def plink_pca(geno_path, out_path, n_pcs=10):
 
@@ -18,11 +22,7 @@ def plink_pca(geno_path, out_path, n_pcs=10):
     print()
 
     # run pca
-    pca_cmd = f' \
-    plink2 \
-    --bfile {geno_path} \
-    --pca {n_pcs} \
-    --out {out_path}'
+    pca_cmd = f'{plink2_exec} --bfile {geno_path} --pca {n_pcs} --out {out_path}'
 
     shell_do(pca_cmd)
 
@@ -134,7 +134,7 @@ def assoc(geno_path, covar_path, out_path, model):
         else:
             # run association
             assoc_cmd = f'\
-            plink2 \
+            {plink2_exec} \
             --bfile {geno_path} \
             --covar {covar_path} \
             --{model} \
@@ -221,7 +221,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
 
     # run clump - not yet supported by plink2
     clump_cmd = f'\
-    plink \
+    {plink_exec} \
     --bfile {geno_path} \
     --clump-p1 {clump_p1} \
     --clump-r2 {clump_r2} \
@@ -265,7 +265,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
 
         # run PRS
         prs_cmd = f'\
-        plink2 \
+        {plink2_exec} \
         --bfile {geno_path} \
         --score {weights} 1 2 3 \
         --q-score-range {range} {snp_pvals} \
@@ -390,11 +390,7 @@ def munge(geno_path, out_path, assoc, ref_panel, model):
     print()
 
     # get plink frequency report
-    freq_cmd = f'\
-    plink2 \
-    --bfile {geno_path} \
-    --freq \
-    --out {out_path}'
+    freq_cmd = f'{plink2_exec} --bfile {geno_path} --freq --out {out_path}'
 
     shell_do(freq_cmd)
 
