@@ -29,7 +29,7 @@ def get_vcf_names(vcf_path):
 def process_vcf_snps(vcf, out_path):
 
     # out_colnames = ['CHROM','POS','ID','REF','ALT','sampleid','BAF','LRR']
-    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA']
+    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA', 'GenTrain_Score']
 
     variant_metrics_out_df = pd.DataFrame(columns=out_colnames)
     variant_metrics_out_df.to_csv(out_path, header=True, index=False)
@@ -40,16 +40,30 @@ def process_vcf_snps(vcf, out_path):
     IIDs = [x for x in names if x not in ['#CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO','FORMAT']]
 
     for chunk in vcf:
-
         chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
         chunk_melt = chunk.melt(id_vars=['CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO'], value_vars=IIDs, value_name='metrics')
         chunk_melt[['GT','GQ','IGC','BAF','LRR','NORMX','NORMY','R','THETA','X','Y']] = chunk_melt.metrics.str.split(':', expand=True)
+        chunk_melt.loc[:,'GenTrain_Score'] = chunk_melt.INFO.str.split(';',expand=True).iloc[:,10].str.replace('GenTrain_Score=','')
+        chunk_melt.loc[:,'ALLELE_A'] = chunk_melt.INFO.str.split(';',expand=True).iloc[:,1].str.replace('ALLELE_A=','')
+        chunk_melt.loc[:,'ALLELE_B'] = chunk_melt.INFO.str.split(';',expand=True).iloc[:,2].str.replace('ALLELE_B=','')
         chunk_melt.drop(columns=['QUAL','FILTER','INFO','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
         chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
-    #     print(chunk_melt)
         chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
-        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','BAF','LRR', 'R', 'THETA']]
-        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta']
+        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA']]
+        chunk_final.loc[:, 'GType'] = chunk_final['GT'].map(gtype_map)
+        chunk_final.drop(columns=['GT'], inplace=True)
+        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GType']
+        
+
+#         chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
+#         chunk_melt = chunk.melt(id_vars=['CHROM','POS','ID','REF','ALT','QUAL','FILTER','INFO'], value_vars=IIDs, value_name='metrics')
+#         chunk_melt[['GT','GQ','IGC','BAF','LRR','NORMX','NORMY','R','THETA','X','Y']] = chunk_melt.metrics.str.split(':', expand=True)
+#         chunk_melt.drop(columns=['QUAL','FILTER','INFO','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
+#         chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
+#     #     print(chunk_melt)
+#         chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
+#         chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','BAF','LRR', 'R', 'THETA']]
+#         chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta']
 
         chunk_final.to_csv(out_path, header=False, index=False, mode='a')
 
@@ -63,12 +77,15 @@ def clean_snp_metrics(metrics_in, out_path):
                          'position':int,
                          'snpID':str,
                          'Sample_ID':str,
-                         'Allele1':str,
-                         'Allele2':str,
+                         'Ref':str,
+                         'Alt':str,
+                         'ALLELE_A':str,
+                         'ALLELE_B':str,
                          'BAlleleFreq':float,
                          'LogRRatio':float,
                          'R':float,
-                         'Theta':float
+                         'Theta':float,
+                         'GType':str
                      })
 
     for iid in df.Sample_ID.unique():
