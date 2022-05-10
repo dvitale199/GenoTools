@@ -14,6 +14,7 @@ import dependencies
 
 plink_exec = dependencies.check_plink()
 plink2_exec = dependencies.check_plink2()
+gcta_exec = dependencies.check_gcta()
 
 
 ################ Sample pruning methods ####################
@@ -239,11 +240,11 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     grm3 = f"{out_path}_duplicated_grm"
     
     # calculate grm and select relatedness <= grm_cutoff
-    gcta_cmd1 = f"gcta --bfile {geno_path} --autosome --maf 0.05 --make-grm --out {grm1}" 
+    gcta_cmd1 = f"{gcta_exec} --bfile {geno_path} --autosome --maf 0.05 --make-grm --out {grm1}" 
     # see if any samples are related (includes duplicates)
-    gcta_cmd2 = f"gcta --grm {grm1} --grm-cutoff {related_grm_cutoff} --make-grm --out {grm2}"
+    gcta_cmd2 = f"{gcta_exec} --grm {grm1} --grm-cutoff {related_grm_cutoff} --make-grm --out {grm2}"
     # see if any samples are duplicated (grm cutoff >= 0.95)
-    gcta_cmd3 = f"gcta --grm {grm1} --grm-cutoff {duplicated_grm_cutoff} --make-grm --out {grm3}"
+    gcta_cmd3 = f"{gcta_exec} --grm {grm1} --grm-cutoff {duplicated_grm_cutoff} --make-grm --out {grm3}"
     
     
     if prune_related and prune_duplicated:
