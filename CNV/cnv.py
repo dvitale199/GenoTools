@@ -50,7 +50,10 @@ def process_vcf_snps(vcf, out_path):
         chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
         chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
         chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA']]
-        chunk_final.loc[:, 'GType'] = chunk_final['GT'].map(gtype_map)
+        
+        gtype_map = {'0/0':'AA', '0/1':'AB', '1/1':'BB', './.':'NC'}
+        
+        chunk_final.loc[:,'GType'] = chunk_final['GT'].map(gtype_map)
         chunk_final.drop(columns=['GT'], inplace=True)
         chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GType']
         
