@@ -8,10 +8,10 @@ from scipy.stats import ncx2
 
 from QC.utils import shell_do
 
-import dependencies
+from utils.dependencies import check_plink, check_plink2
 
-plink_exec = dependencies.check_plink()
-plink2_exec = dependencies.check_plink2()
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def plink_pca(geno_path, out_path, n_pcs=10):
 

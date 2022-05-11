@@ -22,10 +22,10 @@ import joblib
 #local imports
 from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
 
-import dependencies
+from utils.dependencies import check_plink, check_plink2
 
-plink_exec = dependencies.check_plink()
-plink2_exec = dependencies.check_plink2()
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def ancestry_prune(geno_path, out_path=None):
     '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.

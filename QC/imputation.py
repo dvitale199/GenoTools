@@ -10,10 +10,10 @@ import shutil
 # local imports
 from QC.utils import shell_do
 
-import dependencies
+from utils.dependencies import check_plink, check_plink2
 
-plink_exec = dependencies.check_plink()
-plink2_exec = dependencies.check_plink2()
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
