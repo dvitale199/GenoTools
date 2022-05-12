@@ -29,7 +29,7 @@ def get_vcf_names(vcf_path):
 def process_vcf_snps(vcf, out_path):
 
     # out_colnames = ['CHROM','POS','ID','REF','ALT','sampleid','BAF','LRR']
-    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA', 'GenTrain_Score']
+    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GenTrain_Score', 'GType']
 
     variant_metrics_out_df = pd.DataFrame(columns=out_colnames)
     variant_metrics_out_df.to_csv(out_path, header=True, index=False)
@@ -49,13 +49,12 @@ def process_vcf_snps(vcf, out_path):
         chunk_melt.drop(columns=['QUAL','FILTER','INFO','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
         chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
         chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
-        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA']]
-        
+        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA', 'GenTrain_Score']]
         gtype_map = {'0/0':'AA', '0/1':'AB', '1/1':'BB', './.':'NC'}
         
         chunk_final.loc[:,'GType'] = chunk_final['GT'].map(gtype_map)
         chunk_final.drop(columns=['GT'], inplace=True)
-        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GType']
+        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GenTrain_Score', 'GType']
         
 
 #         chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
@@ -88,6 +87,7 @@ def clean_snp_metrics(metrics_in, out_path):
                          'LogRRatio':float,
                          'R':float,
                          'Theta':float,
+                         'GenTrain_Score':float,
                          'GType':str
                      })
 
