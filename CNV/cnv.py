@@ -273,11 +273,15 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
         l2r_dup = cnvs_final.loc[:,['PERCENT_L2R_DUPLICATION', 'INTERVAL', 'sampleid']]
         l2r_dup_pivot = l2r_dup.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_L2R_DUPLICATION')
         
-        baf_ = chrom_baf.append(baf_pivot)
-        l2r_del_ = chrom_l2r_del.append(l2r_del_pivot)
-        l2r_dup_ = chrom_l2r_dup.append(l2r_dup_pivot)
+        baf_ = pd.concat([baf_, baf_pivot], ignore_index=True)
+        l2r_del_ = pd.concat([l2r_del_, l2r_del_pivot], ignore_index=True)
+        l2r_dup_ = pd.concat([l2r_dup_, l2r_dup_pivot], ignore_index=True)
+        
+#         baf_ = baf_.append(baf_pivot)
+#         l2r_del_ = l2r_del_.append(l2r_del_pivot)
+#         l2r_dup_ =l2r_dup_.append(l2r_dup_pivot)
 
-    baf_.columns = [x.replace('-','_') for x in _baf.columns]
+    baf_.columns = [x.replace('-','_') for x in baf_.columns]
     l2r_del_.columns = [x.replace('-','_') for x in l2r_del_.columns]
     l2r_dup_.columns = [x.replace('-','_') for x in l2r_dup_.columns]
     baf_.columns = [x.replace('.','_') for x in baf_.columns]
