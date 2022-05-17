@@ -273,9 +273,9 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
         l2r_dup = cnvs_final.loc[:,['PERCENT_L2R_DUPLICATION', 'INTERVAL', 'sampleid']]
         l2r_dup_pivot = l2r_dup.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_L2R_DUPLICATION')
         
-        baf_ = pd.concat([baf_, baf_pivot], ignore_index=True)
-        l2r_del_ = pd.concat([l2r_del_, l2r_del_pivot], ignore_index=True)
-        l2r_dup_ = pd.concat([l2r_dup_, l2r_dup_pivot], ignore_index=True)
+        baf_ = pd.concat([baf_, baf_pivot])
+        l2r_del_ = pd.concat([l2r_del_, l2r_del_pivot])
+        l2r_dup_ = pd.concat([l2r_dup_, l2r_dup_pivot])
         
 #         baf_ = baf_.append(baf_pivot)
 #         l2r_del_ = l2r_del_.append(l2r_del_pivot)
@@ -363,7 +363,7 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
     
 def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
     scaler = MinMaxScaler()
-    dosage_df = pd.read_csv(cnv_dosage_file, sep='\t')
+    dosage_df = pd.read_csv(cnv_dosage_file)
     pheno_df = pd.read_csv(pheno, sep='\t')
     covar_df = pd.read_csv(covar, sep='\t')
 
@@ -378,15 +378,15 @@ def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
     else:
         covar_df.loc[:,'age'] = scaler.fit_transform(covar_df[['age']])
 
-    if covar_df.sex_for_qc.isna().all():
-        covar_df.drop(columns=['sex_for_qc'], inplace=True)
+    if covar_df.sex.isna().all():
+        covar_df.drop(columns=['sex'], inplace=True)
 
     covar_df.drop(columns=['FID'], inplace=True)
     covar_df.rename(columns={'GP2sampleID':'sampleid'}, inplace=True)
 
     data_df = dosage_df.merge(covar_df, on='sampleid', how='left').merge(pheno_df, on='sampleid', how='left').set_index('sampleid')
 
-    rm_pred = [f'PC{i}' for i in range(1,21)] + ['sex_for_qc','age_of_onset','age','pheno']
+    rm_pred = [f'PC{i}' for i in range(1,21)] + ['sex','age_of_onset','age','pheno']
 
     pred_list = [x for x in data_df.columns if x not in rm_pred]
     covars_list = [x for x in data_df.columns if x not in pred_list + [f'PC{i}' for i in range(11,21)] + ['pheno']]
