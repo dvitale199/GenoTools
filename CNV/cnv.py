@@ -29,7 +29,7 @@ def get_vcf_names(vcf_path):
 def process_vcf_snps(vcf, out_path):
 
     # out_colnames = ['CHROM','POS','ID','REF','ALT','sampleid','BAF','LRR']
-    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'GT', 'BAlleleFreq', 'LogRRatio', 'R', 'THETA', 'GenTrain_Score']
+    out_colnames = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GenTrain_Score', 'GType']
 
     variant_metrics_out_df = pd.DataFrame(columns=out_colnames)
     variant_metrics_out_df.to_csv(out_path, header=True, index=False)
@@ -49,13 +49,12 @@ def process_vcf_snps(vcf, out_path):
         chunk_melt.drop(columns=['QUAL','FILTER','INFO','GQ','IGC','NORMX','NORMY','X','Y','metrics'], inplace=True)
         chunk_melt.rename(columns={'variable':'sampleid'}, inplace=True)
         chunk_melt.loc[:,'CHROM'] = chunk_melt['CHROM'].astype(str).str.replace('chr','')
-        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA']]
-        
+        chunk_final = chunk_melt.loc[:,['CHROM','POS','ID','sampleid','REF','ALT','GT','ALLELE_A','ALLELE_B','BAF','LRR', 'R', 'THETA', 'GenTrain_Score']]
         gtype_map = {'0/0':'AA', '0/1':'AB', '1/1':'BB', './.':'NC'}
         
         chunk_final.loc[:,'GType'] = chunk_final['GT'].map(gtype_map)
         chunk_final.drop(columns=['GT'], inplace=True)
-        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GType']
+        chunk_final.columns = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Ref', 'Alt','ALLELE_A','ALLELE_B', 'BAlleleFreq', 'LogRRatio', 'R', 'Theta', 'GenTrain_Score', 'GType']
         
 
 #         chunk.rename(columns={'#CHROM':'CHROM'}, inplace=True)
@@ -88,6 +87,7 @@ def clean_snp_metrics(metrics_in, out_path):
                          'LogRRatio':float,
                          'R':float,
                          'Theta':float,
+                         'GenTrain_Score':float,
                          'GType':str
                      })
 
@@ -273,11 +273,15 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
         l2r_dup = cnvs_final.loc[:,['PERCENT_L2R_DUPLICATION', 'INTERVAL', 'sampleid']]
         l2r_dup_pivot = l2r_dup.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_L2R_DUPLICATION')
         
-        baf_ = chrom_baf.append(baf_pivot)
-        l2r_del_ = chrom_l2r_del.append(l2r_del_pivot)
-        l2r_dup_ = chrom_l2r_dup.append(l2r_dup_pivot)
+        baf_ = pd.concat([baf_, baf_pivot])
+        l2r_del_ = pd.concat([l2r_del_, l2r_del_pivot])
+        l2r_dup_ = pd.concat([l2r_dup_, l2r_dup_pivot])
+        
+#         baf_ = baf_.append(baf_pivot)
+#         l2r_del_ = l2r_del_.append(l2r_del_pivot)
+#         l2r_dup_ =l2r_dup_.append(l2r_dup_pivot)
 
-    baf_.columns = [x.replace('-','_') for x in _baf.columns]
+    baf_.columns = [x.replace('-','_') for x in baf_.columns]
     l2r_del_.columns = [x.replace('-','_') for x in l2r_del_.columns]
     l2r_dup_.columns = [x.replace('-','_') for x in l2r_dup_.columns]
     baf_.columns = [x.replace('.','_') for x in baf_.columns]
@@ -359,7 +363,7 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
     
 def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
     scaler = MinMaxScaler()
-    dosage_df = pd.read_csv(cnv_dosage_file, sep='\t')
+    dosage_df = pd.read_csv(cnv_dosage_file)
     pheno_df = pd.read_csv(pheno, sep='\t')
     covar_df = pd.read_csv(covar, sep='\t')
 
@@ -374,15 +378,15 @@ def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
     else:
         covar_df.loc[:,'age'] = scaler.fit_transform(covar_df[['age']])
 
-    if covar_df.sex_for_qc.isna().all():
-        covar_df.drop(columns=['sex_for_qc'], inplace=True)
+    if covar_df.sex.isna().all():
+        covar_df.drop(columns=['sex'], inplace=True)
 
     covar_df.drop(columns=['FID'], inplace=True)
     covar_df.rename(columns={'GP2sampleID':'sampleid'}, inplace=True)
 
     data_df = dosage_df.merge(covar_df, on='sampleid', how='left').merge(pheno_df, on='sampleid', how='left').set_index('sampleid')
 
-    rm_pred = [f'PC{i}' for i in range(1,21)] + ['sex_for_qc','age_of_onset','age','pheno']
+    rm_pred = [f'PC{i}' for i in range(1,21)] + ['sex','age_of_onset','age','pheno']
 
     pred_list = [x for x in data_df.columns if x not in rm_pred]
     covars_list = [x for x in data_df.columns if x not in pred_list + [f'PC{i}' for i in range(11,21)] + ['pheno']]

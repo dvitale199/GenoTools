@@ -7,10 +7,10 @@ import os
 import shutil
 import pandas as pd
 
-import dependencies
+from utils.dependencies import check_plink, check_plink2
 
-plink_exec = dependencies.check_plink()
-plink2_exec = dependencies.check_plink2()
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def shell_do(command, log=False, return_log=False):
     print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
