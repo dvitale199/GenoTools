@@ -10,10 +10,11 @@ import sys
 # local imports
 from QC.utils import shell_do, rm_tmps, count_file_lines
 
-from utils.dependencies import check_plink, check_plink2
+from utils.dependencies import check_plink, check_plink2, check_gcta
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
+gcta_exec = check_gcta()
 
 
 ################ Sample pruning methods ####################

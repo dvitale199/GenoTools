@@ -120,7 +120,15 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
-# TODO: add windows files
+def check_admixture():
+    if platform.system() == 'Windows':
+        logging.warning('Admixture not available on Windows')
+        return
+    return __check_package('Admixture')
+
+def check_gcta():
+    return __check_package('GCTA')
+
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -133,6 +141,11 @@ __DEPENDENCIES = {
             'binary': 'plink',
             'version_args': ['--version'],
             'url': 'https://s3.amazonaws.com/plink1-assets/dev/plink_linux_x86_64.zip'
+        },
+        'Windows': {
+            'binary': 'plink',
+            'version_args': ['--version'],
+            'url': 'https://s3.amazonaws.com/plink1-assets/plink_win64_20220402.zip'
         }
     },
 
@@ -147,6 +160,44 @@ __DEPENDENCIES = {
             'binary': 'plink2',
             'version_args': ['--version'],
             'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_linux_x86_64.zip'
+        },
+        'Windows': {
+            'binary': 'plink',
+            'version_args': ['--version'],
+            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_win_avx2_20220503.zip'
         }
     },
+
+    'Admixture': {
+        'checker': check_admixture,
+        'Darwin': {
+            'binary': 'dist/admixture_macosx-1.3.0/admixture',
+            'version_args': ['--version'],
+            'url': 'https://dalexander.github.io/admixture/binaries/admixture_macosx-1.3.0.tar.gz'
+        },
+        'Linux': {
+            'binary': 'dist/admixture_linux-1.3.0/admixture',
+            'version_args': ['--version'],
+            'url': 'https://dalexander.github.io/admixture/binaries/admixture_linux-1.3.0.tar.gz'
+        }
+    },
+
+    'GCTA': {
+        'checker': check_gcta,
+        'Darwin': {
+            'binary': 'gcta_v1.94.0Beta_macOS/gcta_v1.94.0Beta_macOS',
+            'version_args': ['--version'],
+            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_macOS.zip'
+        },
+        'Linux': {
+            'binary': 'gcta_v1.94.0Beta_linux_kernel_3_x86_64/gcta_v1.94.0Beta_linux_kernel_3_x86_64_static',
+            'version_args': ['--version'],
+            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_linux_kernel_3_x86_64.zip'
+        },
+        'Windows': {
+            'binary': 'gcta_v1.94.0Beta_windows_x86_64/bin/gcta_v1.94.0Beta_windows_x86_64',
+            'version_args': ['--version'],
+            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_windows_x86_64.zip'
+        }
+    }
 }
