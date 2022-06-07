@@ -228,7 +228,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         geno_snps = geno_snps[ref_snps.columns]
 
     # mean imputation for missing SNPs data
-    geno_snps = mean_imp.fit_transform(geno_snps)
+    geno_snps = mean_imp.transform(geno_snps)
     geno_snps = pd.DataFrame(geno_snps)
 
     raw_geno = pd.concat([geno_ids, geno_snps], axis=1)
