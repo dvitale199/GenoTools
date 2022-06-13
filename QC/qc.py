@@ -159,7 +159,7 @@ def het_prune(geno_path, out_path):
         outlier_count = het_outliers.shape[0]
         het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
     
-        plink_cmd4 = f"{plink2_exec}--bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+        plink_cmd4 = f"{plink2_exec} --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
         shell_do(plink_cmd4)
 
