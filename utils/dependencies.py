@@ -141,12 +141,12 @@ __DEPENDENCIES = {
         'Darwin': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_mac_avx2.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_mac_avx2_20220603.zip'
         },
         'Linux': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_linux_x86_64.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
         }
     },
 }
