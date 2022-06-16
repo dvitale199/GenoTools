@@ -159,15 +159,16 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     ref_snps = ref_raw.drop(columns=['FID', 'IID', 'PAT', 'MAT', 'SEX', 'PHENOTYPE'], axis=1)
     
     # change snp column names to avoid sklearn warning/future error
-    ref_snps.columns = ref_snps.columns.str.extract('(.*)_')[0]
+    ref_snps_cols = ref_snps.columns.str.extract('(.*)_')[0]
 
     # col names to set post-imputation
-    col_names = ['FID','IID'] + list(ref_snps.columns)
+    col_names = ['FID','IID'] + list(ref_snps_cols)
 
     # mean imputation for missing SNPs data
     mean_imp = SimpleImputer(missing_values=np.nan, strategy='mean')
     ref_snps = mean_imp.fit_transform(ref_snps)
     ref_snps = pd.DataFrame(ref_snps)
+    ref_snps.columns = ref_snps_cols
 
     ref_raw = pd.concat([ref_ids,ref_snps], axis=1)
     ref_raw.columns = col_names
