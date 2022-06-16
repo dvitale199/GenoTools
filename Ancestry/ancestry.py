@@ -586,7 +586,7 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     q_df.columns = [f'pop{i}' for i in range(1,8)]
 
     # get IDs from fam file
-    q_df['FID'], q_df['IID'] = fam['FID'], fam['IID']
+    q_df.loc[:,'FID'], q_df.loc[:,'IID'] = fam.loc[:,'FID'], fam.loc[:,'IID']
     q_df['FID'] = q_df['FID'].astype(str)
     q_df['IID'] = q_df['IID'].astype(str)
 
