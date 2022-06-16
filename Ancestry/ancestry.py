@@ -608,9 +608,9 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
     q_pop.loc[(q_pop['label'] == 'AFR') & (q_pop[max_col] < 0.9), 'label'] = 'AAC'
 
-    adjusted_labels = q_pop[['FID','IID','label']]
     adjusted_labels_path = f'{out_path}_adjusted_labels.txt'
-    adjusted_labels.to_csv(adjusted_labels_path, sep='\t', index=None)
+    q_pop[['FID','IID','label']].to_csv(adjusted_labels_path, sep='\t', index=None)
+
 
     print()
     print('adjusted:\n', q_pop.label.value_counts())
