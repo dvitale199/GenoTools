@@ -24,6 +24,7 @@ import requests
 import stat
 import subprocess
 import zipfile
+import tarfile
 import sys
 
 # can decide where to throw the executable files later
@@ -64,13 +65,20 @@ def __check_exec(exec_path, *args, absolute_path=False):
 
 def __install_exec(url, exec_path):
     r = requests.get(url, verify=False, stream=True)
-    r.raw.decode_content = True
-    buffer = io.BytesIO()
-    buffer.write(r.content)
-    with zipfile.ZipFile(buffer, "r") as fp:
-        fp.extractall(__executable_folder)
+
+    if '.zip' in url:
+        r.raw.decode_content = True
+        buffer = io.BytesIO()
+        buffer.write(r.content)
+        with zipfile.ZipFile(buffer, "r") as fp:
+            fp.extractall(__executable_folder)
+        
+    elif '.tar.gz' in url:
+        file = tarfile.open(fileobj=r.raw, mode="r|gz")
+        file.extractall(__executable_folder)
 
     binary_path = os.path.join(__executable_folder, exec_path)
+
     os.chmod(binary_path, stat.S_IEXEC)
 
 
