@@ -572,7 +572,8 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
 
     # run admixture
     out_dir = os.path.split(f'{keep_out}.bed')[0]
-    admixture_cmd = f'cd {out_dir} && {admix_exec} {keep_out}.bed 7 --supervised'
+    admix_bed = os.path.split(f'{keep_out}.bed')[-1]
+    admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 7 --supervised'
 #     shell_do(admixture_cmd)
     # should grab exit status from here to catch errors. coming soon
     os.system(admixture_cmd)
