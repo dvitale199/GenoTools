@@ -542,7 +542,7 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
 
     # get training labels
     train_labels = train_pca[['FID','IID','label']].copy()
-    print('test')
+
     # change AAC to AFR for supervised admixture with 7 ancestry groups
     train_labels.loc[train_labels['label'] == 'AAC', 'label'] = 'AFR'
 
