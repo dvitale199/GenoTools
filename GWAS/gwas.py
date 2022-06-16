@@ -8,6 +8,10 @@ from scipy.stats import ncx2
 
 from QC.utils import shell_do
 
+from utils.dependencies import check_plink, check_plink2
+
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def plink_pca(geno_path, out_path, n_pcs=10):
 
@@ -18,11 +22,7 @@ def plink_pca(geno_path, out_path, n_pcs=10):
     print()
 
     # run pca
-    pca_cmd = f' \
-    plink2 \
-    --bfile {geno_path} \
-    --pca {n_pcs} \
-    --out {out_path}'
+    pca_cmd = f'{plink2_exec} --bfile {geno_path} --pca {n_pcs} --out {out_path}'
 
     shell_do(pca_cmd)
 
@@ -134,7 +134,7 @@ def assoc(geno_path, covar_path, out_path, model):
         else:
             # run association
             assoc_cmd = f'\
-            plink2 \
+            {plink2_exec} \
             --bfile {geno_path} \
             --covar {covar_path} \
             --{model} \
@@ -221,7 +221,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
 
     # run clump - not yet supported by plink2
     clump_cmd = f'\
-    plink \
+    {plink_exec} \
     --bfile {geno_path} \
     --clump-p1 {clump_p1} \
     --clump-r2 {clump_r2} \
@@ -265,7 +265,7 @@ def prs(geno_path, out_path, assoc, clump_p1=1e-3, clump_r2=0.50, clump_kb=250):
 
         # run PRS
         prs_cmd = f'\
-        plink2 \
+        {plink2_exec} \
         --bfile {geno_path} \
         --score {weights} 1 2 3 \
         --q-score-range {range} {snp_pvals} \
@@ -381,7 +381,7 @@ def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None
     return out_dict
 
 
-def munge(geno_path, out_path, assoc, ref_panel):
+def munge(geno_path, out_path, assoc, ref_panel, model):
 
     # what step are we running?
     step = 'munge'
@@ -390,11 +390,7 @@ def munge(geno_path, out_path, assoc, ref_panel):
     print()
 
     # get plink frequency report
-    freq_cmd = f'\
-    plink2 \
-    --bfile {geno_path} \
-    --freq \
-    --out {out_path}'
+    freq_cmd = f'{plink2_exec} --bfile {geno_path} --freq --out {out_path}'
 
     shell_do(freq_cmd)
 
@@ -426,9 +422,13 @@ def munge(geno_path, out_path, assoc, ref_panel):
         maf_df.BETA = np.where(maf_df.freq > 0.5, -maf_df.BETA, maf_df.BETA)
         maf_df.freq = np.where(maf_df.freq > 0.5, 1-maf_df.freq, maf_df.freq)
 
-        # rename columns and isolate needed ones
-        maf_df = maf_df.rename(columns={'#CHROM_x':'chr','POS':'bp','ID':'SNP',
-                                        'OBS_CT_x':'n','P':'p','BETA':'b','LOG(OR)_SE':'se'})
+        # rename columns and isolate needed ones (SE column is different for binary and continuous phenos)
+        rename_dict = {'#CHROM_x':'chr','POS':'bp','ID':'SNP','OBS_CT_x':'n','P':'p','BETA':'b'}
+        if model == 'logistic':
+            rename_dict['LOG(OR)_SE'] = 'se'
+        else:
+            rename_dict['SE'] = 'se'
+        maf_df = maf_df.rename(columns=rename_dict)
         maf_df = maf_df.loc[:,['SNP','chr','bp','A1','A2','freq','b','se','p','n']]
 
         # read in reference panel .bim and create ID

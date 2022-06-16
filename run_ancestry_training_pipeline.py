@@ -50,8 +50,8 @@ trained_clf = train_umap_classifier(
 )
 
 # output - not really sure what we want here
-print('Path to common SNPs between genotype file and reference panel:')
-print(f"{raw['out_paths']['geno_common_snps_bed']}.txt")
-print()
+# print('Path to common SNPs between genotype file and reference panel:')
+# print(f"{raw['out_paths']['geno_common_snps_bed']}.txt")
+# print()
 print('Path to trained model pickle file:')
 print(trained_clf['model_path'])

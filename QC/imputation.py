@@ -10,6 +10,11 @@ import shutil
 # local imports
 from QC.utils import shell_do
 
+from utils.dependencies import check_plink, check_plink2
+
+plink_exec = check_plink()
+plink2_exec = check_plink2()
+
 def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
     '''
@@ -39,7 +44,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
     check_bim_pl2 = check_bim_pl.split('/')[-1]
     
     
-    plink1 = f'plink --bfile {geno_path2} --freq --out {out_path2}'
+    plink1 = f'{plink_exec} --bfile {geno_path2} --freq --out {out_path2}'
     check_bim_cmd = f'perl {check_bim_pl2} -b {geno_path2}.bim -f {out_path2}.frq -r {ref_panel2} -h'
     bash1 = 'sh Run-plink.sh'
 
@@ -51,7 +56,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
 
     
-    mk_vcf_cmds = [f'plink --bfile {geno_path2}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path2}_chr{str(i)}' for i in range(1,24)]   
+    mk_vcf_cmds = [f'{plink2_exec} --bfile {geno_path2}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path2}_chr{str(i)}' for i in range(1,24)]   
 
     for cmd in mk_vcf_cmds:
 

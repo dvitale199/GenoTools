@@ -64,50 +64,50 @@ inflation = calculate_inflation(assoc_file_df['P'])
 # run prs
 score = prs(geno_path, out_path, assoc_file)
 
-# # grab clean association file for munging
-# clean_assoc_file = f"{score['output']['assoc']}"
+# grab clean association file for munging
+clean_assoc_file = f"{score['output']['assoc']}"
 
-# # munge summary stats
-# stats = munge(geno_path, out_path, clean_assoc_file, ref_panel)
+# munge summary stats
+stats = munge(geno_path, out_path, clean_assoc_file, ref_panel, model.lower())
 
-# # creating metrics dataframe
-# metrics_df = pd.DataFrame()
+# creating metrics dataframe
+metrics_df = pd.DataFrame()
 
-# steps = [pca, glm, inflation, score, stats]
+steps = [pca, glm, inflation, score, stats]
 
-# for item in steps:
-#     step = item['step']
-#     pf = item['pass']
+for item in steps:
+    step = item['step']
+    pf = item['pass']
 
-#     for metric, value in item['metrics'].items():
-#         tmp_metrics_df = pd.DataFrame({'step':[step], 'metric':[metric], 'value': [value], 'pass':[pf]})
-#         metrics_df = metrics_df.append(tmp_metrics_df)
+    for metric, value in item['metrics'].items():
+        tmp_metrics_df = pd.DataFrame({'step':[step], 'metric':[metric], 'value': [value], 'pass':[pf]})
+        metrics_df = metrics_df.append(tmp_metrics_df)
 
-# metrics_df.reset_index(drop=True, inplace=True)
+metrics_df.reset_index(drop=True, inplace=True)
 
-# # reading score reports to output to .h5 file
-# s1 = pd.read_csv(f'{out_path}.PRS.s1.sscore', sep='\s+')
-# s2 = pd.read_csv(f'{out_path}.PRS.s2.sscore', sep='\s+')
-# s3 = pd.read_csv(f'{out_path}.PRS.s3.sscore', sep='\s+')
+# reading score reports to output to .h5 file
+s1 = pd.read_csv(f'{out_path}.PRS.s1.sscore', sep='\s+')
+s2 = pd.read_csv(f'{out_path}.PRS.s2.sscore', sep='\s+')
+s3 = pd.read_csv(f'{out_path}.PRS.s3.sscore', sep='\s+')
 
-# # calculate z-scores
-# for scores in [s1, s2, s3]:
-#     scores_mean = scores['SCORE1_AVG'].mean()
-#     scores_std = scores['SCORE1_AVG'].std()
-#     scores['Z'] = (scores['SCORE1_AVG']-scores_mean)/scores_std
-#     scores['P'] = zscore_pval_conversion(scores['Z'])
+# calculate z-scores
+for scores in [s1, s2, s3]:
+    scores_mean = scores['SCORE1_AVG'].mean()
+    scores_std = scores['SCORE1_AVG'].std()
+    scores['Z'] = (scores['SCORE1_AVG']-scores_mean)/scores_std
+    scores['P'] = zscore_pval_conversion(scores['Z'])
 
 
-# # merging ma format data and coordinates to output to .h5 file
-# ma_df = stats['data']['ma_format_df']
-# coords_df = stats['data']['coordinates']
+# merging ma format data and coordinates to output to .h5 file
+ma_df = stats['data']['ma_format_df']
+coords_df = stats['data']['coordinates']
 
-# # build output hdf
-# metrics_outfile = f'{out_path}.GWAS.metrics.h5'
+# build output hdf
+metrics_outfile = f'{out_path}.GWAS.metrics.h5'
 
-# metrics_df.to_hdf(metrics_outfile, key='GWAS', mode='w')
-# ma_df.to_hdf(metrics_outfile, key='ma_output')
-# coords_df.to_hdf(metrics_outfile, key='coordinates')
-# s1.to_hdf(metrics_outfile, key='score_1')
-# s2.to_hdf(metrics_outfile, key='score_2')
-# s3.to_hdf(metrics_outfile, key='score_3')
+metrics_df.to_hdf(metrics_outfile, key='GWAS', mode='w')
+ma_df.to_hdf(metrics_outfile, key='ma_output')
+coords_df.to_hdf(metrics_outfile, key='coordinates')
+s1.to_hdf(metrics_outfile, key='score_1')
+s2.to_hdf(metrics_outfile, key='score_2')
+s3.to_hdf(metrics_outfile, key='score_3')
