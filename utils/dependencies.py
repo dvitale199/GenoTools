@@ -154,17 +154,12 @@ __DEPENDENCIES = {
         'Darwin': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_mac_avx2.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_mac_avx2_20220603.zip'
         },
         'Linux': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_linux_x86_64.zip'
-        },
-        'Windows': {
-            'binary': 'plink',
-            'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_win_avx2_20220503.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
         }
     },
 
@@ -193,11 +188,6 @@ __DEPENDENCIES = {
             'binary': 'gcta_v1.94.0Beta_linux_kernel_3_x86_64/gcta_v1.94.0Beta_linux_kernel_3_x86_64_static',
             'version_args': ['--version'],
             'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_linux_kernel_3_x86_64.zip'
-        },
-        'Windows': {
-            'binary': 'gcta_v1.94.0Beta_windows_x86_64/bin/gcta_v1.94.0Beta_windows_x86_64',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_windows_x86_64.zip'
         }
     }
 }
