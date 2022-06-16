@@ -617,7 +617,7 @@ def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
     print()
 
     data_out = {
-        'ids': adjusted_labels,
+        'ids': q_pop[['FID','IID','label']],
         'admix_proportions': q_pop
     }
 
