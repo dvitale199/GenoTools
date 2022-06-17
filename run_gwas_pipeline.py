@@ -21,31 +21,31 @@ model = args.model
 ref_panel = args.ref_panel
 out_path = args.out
 
-# generate pcs
-pca = plink_pca(geno_path, out_path)
+# # generate pcs
+# pca = plink_pca(geno_path, out_path)
 
-# if no covariate file provided, set covar path to PCA result
-if covar_path == 'nope':
-    covar_path = f'{out_path}.eigenvec'
+# # if no covariate file provided, set covar path to PCA result
+# if covar_path == 'nope':
+#     covar_path = f'{out_path}.eigenvec'
 
-# otherwise, merge pcs and covariates
-else:
-    # read covariates - need to have header row
-    covars = pd.read_csv(covar_path, 
-                         sep='\s+',
-                         dtype={'#FID':str, 'IID':str})
+# # otherwise, merge pcs and covariates
+# else:
+#     # read covariates - need to have header row
+#     covars = pd.read_csv(covar_path, 
+#                          sep='\s+',
+#                          dtype={'#FID':str, 'IID':str})
     
-    # read pcs
-    pcs = pd.read_csv(f'{out_path}.eigenvec', 
-                      sep='\s+',
-                      dtype={'#FID':str,'IID':str})
+#     # read pcs
+#     pcs = pd.read_csv(f'{out_path}.eigenvec', 
+#                       sep='\s+',
+#                       dtype={'#FID':str,'IID':str})
     
-    # merge 
-    covar_merged = pcs.merge(covars, how='inner', on=['#FID','IID'])
-    covar_merged.to_csv(f'{out_path}.cov', sep='\t', header=True, index=False)
+#     # merge 
+#     covar_merged = pcs.merge(covars, how='inner', on=['#FID','IID'])
+#     covar_merged.to_csv(f'{out_path}.cov', sep='\t', header=True, index=False)
 
-    # set new covar path
-    covar_path = f'{out_path}.cov'
+#     # set new covar path
+#     covar_path = f'{out_path}.cov'
     
 # run association
 glm = assoc(geno_path, covar_path, out_path, model.lower())
@@ -73,7 +73,8 @@ stats = munge(geno_path, out_path, clean_assoc_file, ref_panel, model.lower())
 # creating metrics dataframe
 metrics_df = pd.DataFrame()
 
-steps = [pca, glm, inflation, score, stats]
+# steps = [pca, glm, inflation, score, stats]
+steps = [glm, inflation, score, stats]
 
 for item in steps:
     step = item['step']
