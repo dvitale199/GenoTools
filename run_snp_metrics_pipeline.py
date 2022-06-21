@@ -9,6 +9,7 @@ parser.add_argument('--bpm_csv', type=str, default='Nope.', help='Path to Illumi
 parser.add_argument('--egt', type=str, default='Nope.', help='Path to Illumina clusterfile .egt.')
 parser.add_argument('--ref_fasta', type=str, default='Nope.', help='Path to Reference FASTA File.')
 parser.add_argument('--iaap', type=str, default='Nope.', help='Path to Illumina iaap executable.')
+parser.add_argument('--bcftools_plugins_path', type=str, default='/data/vitaled2/bin', help='Path to bcftools plugins for gtc2vcf')
 args = parser.parse_args()
 
 idat_path = args.idat_path
@@ -18,5 +19,6 @@ egt = args.egt
 ref_fasta = args.ref_fasta
 iaap = args.iaap
 out_path = args.out_path
+bcftools_plugins_path = args.bcftools_plugins_path
 
-snp_metrics_out = idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap=iaap)
+snp_metrics_out = idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap=iaap, bcftools_plugins_path=bcftools_plugins_path)
