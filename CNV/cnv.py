@@ -131,7 +131,7 @@ def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap, bc
 
     # export path to plugins temporarily for biowulf. will figure this out later
     gtc2vcf_cmd = f'\
-export BCFTOOLS_PLUGINS=bcftools_plugins_path; \
+export BCFTOOLS_PLUGINS={bcftools_plugins_path}; \
 bcftools +gtc2vcf \
 --no-version -Ob \
 --bpm {bpm} \
