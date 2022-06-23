@@ -13,17 +13,22 @@ outfile = args.outfile
 
 df = pd.read_csv(infile,
                  dtype={
-                     'chromosome':str,
-                     'position':int,
-                     'snpID':str,
-                     'Sample_ID':str,
-                     'Allele1':str,
-                     'Allele2':str,
-                     'BAlleleFreq':float,
-                     'LogRRatio':float})
+                   'chromosome':str,
+                   'position':int,
+                   'snpID':str,
+                   'Sample_ID':str,
+                   'Allele1':str,
+                   'Allele2':str,
+                   'BAlleleFreq':float,
+                   'LogRRatio':float,
+                   'R':float,
+                   'Theta':float,
+                   'GenTrain_Score':str,
+                   'GType':str}
+                )
 
-
-# cols = ['chromosome', 'position', 'snpID', 'Sample_ID', 'Allele1', 'Allele2', 'BAlleleFreq', 'LogRRatio']
+# work around for 'ASSAY_TYPE=0' string in GenTrain_Score column
+df.loc[:,'GenTrain_Score'] = pd.to_numeric(df.GenTrain_Score, errors='coerce')
 
 for iid in df.Sample_ID.unique():
     for chrom in sorted(df.chromosome.unique()):
