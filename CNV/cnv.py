@@ -74,22 +74,23 @@ def clean_snp_metrics(metrics_in, out_path):
     '''splits snp metrics files by chromosome and individual'''
     
     df = pd.read_csv(metrics_in,
-                     dtype={
-                         'chromosome':str,
-                         'position':int,
-                         'snpID':str,
-                         'Sample_ID':str,
-                         'Ref':str,
-                         'Alt':str,
-                         'ALLELE_A':str,
-                         'ALLELE_B':str,
-                         'BAlleleFreq':float,
-                         'LogRRatio':float,
-                         'R':float,
-                         'Theta':float,
-                         'GenTrain_Score':float,
-                         'GType':str
-                     })
+                 dtype={
+                   'chromosome':str,
+                   'position':int,
+                   'snpID':str,
+                   'Sample_ID':str,
+                   'Allele1':str,
+                   'Allele2':str,
+                   'BAlleleFreq':float,
+                   'LogRRatio':float,
+                   'R':float,
+                   'Theta':float,
+                   'GenTrain_Score':str,
+                   'GType':str}
+                )
+
+    # work around for 'ASSAY_TYPE=0' string in GenTrain_Score column
+    df.loc[:,'GenTrain_Score'] = pd.to_numeric(df.GenTrain_Score, errors='coerce')
 
     for iid in df.Sample_ID.unique():
         for chrom in sorted(df.chromosome.unique()):
