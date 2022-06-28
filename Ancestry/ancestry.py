@@ -238,11 +238,6 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     raw_geno.columns = col_names
     raw_geno['label'] = 'new'
 
-    # merge reference panel with genotypes
-    merge_common_snps = f'{out_path}_merge_ref'
-    merge_genos(ref_common_snps, geno_common_snps, merge_common_snps)
-    out_paths['merge_bed'] = merge_common_snps
-
     out_dict = {
         'raw_ref': labeled_ref_raw,
         'raw_geno': raw_geno,
@@ -525,111 +520,142 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     return out_dict
 
 
-def run_admixture(merged_geno_path, predicted_labels, train_pca, out_path):
+def run_admixture(predicted_labels, train_pca, out_path):
     step = "run_admixture"
     print()
     print(f"RUNNING: {step}")
     print()
 
-    # making sure FID and IID are good for merging
-    predicted_labels['FID'] = predicted_labels['FID'].astype(str)
-    predicted_labels['IID'] = predicted_labels['IID'].astype(str)
+    # ensure admixture needs to be run (predictions contain AFR or AAC)
+    if ('AFR' in predicted_labels['label'].values) or ('AAC' in predicted_labels['label'].values):
+        # get outdir
+        outdir = os.path.dirname(out_path)
 
-    # change AFR and AAC predictions to '-' for supervised admixture .pop file
-    predicted_pop = predicted_labels.copy()
-    predicted_pop.loc[predicted_pop['label'] == 'AAC', 'label'] = '-'
-    predicted_pop.loc[predicted_pop['label'] == 'AFR', 'label'] = '-'
+        # ref, geno, and merge paths
+        ref_common_snps = f'{outdir}/ref_common_snps'
+        geno_common_snps = f'{out_path}_common_snps'
+        merge_common_snps = f'{out_path}_merge_ref'
+        merge_genos(ref_common_snps, geno_common_snps, merge_common_snps)
 
-    # get training labels
-    train_labels = train_pca[['FID','IID','label']].copy()
+        # making sure FID and IID are good for merging
+        predicted_labels['FID'] = predicted_labels['FID'].astype(str)
+        predicted_labels['IID'] = predicted_labels['IID'].astype(str)
 
-    # change AAC to AFR for supervised admixture with 7 ancestry groups
-    train_labels.loc[train_labels['label'] == 'AAC', 'label'] = 'AFR'
+        # change AFR and AAC predictions to '-' for supervised admixture .pop file
+        predicted_pop = predicted_labels.copy()
+        predicted_pop.loc[predicted_pop['label'] == 'AAC', 'label'] = '-'
+        predicted_pop.loc[predicted_pop['label'] == 'AFR', 'label'] = '-'
 
-    # append train_labels to predictions
-    combined_labels = predicted_pop.append(train_labels)
-    combined_labels['FID'] = combined_labels['FID'].astype(str)
-    combined_labels['IID'] = combined_labels['IID'].astype(str)
+        # get training labels
+        train_labels = train_pca[['FID','IID','label']].copy()
 
-    # write to text file
-    combined_labels_path = f'{out_path}_train_and_projected_ids.txt'
-    combined_labels[['FID','IID']].to_csv(combined_labels_path, sep='\t', index=None, header=None)
-    
-    # plink command to keep only training set and new ids for running admixture
-    keep_out = f'{out_path}_merge_train'
-    keep_cmd = f'{plink2_exec} --bfile {merged_geno_path} --keep {combined_labels_path} --make-bed --out {keep_out}'
-    shell_do(keep_cmd)
+        # change AAC to AFR for supervised admixture with 7 ancestry groups
+        train_labels.loc[train_labels['label'] == 'AAC', 'label'] = 'AFR'
 
-    # read in fam file to match up labels
-    fam = pd.read_csv(f'{keep_out}.fam', sep='\s+', header=None)
-    fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
-    fam['FID'] = fam['FID'].astype(str)
-    fam['IID'] = fam['IID'].astype(str)
+        # append train_labels to predictions
+        combined_labels = predicted_pop.append(train_labels)
+        combined_labels['FID'] = combined_labels['FID'].astype(str)
+        combined_labels['IID'] = combined_labels['IID'].astype(str)
 
-    # merge fam file and labels and write to .pop file for supervised admixture
-    merge = fam.merge(combined_labels, how='inner', on=['FID','IID'])
-    merge['label'].to_csv(f'{keep_out}.pop', sep='\t', index=None, header=None)
+        # write to text file
+        combined_labels_path = f'{out_path}_train_and_projected_ids.txt'
+        combined_labels[['FID','IID']].to_csv(combined_labels_path, sep='\t', index=None, header=None)
+        
+        # plink command to keep only training set and new ids for running admixture
+        keep_out = f'{out_path}_merge_train'
+        keep_cmd = f'{plink2_exec} --bfile {merge_common_snps} --keep {combined_labels_path} --make-bed --out {keep_out}'
+        shell_do(keep_cmd)
 
-    # run admixture
-    out_dir = os.path.split(f'{keep_out}.bed')[0]
-    admix_bed = os.path.split(f'{keep_out}.bed')[-1]
-    admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 7 --supervised'
-#     shell_do(admixture_cmd)
-    # should grab exit status from here to catch errors. coming soon
-    os.system(admixture_cmd)
-    
-    
-    # read admixture results
-    # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
-    admix_results = f"{keep_out}.7.Q"
-    q_df = pd.read_csv(admix_results, sep='\s+', header=None)
-    q_df.columns = [f'pop{i}' for i in range(1,8)]
+        # read in fam file to match up labels
+        fam = pd.read_csv(f'{keep_out}.fam', sep='\s+', header=None)
+        fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+        fam['FID'] = fam['FID'].astype(str)
+        fam['IID'] = fam['IID'].astype(str)
 
-    # get IDs from fam file
-    q_df.loc[:,'FID'], q_df.loc[:,'IID'] = fam.loc[:,'FID'].copy(), fam.loc[:,'IID'].copy()
-    q_df['FID'] = q_df['FID'].astype(str)
-    q_df['IID'] = q_df['IID'].astype(str)
+        # merge fam file and labels and write to .pop file for supervised admixture
+        merge = fam.merge(combined_labels, how='inner', on=['FID','IID'])
+        merge['label'].to_csv(f'{keep_out}.pop', sep='\t', index=None, header=None)
 
-    # only adjust the new samples that were intially labelled AFR or AAC
-    q_pop = q_df.merge(predicted_labels, left_on=['FID','IID'], right_on=['FID','IID'])
-    q_pop_aac = q_pop[q_pop['label'] == 'AAC']
-    q_pop_afr = q_pop[q_pop['label'] == 'AFR']
-    q_pop_afr = q_pop_afr.append(q_pop_aac)
-    
-    # finding AFR column
-    max_val = 0
-    max_col = None
-    for col in q_pop_afr.columns:
-        if col not in ['FID','IID','label']:
-            if q_pop_afr[col].mean() > max_val:
-                max_col = col
-    
-    # making admixture adjustment
-    q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
-    q_pop.loc[(q_pop['label'] == 'AFR') & (q_pop[max_col] < 0.9), 'label'] = 'AAC'
+        # run admixture
+        out_dir = os.path.split(f'{keep_out}.bed')[0]
+        admix_bed = os.path.split(f'{keep_out}.bed')[-1]
+        admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 7 --supervised'
+    #     shell_do(admixture_cmd)
+        # should grab exit status from here to catch errors. coming soon
+        os.system(admixture_cmd)
+        
+        
+        # read admixture results
+        # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
+        admix_results = f"{keep_out}.7.Q"
+        q_df = pd.read_csv(admix_results, sep='\s+', header=None)
+        q_df.columns = [f'pop{i}' for i in range(1,8)]
 
-    adjusted_labels_path = f'{out_path}_adjusted_labels.txt'
-    q_pop[['FID','IID','label']].to_csv(adjusted_labels_path, sep='\t', index=None)
+        # get IDs from fam file
+        q_df.loc[:,'FID'], q_df.loc[:,'IID'] = fam.loc[:,'FID'].copy(), fam.loc[:,'IID'].copy()
+        q_df['FID'] = q_df['FID'].astype(str)
+        q_df['IID'] = q_df['IID'].astype(str)
+
+        # only adjust the new samples that were intially labelled AFR or AAC
+        q_pop = q_df.merge(predicted_labels, left_on=['FID','IID'], right_on=['FID','IID'])
+        q_pop_aac = q_pop[q_pop['label'] == 'AAC']
+        q_pop_afr = q_pop[q_pop['label'] == 'AFR']
+        q_pop_afr = pd.concat([q_pop_afr, q_pop_aac], axis=0, ignore_index=True)
+        
+        # finding AFR column
+        max_val = 0
+        max_col = None
+        for col in q_pop_afr.columns:
+            if col not in ['FID','IID','label']:
+                if q_pop_afr[col].mean() > max_val:
+                    max_col = col
+        
+        # making admixture adjustment
+        q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
+        q_pop.loc[(q_pop['label'] == 'AFR') & (q_pop[max_col] < 0.9), 'label'] = 'AAC'
+
+        adjusted_labels_path = f'{out_path}_umap_linearsvc_adjusted_labels.txt'
+        q_pop[['FID','IID','label']].to_csv(adjusted_labels_path, sep='\t', index=None)
 
 
-    print()
-    print('adjusted:\n', q_pop.label.value_counts())
-    print()
+        print()
+        print('adjusted:\n', q_pop.label.value_counts())
+        print()
 
-    data_out = {
-        'ids': q_pop[['FID','IID','label']],
-        'admix_proportions': q_pop
-    }
+        data_out = {
+            'ids': q_pop[['FID','IID','label']],
+            'admix_proportions': q_pop
+        }
 
-    outfiles_dict = {
-        'labels_outpath': adjusted_labels_path
-    }
+        outfiles_dict = {
+            'merge_outpath': merge_common_snps,
+            'labels_outpath': adjusted_labels_path
+        }
 
-    out_dict = {
+        out_dict = {
         'data': data_out,
         'metrics': q_pop.label.value_counts(),
         'output': outfiles_dict
-    }
+        }
+
+    else:
+        print()
+        print('adjusted:\n', predicted_labels.label.value_counts())
+        print()
+
+        data_out = {
+            'ids': predicted_labels[['FID','IID','label']]
+        }
+
+        outfiles_dict = {
+            'labels_outpath': f'{out_path}_umap_linearsvc_predicted_labels.txt'
+        }
+
+        out_dict = {
+            'data': data_out,
+            'metrics': predicted_labels.label.value_counts(),
+            'output': outfiles_dict
+        }
 
     return out_dict 
 
@@ -769,7 +795,6 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     )
 
     admix = run_admixture(
-        merged_geno_path=raw['out_paths']['merge_bed'],
         predicted_labels=pred['data']['ids'],
         train_pca=calc_pcs['labeled_train_pca'],
         out_path=out_path
