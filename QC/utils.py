@@ -39,7 +39,7 @@ def merge_genos(geno_path1, geno_path2, out_name):
             shell_do(cmd)
 
         #if another -merge.missnp file is created, these are likely triallelic positions and must be excluded and then try merge again
-        if os.path.isfile(f'{geno_path1}_flip-merge.missnp'):
+        if os.path.isfile(f'{out_name}_flip-merge.missnp'):
             bash4 = f"{plink_exec} --bfile {geno_path1}_flip --allow-no-sex --exclude {out_name}_flip-merge.missnp --out {geno_path1}_flip_pruned --make-bed"
             bash5 = f"{plink_exec} --bfile {geno_path1}_flip_pruned --allow-no-sex --bmerge {geno_path2} --out  {out_name} --make-bed"
 
