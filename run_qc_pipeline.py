@@ -78,7 +78,7 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 # copy output to out_path
 for label, data in variant_dict.items():
     if data['pass']:
-        for suffix in ['bed','bim','fam','hh','log']:
+        for suffix in ['bed','bim','fam','log']:
             plink_file = f"{data['output']['plink_out']}.{suffix}"
             plink_outfile = f'{out_path}_{label}.{suffix}'
             shutil.copyfile(src=plink_file, dst=plink_outfile)
