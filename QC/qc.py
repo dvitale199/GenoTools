@@ -27,20 +27,16 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     print()
     
     outliers_out = f'{out_path}.outliers'
-#     phenos_out = f'{geno_path}.phenos'
-
 
     fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None)
-#     fam[[0,1,5]].to_csv(phenos_out, sep='\t', header=False, index=False)
     
     plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
 
     shell_do(plink_cmd1)
     
-    if os.path.isfile(f'{out_path}.irem'):
-        irem = pd.read_csv(f'{out_path}.irem', sep='\s+', header=None, names=['FID','IID'])
+    if os.path.isfile(f'{out_path}.mindrem.id'):
+        irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+', header=None, names=['FID','IID'])
         irem.to_csv(outliers_out, sep='\t', header=True, index=False)
-#         shutil.move(f'{out_path}.irem', outliers_out)
 
         outlier_count = sum(1 for line in open(f'{outliers_out}'))
         
