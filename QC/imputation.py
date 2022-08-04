@@ -56,7 +56,7 @@ def impute_data_prep(geno_path, out_path, ref_panel, check_bim_pl):
 
 
     
-    mk_vcf_cmds = [f'{plink2_exec} --bfile {geno_path2}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path2}_chr{str(i)}' for i in range(1,24)]   
+    mk_vcf_cmds = [f'{plink_exec} --bfile {geno_path2}-updated-chr{str(i)} --recode vcf --chr {str(i)} --out {out_path2}_chr{str(i)}' for i in range(1,24)]   
 
     for cmd in mk_vcf_cmds:
 
