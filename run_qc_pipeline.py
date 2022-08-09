@@ -146,8 +146,8 @@ metrics_outfile = f'{out_path}.QC.metrics.h5'
 le = ancestry['data']['label_encoder']
 confusion_matrix = ancestry['data']['confusion_matrix']
 conf_mat_df = pd.DataFrame(confusion_matrix)
-conf_mat_df.columns = le.inverse_transform([i for i in range(8)])
-conf_mat_df.index = le.inverse_transform([i for i in range(8)])
+conf_mat_df.columns = le.inverse_transform([i for i in range(10)])
+conf_mat_df.index = le.inverse_transform([i for i in range(10)])
 
 ref_pcs = ancestry['data']['ref_pcs']
 projected_pcs = ancestry['data']['projected_pcs']
