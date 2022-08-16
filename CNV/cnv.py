@@ -187,7 +187,7 @@ vcftools --gzvcf \
     clean_snp_metrics(metrics_in=metrics_in, out_path=clean_metrics_out)
  
     # output snp metrics paths
-    chroms = [str(i) for i in range(1,23)] + ['X','Y']
+    chroms = [str(i) for i in range(1,23)] + ['X','Y','M']
     samples = [s.split('/')[-1].replace('_Red.idat','') for s in glob.glob(f'{idat_path}/*_Red.idat')]
     
     outfiles = []
