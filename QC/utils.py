@@ -106,7 +106,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
     common_snps = pd.concat([common_snps1, common_snps2], axis=0)
     
-    flip_cmd = f'plink --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
+    flip_cmd = f'{plink2_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
     shell_do(flip_cmd)
 
     bim1_flip = pd.read_csv(f'{geno_path1}_flip.bim', sep='\t', header=None)
