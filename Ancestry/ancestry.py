@@ -556,15 +556,12 @@ def run_admixture(predicted_labels, train_pca, out_path):
         predicted_pop = predicted_labels.copy()
         predicted_pop.loc[predicted_pop['label'] == 'AAC', 'label'] = '-'
         predicted_pop.loc[predicted_pop['label'] == 'AFR', 'label'] = '-'
-        predicted_pop.loc[predicted_pop['label'] == 'EUR', 'label'] = '-'
-        predicted_pop.loc[predicted_pop['label'] == 'AJ', 'label'] = '-'
 
         # get training labels
         train_labels = train_pca[['FID','IID','label']].copy()
 
         # change AAC to AFR for supervised admixture with 7 ancestry groups
         train_labels.loc[train_labels['label'] == 'AAC', 'label'] = 'AFR'
-        train_labels.loc[train_labels['label'] == 'AJ', 'label'] = 'EUR'
 
         # append train_labels to predictions
         combined_labels = predicted_pop.append(train_labels)
@@ -593,7 +590,7 @@ def run_admixture(predicted_labels, train_pca, out_path):
         # run admixture
         out_dir = os.path.split(f'{keep_out}.bed')[0]
         admix_bed = os.path.split(f'{keep_out}.bed')[-1]
-        admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 8 --supervised'
+        admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 9 --supervised'
     #     shell_do(admixture_cmd)
         # should grab exit status from here to catch errors. coming soon
         os.system(admixture_cmd)
@@ -601,9 +598,9 @@ def run_admixture(predicted_labels, train_pca, out_path):
         
         # read admixture results
         # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
-        admix_results = f"{keep_out}.8.Q"
+        admix_results = f"{keep_out}.9.Q"
         q_df = pd.read_csv(admix_results, sep='\s+', header=None)
-        q_df.columns = [f'pop{i}' for i in range(1,9)]
+        q_df.columns = [f'pop{i}' for i in range(1,10)]
 
         # get IDs from fam file
         q_df.loc[:,'FID'], q_df.loc[:,'IID'] = fam.loc[:,'FID'].copy(), fam.loc[:,'IID'].copy()
@@ -616,10 +613,6 @@ def run_admixture(predicted_labels, train_pca, out_path):
         q_pop_aac = q_pop[q_pop['label'] == 'AAC']
         q_pop_afr = q_pop[q_pop['label'] == 'AFR']
         q_pop_afr = pd.concat([q_pop_afr, q_pop_aac], axis=0, ignore_index=True)
-
-        q_pop_aj = q_pop[q_pop['label'] == 'AJ']
-        q_pop_eur = q_pop[q_pop['label'] == 'EUR']
-        q_pop_eur = pd.concat([q_pop_eur, q_pop_aj], axis=0, ignore_index=True)
         
         # finding AFR column
         max_val = 0
@@ -633,19 +626,6 @@ def run_admixture(predicted_labels, train_pca, out_path):
         # making admixture adjustment
         q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
         q_pop.loc[(q_pop['label'] == 'AFR') & (q_pop[max_col] < 0.9), 'label'] = 'AAC'
-
-        # finding AFR column
-        max_val = 0
-        max_col = None
-        for col in q_pop_aj.columns:
-            if col not in ['FID','IID','label']:
-                if q_pop_aj[col].mean() > max_val:
-                    max_col = col
-                    max_val = q_pop_aj[col].mean()
-        
-        # making admixture adjustment
-        q_pop.loc[(q_pop['label'] == 'AJ') & (q_pop[max_col] < 0.98), 'label'] = 'EUR'
-        q_pop.loc[(q_pop['label'] == 'EUR') & (q_pop[max_col] > 0.98), 'label'] = 'AJ'
 
         adjusted_labels_path = f'{out_path}_umap_linearsvc_adjusted_labels.txt'
         q_pop[['FID','IID','label']].to_csv(adjusted_labels_path, sep='\t', index=None)
