@@ -88,41 +88,16 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     Gets common snps between 2 genotype files and extracts from geno_path1. outputs plink bed/bim/fam file 
     for geno_path1 with only matching snps from geno_path2
     """
-   
-    print('Getting Common SNPs')	
- 
+    
     bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
     bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
     bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-    
-    bim1['rsid'].to_csv(f'{geno_path1}.snplist', sep='\t', header=None, index=None)
 
-    bim1['merge_id'] = bim1['chr'].astype(str) + ':' + bim1['pos'].astype(str) + ':' + bim1['a2'] + ':' + bim1['a1']
-    bim2['merge_id1'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a2'] + ':' + bim2['a1']
-    bim2['merge_id2'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a1'] + ':' + bim2['a2']
-
-    common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
-    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
-    common_snps = pd.concat([common_snps1, common_snps2], axis=0)
-    
-    flip_cmd = f'{plink2_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
-    shell_do(flip_cmd)
-
-    bim1_flip = pd.read_csv(f'{geno_path1}_flip.bim', sep='\t', header=None)
-    bim1_flip.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-
-    bim1_flip['merge_id'] = bim1_flip['chr'].astype(str) + ':' + bim1_flip['pos'].astype(str) + ':' + bim1_flip['a2'] + ':' + bim1_flip['a1']
-    common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
-    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
-
-    common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
-    common_snps = common_snps.drop_duplicates(subset=['rsid_y'], ignore_index=True)
+    common_snps = bim2.merge(bim1, how='inner', on=['rsid'])
 
     common_snps_file = f'{out_name}.common_snps'
-    common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
-    
-    common_snps['rsid_x'].to_csv(f'{out_name}_geno.common_snps', sep='\t', header=False, index=False)
+    common_snps['rsid'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
     
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     
