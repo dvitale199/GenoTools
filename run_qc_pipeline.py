@@ -125,7 +125,7 @@ for item in steps2:
 
             samplefile = metrics['output']['pruned_samples']
             if os.path.isfile(samplefile):
-                pruned = pd.read_csv(samplefile, sep='\t')
+                pruned = pd.read_csv(samplefile, sep='\t', header=0, usecols=[0,1], names=['FID','IID'])
                 if pruned.shape[0] > 0:
                     pruned.loc[:,'step'] = step
                     pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
