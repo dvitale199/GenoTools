@@ -125,7 +125,7 @@ for item in steps2:
 
             samplefile = metrics['output']['pruned_samples']
             if os.path.isfile(samplefile):
-                pruned = pd.read_csv(samplefile, sep='\t')
+                pruned = pd.read_csv(samplefile, sep='\t', header=0, usecols=[0,1], names=['FID','IID'])
                 if pruned.shape[0] > 0:
                     pruned.loc[:,'step'] = step
                     pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
@@ -146,8 +146,8 @@ metrics_outfile = f'{out_path}.QC.metrics.h5'
 le = ancestry['data']['label_encoder']
 confusion_matrix = ancestry['data']['confusion_matrix']
 conf_mat_df = pd.DataFrame(confusion_matrix)
-conf_mat_df.columns = le.inverse_transform([i for i in range(8)])
-conf_mat_df.index = le.inverse_transform([i for i in range(8)])
+conf_mat_df.columns = le.inverse_transform([i for i in range(10)])
+conf_mat_df.index = le.inverse_transform([i for i in range(10)])
 
 ref_pcs = ancestry['data']['ref_pcs']
 projected_pcs = ancestry['data']['projected_pcs']
