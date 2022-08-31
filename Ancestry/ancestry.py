@@ -204,9 +204,20 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     geno_common_snps = f'{out_path}_common_snps'
 
     # extracting common snps
-    ext_snps_cmd = f'{plink2_exec} --bfile {geno_prune_path} --extract {common_snps_file} --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
-
+    ext_snps_cmd = f'{plink2_exec} --bfile {geno_prune_path} --extract {ref_common_snps}_geno.common_snps --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
     shell_do(ext_snps_cmd)
+
+    # read geno common snps bim file
+    geno_common_snps_bim = pd.read_csv(f'{geno_common_snps}.bim', sep='\s+', header=None)
+    geno_common_snps_bim.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
+    
+    # make chr:pos merge ids
+    ref_common_snps_bim['merge_id'] = ref_common_snps_bim['chr'].astype(str) + ':' + ref_common_snps_bim['pos'].astype(str)
+    geno_common_snps_bim['merge_id'] = geno_common_snps_bim['chr'].astype(str) + ':' + geno_common_snps_bim['pos'].astype(str)
+
+    # merge and write over geno common snps files so snp ids match
+    merge_common_snps_bim = geno_common_snps_bim[['merge_id','a1','a2']].merge(ref_common_snps_bim, how='inner', on=['merge_id'])
+    merge_common_snps_bim[['chr','rsid','kb','pos','a1_x','a2_x']].to_csv(f'{geno_common_snps}.bim', sep='\t', header=None, index=None)
 
     # getting raw version of common snps - genotype
     raw_geno_cmd = f'{plink2_exec} --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
@@ -579,7 +590,7 @@ def run_admixture(predicted_labels, train_pca, out_path):
         # run admixture
         out_dir = os.path.split(f'{keep_out}.bed')[0]
         admix_bed = os.path.split(f'{keep_out}.bed')[-1]
-        admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 7 --supervised'
+        admixture_cmd = f'cd {out_dir} && {admix_exec} {admix_bed} 9 --supervised'
     #     shell_do(admixture_cmd)
         # should grab exit status from here to catch errors. coming soon
         os.system(admixture_cmd)
@@ -587,9 +598,9 @@ def run_admixture(predicted_labels, train_pca, out_path):
         
         # read admixture results
         # admix_results = f"{keep_out.split('/')[-1]}.7.Q"
-        admix_results = f"{keep_out}.7.Q"
+        admix_results = f"{keep_out}.9.Q"
         q_df = pd.read_csv(admix_results, sep='\s+', header=None)
-        q_df.columns = [f'pop{i}' for i in range(1,8)]
+        q_df.columns = [f'pop{i}' for i in range(1,10)]
 
         # get IDs from fam file
         q_df.loc[:,'FID'], q_df.loc[:,'IID'] = fam.loc[:,'FID'].copy(), fam.loc[:,'IID'].copy()
@@ -598,6 +609,7 @@ def run_admixture(predicted_labels, train_pca, out_path):
 
         # only adjust the new samples that were intially labelled AFR or AAC
         q_pop = q_df.merge(predicted_labels, left_on=['FID','IID'], right_on=['FID','IID'])
+
         q_pop_aac = q_pop[q_pop['label'] == 'AAC']
         q_pop_afr = q_pop[q_pop['label'] == 'AFR']
         q_pop_afr = pd.concat([q_pop_afr, q_pop_aac], axis=0, ignore_index=True)
@@ -609,6 +621,7 @@ def run_admixture(predicted_labels, train_pca, out_path):
             if col not in ['FID','IID','label']:
                 if q_pop_afr[col].mean() > max_val:
                     max_col = col
+                    max_val = q_pop_afr[col].mean()
         
         # making admixture adjustment
         q_pop.loc[(q_pop['label'] == 'AAC') & (q_pop[max_col] > 0.9), 'label'] = 'AFR'
