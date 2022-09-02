@@ -180,7 +180,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
 
     # read ancestry file with reference labels 
     ancestry = pd.read_csv(f'{labels_path}', sep='\t', header=None, names=['FID','IID','label'])
-    ref_fam = pd.read_csv(f'{ref_path}.fam', sep=' ', header=None)
+    ref_fam = pd.read_csv(f'{ref_path}.fam', sep='\s+', header=None)
     ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
 
     # combined_labels
