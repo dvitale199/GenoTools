@@ -150,7 +150,7 @@ def clean_snp_metrics(metrics_in, out_path):
             
 
 
-def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap):
+def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap, bcftools_plugins_path="/data/vitaled2/bin"):
     '''
     current structure of idat storage is such that a directory of each SentrixBarcode_A with all idats for that barcode in it
     for ex.
@@ -180,7 +180,7 @@ def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap):
 
     # export path to plugins temporarily for biowulf. will figure this out later
     gtc2vcf_cmd = f'\
-export BCFTOOLS_PLUGINS="/data/vitaled2/bin"; \
+export BCFTOOLS_PLUGINS={bcftools_plugins_path}; \
 bcftools +gtc2vcf \
 --no-version -Ob \
 --bpm {bpm} \
