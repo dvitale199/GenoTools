@@ -70,39 +70,87 @@ def process_vcf_snps(vcf, out_path):
         chunk_final.to_csv(out_path, header=False, index=False, mode='a')
 
         
+def calculate_maf(gtype_df):
+    
+    gtypes_map = {
+        'AA': 0,
+        'AB': 1,
+        'BA': 1,
+        'BB': 2,
+        'NC': np.nan
+        }
+
+    gtypes = gtype_df.pivot(index='snpID', columns='Sample_ID', values='GT').replace(gtypes_map)
+    
+    # count only called genotypes
+    N = gtypes.shape[1]-gtypes.isna().sum(axis=1)
+    freq = pd.DataFrame({'freq': gtypes.sum(axis=1)/(2*N)})
+    freq.loc[:,'maf'] = np.where(freq < 0.5, freq, 1-freq)
+    maf_out = freq.drop(columns=['freq']).reset_index()
+
+    return maf_out
+
+
+# fix clean_snp_metrics()
 def clean_snp_metrics(metrics_in, out_path):
     '''splits snp metrics files by chromosome and individual'''
     
-    df = pd.read_csv(metrics_in,
-                 dtype={
-                   'chromosome':str,
-                   'position':int,
-                   'snpID':str,
-                   'Sample_ID':str,
-                   'Allele1':str,
-                   'Allele2':str,
-                   'BAlleleFreq':float,
-                   'LogRRatio':float,
-                   'R':float,
-                   'Theta':float,
-                   'GenTrain_Score':str,
-                   'GType':str}
-                )
+    snp_metrics = pd.read_csv(metrics_in,
+                     dtype={
+                         'chromosome':str,
+                         'position':int,
+                         'snpID':str,
+                         'Sample_ID':str,
+                         'Ref':str,
+                         'Alt':str,
+                         'ALLELE_A':int,
+                         'ALLELE_B':int,
+                         'BAlleleFreq':float,
+                         'LogRRatio':float,
+                         'R':float,
+                         'Theta':float,
+                         'GenTrain_Score':float,
+                         'GType':str
+                     })
+    
+    
+    alt_split = snp_metrics.loc[:,'Alt'].str.split(',', expand=True)
+    snp_metrics.loc[:,'Alt1'], snp_metrics.loc[:,'Alt2'] = alt_split.loc[:,0], alt_split.loc[:,1]
 
-    # work around for 'ASSAY_TYPE=0' string in GenTrain_Score column
-    df.loc[:,'GenTrain_Score'] = pd.to_numeric(df.GenTrain_Score, errors='coerce')
+    snp_metrics.loc[(snp_metrics['GType']=='AA') & (snp_metrics['ALLELE_A']==1), 'GT'] = 'BB'
+    snp_metrics.loc[(snp_metrics['GType']=='AA') & (snp_metrics['ALLELE_A']==0), 'GT'] = 'AA'
+    snp_metrics.loc[(snp_metrics['GType']=='BB') & (snp_metrics['ALLELE_B']==1), 'GT'] = 'BB'
+    snp_metrics.loc[(snp_metrics['GType']=='BB') & (snp_metrics['ALLELE_B']==0), 'GT'] = 'AA'
 
-    for iid in df.Sample_ID.unique():
-        for chrom in sorted(df.chromosome.unique()):
+    snp_metrics.loc[(snp_metrics['GType']=='AB'), 'GT'] = 'AB'
+    snp_metrics.loc[(snp_metrics['GType']=='NC'), 'GT'] = 'NC'
+    snp_metrics.loc[:,'GT'] = snp_metrics.loc[:,'GT'].fillna('NC')
+
+    # drop snps where gentrain score, theta, and r isna
+#     snp_metrics = snp_metrics.loc[(~snp_metrics['GenTrain_Score'].isna()) & (~snp_metrics['Theta'].isna()) & (~snp_metrics['R'].isna())]
+
+    snp_metrics.loc[snp_metrics['ALLELE_A']==0, 'a1'] = snp_metrics.loc[snp_metrics['ALLELE_A']==0,'Ref']
+    snp_metrics.loc[snp_metrics['ALLELE_A']==1, 'a1'] = snp_metrics.loc[snp_metrics['ALLELE_A']==1,'Alt1']
+    snp_metrics.loc[snp_metrics['ALLELE_B']==0, 'a2'] = snp_metrics.loc[snp_metrics['ALLELE_B']==0,'Ref']
+    snp_metrics.loc[snp_metrics['ALLELE_B']==1, 'a2'] = snp_metrics.loc[snp_metrics['ALLELE_B']==1,'Alt1']
+    snp_metrics.loc[snp_metrics['ALLELE_B']==2, 'a2'] = snp_metrics.loc[snp_metrics['ALLELE_B']==2,'Alt2']
+    
+    # calculate maf for full 
+    maf_df = calculate_maf(snp_metrics)
+    snp_metrics_full = snp_metrics.merge(maf_df, how='left', on='snpID')
+        
+    
+    # output metrics file per sample, per chrom
+    for iid in snp_metrics_full.Sample_ID.unique():
+        for chrom in sorted(snp_metrics_full.chromosome.unique()):
 
             outfile_name = f'{out_path}_{iid}_chr{chrom}.csv'
-            out_df = df.loc[(df.chromosome==chrom) & (df.Sample_ID==iid)]
+            out_df = snp_metrics_full.loc[(snp_metrics_full.chromosome==chrom) & (snp_metrics_full.Sample_ID==iid)]
             out_df.to_csv(outfile_name, header=True, index=False)
-        
-        
+            
 
 
-def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap, bcftools_plugins_path="/data/vitaled2/bin"):
+def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap):
     '''
     current structure of idat storage is such that a directory of each SentrixBarcode_A with all idats for that barcode in it
     for ex.
@@ -132,7 +180,7 @@ def idat_snp_metrics(idat_path, bpm, bpm_csv, egt, ref_fasta, out_path, iaap, bc
 
     # export path to plugins temporarily for biowulf. will figure this out later
     gtc2vcf_cmd = f'\
-export BCFTOOLS_PLUGINS={bcftools_plugins_path}; \
+export BCFTOOLS_PLUGINS="/data/vitaled2/bin"; \
 bcftools +gtc2vcf \
 --no-version -Ob \
 --bpm {bpm} \
@@ -187,7 +235,7 @@ vcftools --gzvcf \
     clean_snp_metrics(metrics_in=metrics_in, out_path=clean_metrics_out)
  
     # output snp metrics paths
-    chroms = [str(i) for i in range(1,23)] + ['X','Y','M']
+    chroms = [str(i) for i in range(1,23)] + ['X','Y']
     samples = [s.split('/')[-1].replace('_Red.idat','') for s in glob.glob(f'{idat_path}/*_Red.idat')]
     
     outfiles = []
@@ -303,63 +351,6 @@ def create_cnv_dosage_matrices(in_path, samples_list, out_path):
                  }
     
     return out_dict
-
-# def create_cnv_dosage_matrices(in_path, samples_list, chromosome, out_path):
-    
-#     chrom = str(chromosome)
-    
-#     baf_out = f'{out_path}_chr{chrom}_BAF.csv'
-#     l2r_del_out = f'{out_path}_chr{chrom}_L2R_DEL.csv'
-#     l2r_dup_out = f'{out_path}_chr{chrom}_L2R_DUP.csv'
-    
-#     chrom_baf = pd.DataFrame()
-#     chrom_l2r_del = pd.DataFrame()
-#     chrom_l2r_dup = pd.DataFrame()
-
-    
-#     for sample in samples_list:
-#         code = sample.split('_')[0]
-
-#         cnv_file = f'{in_path}/{code}/CNV_{sample}_chr{chrom}.csv'
-#         cnvs = pd.read_csv(cnv_file)
-#         cnvs.loc[:,'sampleid'] = sample
-#         cnvs.loc[:,'chr'] = chrom
-#         cnvs_final = cnvs.loc[cnvs.NUM_VARIANTS>=10]
-        
-#         baf = cnvs_final.loc[:,['PERCENT_BAF_INSERTION','INTERVAL','sampleid']]
-#         baf_pivot = baf.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_BAF_INSERTION')
-        
-#         l2r_del = cnvs_final.loc[:,['PERCENT_L2R_DELETION', 'INTERVAL', 'sampleid']]
-#         l2r_del_pivot = l2r_del.pivot(index='sampleid', columns='INTERVAL', values='PERCENT_L2R_DELETION')
-        
-#         l2r_dup = cnvs_final.loc[:,['PERCENT_L2R_DUPLICATION', 'INTERVAL', 'sampleid']]
-#         l2r_dup_pivot = l2r_dup.pivot(index='sampleid',columns='INTERVAL',values='PERCENT_L2R_DUPLICATION')
-        
-#         chrom_baf = chrom_baf.append(baf_pivot)
-#         chrom_l2r_del = chrom_l2r_del.append(l2r_del_pivot)
-#         chrom_l2r_dup = chrom_l2r_dup.append(l2r_dup_pivot)
-
-#     chrom_baf.columns = [x.replace('-','_') for x in chrom_baf.columns]
-#     chrom_l2r_del.columns = [x.replace('-','_') for x in chrom_l2r_del.columns]
-#     chrom_l2r_dup.columns = [x.replace('-','_') for x in chrom_l2r_dup.columns]
-#     chrom_baf.columns = [x.replace('.','_') for x in chrom_baf.columns]
-#     chrom_l2r_del.columns = [x.replace('.','_') for x in chrom_l2r_del.columns]
-#     chrom_l2r_dup.columns = [x.replace('.','_') for x in chrom_l2r_dup.columns]
-    
-#     chrom_baf.to_csv(baf_out, index=True, header=True)
-#     chrom_l2r_del.to_csv(l2r_del_out, index=True, header=True)
-#     chrom_l2r_dup.to_csv(l2r_dup_out, index=True, header=True)
-    
-#     out_dict = {
-#         'baf_df': chrom_baf,
-#         'l2r_del_df': chrom_l2r_del,
-#         'l2r_dup_df': chrom_l2r_dup,
-#         'baf_path': baf_out,
-#         'l2r_del_path': l2r_del_out,
-#         'l2r_dup_path': l2r_dup_out
-#                  }
-    
-#     return out_dict
  
     
 def CNV_WAS(cnv_dosage_file, pheno, covar, out_path):
