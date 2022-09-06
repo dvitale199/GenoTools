@@ -117,15 +117,12 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
 
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
-    common_snps = common_snps.drop_duplicates(subset=['rsid_y'], ignore_index=True)
+    common_snps = common_snps.drop_duplicates(subset=['chr','pos'], ignore_index=True)
 
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
     
-    common_snps['rsid_x'].to_csv(f'{out_name}_geno.common_snps', sep='\t', header=False, index=False)
-    
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
-    
     shell_do(ext_snps_cmd)
 
     outfiles = {
