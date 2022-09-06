@@ -147,6 +147,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     else:
         extract_cmd = f'{plink2_exec} --bfile {ref_path} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
         shell_do(extract_cmd)
+
         # add to out_paths (same as common_snps_files)
         out_paths['common_snps'] = common_snps_file
         out_paths['bed'] = ref_common_snps
@@ -203,9 +204,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
 
     geno_common_snps = f'{out_path}_common_snps'
 
-    # extracting common snps
-    ext_snps_cmd = f'{plink2_exec} --bfile {geno_prune_path} --extract {ref_common_snps}_geno.common_snps --alt1-allele {ref_common_snps_ref_alleles} --make-bed --out {geno_common_snps}'
-    shell_do(ext_snps_cmd)
+    geno_common_snps_files = get_common_snps(geno_prune_path, ref_common_snps, geno_common_snps)
 
     # read geno common snps bim file
     geno_common_snps_bim = pd.read_csv(f'{geno_common_snps}.bim', sep='\s+', header=None)
@@ -237,7 +236,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     if not train:
         for col in ref_snps.columns:
             if col not in geno_snps.columns:
-                geno_snps[col] = 0
+                geno_snps[col] = 2
         # reordering columns to match ref for imputation
         geno_snps = geno_snps[ref_snps.columns]
 
