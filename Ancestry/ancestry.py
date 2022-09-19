@@ -233,10 +233,13 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     geno_snps.columns = geno_snps.columns.str.extract('(.*)_')[0]
 
     # adding missing snps when not training
+    missing_cols = []
     if not train:
         for col in ref_snps.columns:
             if col not in geno_snps.columns:
-                geno_snps[col] = 2
+                missing_cols += [pd.Series(np.repeat(0, geno_snps.shape[0]), name=col)]
+        missing_cols = pd.concat(missing_cols, axis=1)
+        geno_snps = pd.concat([geno_snps, missing_cols], axis=1)
         # reordering columns to match ref for imputation
         geno_snps = geno_snps[ref_snps.columns]
 
