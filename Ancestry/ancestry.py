@@ -238,8 +238,10 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         for col in ref_snps.columns:
             if col not in geno_snps.columns:
                 missing_cols += [pd.Series(np.repeat(0, geno_snps.shape[0]), name=col)]
-        missing_cols = pd.concat(missing_cols, axis=1)
-        geno_snps = pd.concat([geno_snps, missing_cols], axis=1)
+        
+        if len(missing_cols) > 0:
+            missing_cols = pd.concat(missing_cols, axis=1)
+            geno_snps = pd.concat([geno_snps, missing_cols], axis=1)
         # reordering columns to match ref for imputation
         geno_snps = geno_snps[ref_snps.columns]
 
