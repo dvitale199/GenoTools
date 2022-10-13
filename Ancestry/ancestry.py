@@ -237,7 +237,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     if not train:
         for col in ref_snps.columns:
             if col not in geno_snps.columns:
-                missing_cols += [pd.Series(np.repeat(0, geno_snps.shape[0]), name=col)]
+                missing_cols += [pd.Series(np.repeat(2, geno_snps.shape[0]), name=col)]
         
         if len(missing_cols) > 0:
             missing_cols = pd.concat(missing_cols, axis=1)
