@@ -85,35 +85,52 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     for cmd in cmds:
         shell_do(cmd)
 
-    # grab fails from .sexcheck files
-    sex1 = pd.read_csv(f'{sex_tmp1}.sexcheck', sep='\s+')
-    sex_fail1 = sex1[sex1.STATUS=='PROBLEM']
+    if os.path.isfile(f'{sex_tmp1}.sexcheck') and os.path.isfile(f'{sex_tmp2}.sexcheck'):
 
-    sex2 = pd.read_csv(f'{sex_tmp2}.sexcheck', sep='\s+')
-    sex_fail2 = sex2[sex2.STATUS=='PROBLEM']
+        # grab fails from .sexcheck files
+        sex1 = pd.read_csv(f'{sex_tmp1}.sexcheck', sep='\s+')
+        sex_fail1 = sex1[sex1.STATUS=='PROBLEM']
 
-    # combine and output
-    sex_fail_df = sex_fail1.append(sex_fail2)
-    sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
-    sex_fail_count = sex_fail_ids.shape[0]
-    sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
+        sex2 = pd.read_csv(f'{sex_tmp2}.sexcheck', sep='\s+')
+        sex_fail2 = sex2[sex2.STATUS=='PROBLEM']
 
-    # remove sex fail samples from geno
-    plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+        # combine and output
+        sex_fail_df = sex_fail1.append(sex_fail2)
+        sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
+        sex_fail_count = sex_fail_ids.shape[0]
+        sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
+
+        # remove sex fail samples from geno
+        plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+        
+        shell_do(plink_cmd3)
+        
+        process_complete = True
+
+        # log outputs
+        outfiles_dict = {
+            'pruned_samples': sex_fails,
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'outlier_count': sex_fail_count
+        }
     
-    shell_do(plink_cmd3)
-    
-    process_complete = True
-    
-    # log outputs
-    outfiles_dict = {
-        'pruned_samples': sex_fails,
-        'plink_out': out_path
-    }
+    else:
+        print('Sex Prune Failed!')
+        print(f'Check {sex_tmp1}.log and {sex_tmp2}.log for more information')
 
-    metrics_dict = {
-        'outlier_count': sex_fail_count
-    }
+        process_complete = False
+
+        outfiles_dict = {
+            'pruned_samples': 'Sex Prune Failed!',
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'outlier_count': 0
+        }
 
     out_dict = {
         'pass': process_complete,
