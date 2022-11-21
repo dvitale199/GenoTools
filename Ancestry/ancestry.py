@@ -435,8 +435,11 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
     pipe_clf = pipe_grid.best_estimator_
     test_acc = pipe_clf.score(X_test, y_test)
     print(f"Balanced Accuracy on Test Set: {test_acc}")
-    pipe_clf_pred = pipe_clf.predict(X_test)
 
+    interval = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+    print(f'Balanced Accuracy on Test Set; 95% CI: ({test_acc-interval}, {test_acc+interval})')
+
+    pipe_clf_pred = pipe_clf.predict(X_test)
     pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
     
     # eventually make this separate function
@@ -479,6 +482,9 @@ def load_umap_classifier(pkl_path, X_test, y_test):
     # test accuracy
     test_acc = pipe_clf.score(X_test, y_test)
     print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+    interval = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+    print(f'Balanced Accuracy on Test Set; 95% CI: ({test_acc-interval}, {test_acc+interval})')
 
     # confustion matrix
     pipe_clf_pred = pipe_clf.predict(X_test)
