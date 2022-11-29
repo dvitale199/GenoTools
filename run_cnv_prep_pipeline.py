@@ -25,6 +25,5 @@ for chrom in chroms:
     metrics = pd.read_csv(mfile)
     metrics_tmp = metrics.loc[metrics.snpID.isin(bim.id)]
     total_sample_df = pd.concat([total_sample_df,metrics_tmp], ignore_index=True)
-#     total_sample_df = total_sample_df.append(metrics_tmp)
 
 total_sample_df.to_csv(out_path, index=False, header=True)
