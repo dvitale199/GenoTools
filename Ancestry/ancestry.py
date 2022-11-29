@@ -18,6 +18,7 @@ from sklearn.svm import LinearSVC
 import plotly.express as px
 import plotly
 import joblib
+import pickle as pkl
 
 #local imports
 from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
@@ -428,16 +429,19 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
     pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy')
     pipe_grid.fit(X_train, y_train)
 
+    results_df = pd.DataFrame(pipe_grid.cv_results_)
+    top_results = results_df[results_df['rank_test_score'] == 1]
+
     train_acc = pipe_grid.best_score_
     print(f'Training Balanced Accuracy: {train_acc}')
+
+    interval = 1.96 * float(top_results['std_test_score'])
+    print(f'Training Balanced Accuracy; 95% CI: ({train_acc-interval}, {train_acc+interval})')
     print(f'Best Parameters: {pipe_grid.best_params_}')
 
     pipe_clf = pipe_grid.best_estimator_
     test_acc = pipe_clf.score(X_test, y_test)
     print(f"Balanced Accuracy on Test Set: {test_acc}")
-
-    interval = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
-    print(f'Balanced Accuracy on Test Set; 95% CI: ({test_acc-interval}, {test_acc+interval})')
 
     pipe_clf_pred = pipe_clf.predict(X_test)
     pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
@@ -454,7 +458,16 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
 
     # dump best estimator to pkl
     model_path = f'{out}_umap_linearsvc_ancestry_model.pkl'
-    joblib.dump(pipe_clf, model_path)
+    model_file = open(model_path, 'wb')
+    pkl.dump(pipe_clf, model_file)
+    model_file.close()
+
+    # model_path2 = f'{out}_umap_linearsvc_ancestry_model_dumps.pkl'
+    # model_file2 = open(model_path2, 'wb')
+    # pickle.dumps(pipe_clf, model_file2)
+    # model_file2.close()
+
+    # joblib.dump(pipe_clf, model_path)
 
     out_dict = {
         'classifier': pipe_clf,
@@ -477,14 +490,13 @@ def load_umap_classifier(pkl_path, X_test, y_test):
     print()
 
     # load trained umap classifier from pickle file
-    pipe_clf = joblib.load(pkl_path)
+    pkl_in = open(pkl_path, 'rb')
+    pipe_clf = pkl.load(pkl_in)
+    pkl_in.close()
 
     # test accuracy
     test_acc = pipe_clf.score(X_test, y_test)
     print(f'Balanced Accuracy on Test Set: {test_acc}')
-
-    interval = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
-    print(f'Balanced Accuracy on Test Set; 95% CI: ({test_acc-interval}, {test_acc+interval})')
 
     # confustion matrix
     pipe_clf_pred = pipe_clf.predict(X_test)
