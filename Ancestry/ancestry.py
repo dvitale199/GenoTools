@@ -435,13 +435,17 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
     train_acc = pipe_grid.best_score_
     print(f'Training Balanced Accuracy: {train_acc}')
 
-    interval = 1.96 * float(top_results['std_test_score'])
+    interval = 1.96 * float(top_results['std_test_score'].iloc[0])
     print(f'Training Balanced Accuracy; 95% CI: ({train_acc-interval}, {train_acc+interval})')
+
     print(f'Best Parameters: {pipe_grid.best_params_}')
 
     pipe_clf = pipe_grid.best_estimator_
     test_acc = pipe_clf.score(X_test, y_test)
     print(f"Balanced Accuracy on Test Set: {test_acc}")
+
+    margin_of_error = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+    print(f"Balanced Accuracy on Test Set, 95% Confidence Interval: ({test_acc-margin_of_error}, {test_acc+margin_of_error})")
 
     pipe_clf_pred = pipe_clf.predict(X_test)
     pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
@@ -461,13 +465,6 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
     model_file = open(model_path, 'wb')
     pkl.dump(pipe_clf, model_file)
     model_file.close()
-
-    # model_path2 = f'{out}_umap_linearsvc_ancestry_model_dumps.pkl'
-    # model_file2 = open(model_path2, 'wb')
-    # pickle.dumps(pipe_clf, model_file2)
-    # model_file2.close()
-
-    # joblib.dump(pipe_clf, model_path)
 
     out_dict = {
         'classifier': pipe_clf,
@@ -497,6 +494,9 @@ def load_umap_classifier(pkl_path, X_test, y_test):
     # test accuracy
     test_acc = pipe_clf.score(X_test, y_test)
     print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+    margin_of_error = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+    print(f"Balanced Accuracy on Test Set, 95% Confidence Interval: ({test_acc-margin_of_error}, {test_acc+margin_of_error})")
 
     # confustion matrix
     pipe_clf_pred = pipe_clf.predict(X_test)
