@@ -281,7 +281,7 @@ def munge_training_data(labeled_ref_raw):
     y = le.fit_transform(y)
 
     # train/test split 1kg pca data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123, stratify=y)
 
     IDs_train = X_train[['FID', 'IID']]
     IDs_test = X_test[['FID', 'IID']]
