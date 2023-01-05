@@ -487,7 +487,7 @@ def load_umap_classifier(pipe_clf, X_test, y_test):
     print(f"RUNNING: {step}")
     print()
 
-    # convert np array to list (needed for vertex ai predictions)
+    # convert to list (needed for vertex ai predictions)
     X_test_arr = np.array(X_test).tolist()
 
     # no more score function so get testing balanced accuracy based on vertex ai predictions
@@ -522,14 +522,34 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     le = label_encoder
 
     # set new samples aside for labeling after training the model
-    X_new = projected.drop(columns=['FID','IID','label'])
-    # convert np array to list (needed for vertex ai predictions)
-    X_new_arr = np.array(X_new).tolist()
+    X_new = projected.drop(columns=['FID','IID','label'], axis=1)
 
-    # call vertex ai endpoint to predict new samples
-    prediction = pipe_clf.predict(instances=X_new_arr)
-    y_pred = prediction.predictions
-    y_pred = [int(i) for i in y_pred]
+    # convert to numpy array
+    X_new_arr = np.array(X_new)
+
+    # if num samples > ~2000, need to split into multiple batches of predictions
+    num_splits = round((X_new.shape[0] / 2000), 0)
+
+    y_pred = []
+
+    if num_splits > 0:
+        for arr in np.array_split(X_new_arr, num_splits):
+            # convert to list (needed for vertex ai predictions)
+            arr = arr.tolist()
+            # get predictions from vertex ai
+            prediction = pipe_clf.predict(instances=arr)
+            pred = prediction.predictions
+            pred = [int(i) for i in pred]
+            y_pred += pred
+    else:
+         # convert to list (needed for vertex ai predictions)
+        arr = X_new_arr.tolist()
+        # get predictions from vertex ai
+        prediction = pipe_clf.predict(instances=arr)
+        pred = prediction.predictions
+        pred = [int(i) for i in pred]
+        y_pred += pred
+
     ancestry_pred = le.inverse_transform(y_pred)
     projected.loc[:,'label'] = ancestry_pred
 
