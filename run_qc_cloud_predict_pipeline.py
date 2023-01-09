@@ -5,7 +5,8 @@ import os
 
 # local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune
-from Ancestry.cloud_ancestry import run_ancestry, split_cohort_ancestry
+from Ancestry.ancestry import split_cohort_ancestry
+from Ancestry.cloud_ancestry import run_ancestry
 from QC.utils import shell_do
 
 
