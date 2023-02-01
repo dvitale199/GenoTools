@@ -1,5 +1,5 @@
 dash_bio==1.0.2
-h5py
+h5py==3.7.0
 joblib==1.2.0
 matplotlib==3.6.2
 numpy==1.23.5
