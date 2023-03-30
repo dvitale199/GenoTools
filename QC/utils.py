@@ -23,6 +23,51 @@ def shell_do(command, log=False, return_log=False):
         return(res.stdout.decode('utf-8'))
     
 
+def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
+    """Label SNPs with the gene they are in."""
+    # Check if the gene reference file exists
+    if gene_reference is None:
+        # Get the directory of the current function
+        function_dir = os.path.dirname(os.path.abspath(__file__))
+        # Get the directory of the file
+        ref_dir = os.path.join(function_dir, '..', 'ref')
+        # Create the full file path
+        my_file_path = os.path.join(ref_dir, 'glist-hg38')
+    if not os.path.exists(gene_reference):
+        raise FileNotFoundError(f"{gene_reference} not found")
+
+    # Load SNP data from bim file
+    snps = pd.read_table(bim_file, sep='\s+', header=None, names=['chr', 'snp_id', 'cm_pos', 'pos', 'a1', 'a2'], dtype={'chr': str})
+    # Load gene information
+    glist = pd.read_table(gene_reference, sep='\s+', header=None, names=['chr', 'start', 'end', 'name'], dtype={'chr': str})
+    
+    # convert glist chr X to 23, Y to 24, XY to 25
+    glist.loc[glist.chr=='X', 'chr'] = '23'
+    glist.loc[glist.chr=='Y', 'chr'] = '24'
+    glist.loc[glist.chr=='XY', 'chr'] = '25'
+
+    # Add a new column to hold the gene labels
+    snps['gene'] = 'NA'
+
+    # Loop through each row in the gene list
+    for _, row in glist.iterrows():
+
+        start = row['start'] - locus_size
+        stop = row['end'] + locus_size
+        # Find the positions that fall within the current start and stop values
+        include_snps = snps.loc[(snps['chr'] == row['chr']) & 
+                                (snps['pos'] >= start) & 
+                                (snps['pos'] <= stop)].copy()
+
+        # Assign gene name to included SNPs
+        include_snps.loc[:, 'gene'] = row['name']
+
+        # Update the label for the included SNPs
+        snps.update(include_snps)
+
+    return snps
+
+
 def merge_genos(geno_path1, geno_path2, out_name):
     # attempt 1 at merging genos
     bash1 = f"{plink_exec} --bfile {geno_path1} --allow-no-sex --bmerge {geno_path2} --out {out_name} --make-bed"
