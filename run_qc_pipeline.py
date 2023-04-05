@@ -4,7 +4,7 @@ import shutil
 import os
 
 # local imports
-from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune
+from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
@@ -82,6 +82,11 @@ for label, data in variant_dict.items():
             plink_file = f"{data['output']['plink_out']}.{suffix}"
             plink_outfile = f'{out_path}_{label}.{suffix}'
             shutil.copyfile(src=plink_file, dst=plink_outfile)
+        
+        # per-ancestry pcs
+        pca_geno_path = f'{out_path}_{label}'
+        pca_out_path = f'{out_path}_{label}_maf_hwe'
+        plink_pca(pca_geno_path, pca_out_path) 
 
 # copy list of related samples to out_path
 for label, data in related_dict.items():

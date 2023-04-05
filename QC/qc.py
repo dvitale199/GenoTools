@@ -531,3 +531,69 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     }
 
     return metrics
+
+
+def plink_pca(geno_path, out_path, build='hg38'):
+
+    hg19_ex_regions = """
+    5 44000000 51500000 r1
+    6 25000000 33500000 r2
+    8 8000000 12000000 r3
+    11 45000000 57000000 r4
+    """
+
+    hg38_ex_regions = """
+    1   47534328    51534328    r1
+    2   133742429   137242430   r2
+    2   182135273   189135274   r3
+    3   47458510    49962567    r4
+    3   83450849    86950850    r5
+    5   98664296    101164296   r6
+    5   129664307   132664308   r7
+    5   136164311   139164311   r8
+    6   24999772    35032223    r9
+    6   139678863   142178863   r10
+    8   7142478 13142491    r11
+    8   110987771   113987771   r12
+    11  87789108    90766832    r13
+    12  109062195   111562196   r14
+    20  33412194    35912078    r15
+    """
+
+    # if build == 'hg19' write hg19_ex_regions exclusion regions to file named by out_path
+    if build == 'hg19':
+        exclusion_file = f'{out_path}_hg19.txt'
+        with open(exclusion_file, 'w') as f:
+            f.write(hg19_ex_regions)
+    if build == 'hg38':
+        exclusion_file = f'{out_path}_hg38.txt'
+        with open(exclusion_file, 'w') as f:
+            f.write(hg38_ex_regions)
+        
+
+    # Filter data
+    filter_cmd = f"{plink2_exec} --bfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-bed --out {out_path}_tmp"
+    shell_do(filter_cmd)
+    
+    # Prune SNPs
+    prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
+    shell_do(prune_cmd)
+    
+    # Extract pruned SNPs
+    extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
+    shell_do(extract_cmd)
+    
+    # Calculate/generate PCs
+    pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}_pca"
+    shell_do(pca_cmd)
+    
+    # Remove intermediate files
+    os.remove(f"{out_path}_tmp.bed")
+    os.remove(f"{out_path}_tmp.bim")
+    os.remove(f"{out_path}_tmp.fam")
+    os.remove(f"{out_path}_tmp.log")
+    os.remove(f"{out_path}_pruned.log")
+    os.remove(f"{out_path}_pruned.prune.in")
+    os.remove(f"{out_path}_pruned.prune.out")
+    # remove exclusion file
+    os.remove(exclusion_file)
