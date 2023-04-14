@@ -535,6 +535,11 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
 
 def plink_pca(geno_path, out_path, build='hg38'):
 
+    step = 'plink_pca'
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     hg19_ex_regions = """
     5 44000000 51500000 r1
     6 25000000 33500000 r2
@@ -578,22 +583,34 @@ def plink_pca(geno_path, out_path, build='hg38'):
     # Prune SNPs
     prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
     shell_do(prune_cmd)
+
+    # Check if prune.in file exists
+    if os.path.isfile(f'{out_path}_pruned.prune.in'):
+        # Extract pruned SNPs
+        extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
+        shell_do(extract_cmd)
+        
+        # Calculate/generate PCs
+        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}_pca"
+        shell_do(pca_cmd)
+
+        # Remove intermediate files
+        os.remove(f"{out_path}_pruned.log")
+        os.remove(f"{out_path}_pruned.prune.in")
+        os.remove(f"{out_path}_pruned.prune.out")
     
-    # Extract pruned SNPs
-    extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
-    shell_do(extract_cmd)
-    
-    # Calculate/generate PCs
-    pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}_pca"
-    shell_do(pca_cmd)
+    # Otherwise throw an error (less than 50 samples = bad LD)
+    else:
+        print()
+        print('PCA calculation failed!')
+        print(f'Check {out_path}_pruned.log for more information.')
+        print('Likely there are <50 samples for this ancestry leading to bad LD calculations.')
+        print()
     
     # Remove intermediate files
     os.remove(f"{out_path}_tmp.bed")
     os.remove(f"{out_path}_tmp.bim")
     os.remove(f"{out_path}_tmp.fam")
     os.remove(f"{out_path}_tmp.log")
-    os.remove(f"{out_path}_pruned.log")
-    os.remove(f"{out_path}_pruned.prune.in")
-    os.remove(f"{out_path}_pruned.prune.out")
     # remove exclusion file
     os.remove(exclusion_file)

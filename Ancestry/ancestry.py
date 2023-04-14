@@ -114,6 +114,8 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
         range_z=z_range
     )
 
+    fig.update_traces(marker={'size': 3})
+
     fig.show()
 
     if plot_out:
