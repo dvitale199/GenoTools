@@ -4,7 +4,7 @@ import shutil
 import os
 
 # local imports
-from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca
+from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, king_prune, variant_prune, plink_pca
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
@@ -56,7 +56,8 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 
     # related
     related_out = f'{geno}_related'
-    related = related_prune(geno, related_out, prune_related=False)
+    # related = related_prune(geno, related_out, prune_related=False)
+    related = king_prune(geno, related_out, prune_related=False)
     related_dict[label] = related
     
     # het
@@ -91,7 +92,8 @@ for label, data in variant_dict.items():
 # copy list of related samples to out_path
 for label, data in related_dict.items():
     if data['pass']:
-        related_file = f"{data['output']['related_samples']}"
+        # related_file = f"{data['output']['related_samples']}"
+        related_file = f"{data['output']['pruned_samples']}"
         related_outfile = f"{out_path}_{label}.related"
         shutil.copyfile(src=related_file, dst=related_outfile)
 
@@ -125,7 +127,8 @@ for item in steps2:
         step = metrics['step']
         pf = metrics['pass']
         
-        if step in ['het_prune','related_prune']:
+        # if step in ['het_prune','related_prune']:
+        if step in ['het_prune', 'king_prune']:
             level = 'sample'
 
             samplefile = metrics['output']['pruned_samples']
