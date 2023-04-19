@@ -4,7 +4,7 @@ import shutil
 import os
 
 # local imports
-from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, king_prune, variant_prune, plink_pca
+from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
@@ -56,8 +56,7 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
 
     # related
     related_out = f'{geno}_related'
-    # related = related_prune(geno, related_out, prune_related=False)
-    related = king_prune(geno, related_out, prune_related=False)
+    related = related_prune(geno, related_out, prune_related=False)
     related_dict[label] = related
     
     # het
@@ -126,8 +125,7 @@ for item in steps2:
         step = metrics['step']
         pf = metrics['pass']
         
-        # if step in ['het_prune','related_prune']:
-        if step in ['het_prune', 'king_prune']:
+        if step in ['het_prune', 'related_prune']:
             level = 'sample'
 
             samplefile = metrics['output']['pruned_samples']
