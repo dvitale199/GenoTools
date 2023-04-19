@@ -306,13 +306,13 @@ def king_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.3
     # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
     if prune_related and prune_duplicated:
         grm_pruned = related.append(duplicated)
-        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
         grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
         process_complete = True
     
     if prune_duplicated and not prune_related:
         grm_pruned = duplicated
-        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
         grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
         process_complete = True
         
