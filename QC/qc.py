@@ -238,19 +238,19 @@ def het_prune(geno_path, out_path):
 
 def king_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True):
     # what step are we running?
-    step = "KING_relatedness_prune"
+    step = "king_prune"
     print()
     print(f"RUNNING: {step}")
     print()
 
-    # make filenames
-    pruned_samples_file = f"{out_path}.pruned"
-    
+    # make filenames    
     grm1 = f"{out_path}_total_grm"
-    grm2 = f"{out_path}_unrelated_grm"
+    grm2 = f"{out_path}_related_grm"
     grm3 = f"{out_path}_duplicated_grm"
 
-    # calculate grm and select relatedness <= grm_cutoff
+    related_out = f"{out_path}.related"
+    related_pruned_out = f"{out_path}.pruned"
+
     king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
     # see if any samples are related (includes duplicates)
     king_cmd2 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_cutoff} --out {grm2}' 
@@ -262,40 +262,32 @@ def king_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.3
         shell_do(cmd)
 
     if prune_related and prune_duplicated:
-        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen --out {out_path}_pfile'
-        plink_cmd2 = f'{plink2_exec} --pfile {out_path}_pfile --make-bed --out {out_path}'
-        
-        cmds = [plink_cmd1, plink_cmd2]
-        for cmd in cmds:
-            shell_do(cmd)
-
-        shutil.copy(f'{grm2}.king.cutoff.out.id',f'{out_path}.outliers') # source, destination
-        outlier_count = sum(1 for line in open(f'{out_path}.outliers'))
-        pruned_samples_file = f'{out_path}.outliers'
+        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
+        shell_do(plink_cmd1) 
 
     if prune_duplicated and not prune_related:
-        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen --out {out_path}_pfile'
-        plink_cmd2 = f'{plink2_exec} --pfile {out_path}_pfile --make-bed --out {out_path}'
-        
-        cmds = [plink_cmd1, plink_cmd2]
-        for cmd in cmds:
-            shell_do(cmd)
-
-        shutil.copy(f'{grm3}.king.cutoff.out.id',f'{out_path}.outliers') # source, destination
-        outlier_count = sum(1 for line in open(f'{out_path}.outliers'))
-        pruned_samples_file = f'{out_path}.outliers'
+        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
+        shell_do(plink_cmd1) 
 
     if not prune_related and not prune_duplicated:
         plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
         shell_do(plink_cmd1)
 
-        outlier_count = None
         process_complete = True
     
     if not prune_duplicated and prune_related:
         print('This option is invalid. Cannot prune related without also pruning duplicated')
-        outlier_count = None
+
         process_complete = False
+
+
+    shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related') # source, destination
+    related_count = sum(1 for line in open(f'{grm2}.related'))
+
+    shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated') # source, destination
+    duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
+
+    related_count = related_count - duplicated_count
 
     # # remove intermediate files
     # os.remove(f'{out_path}_tmp.pgen')
@@ -303,16 +295,47 @@ def king_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.3
     # os.remove(f'{out_path}_tmp.psam')
     # os.remove(f'{out_path}.king.cutoff.out.id')
 
+    # combine full list of related and duplicated
+    related = pd.read_csv(f'{grm2}.related')
+    duplicated = pd.read_csv(f'{grm3}.duplicated')
+
+    grm_related = pd.concat([related, duplicated], axis = 0)
+    grm_related.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
+    grm_related.to_csv(related_out, sep='\t', header=True, index=False)
+
+    # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
+    if prune_related and prune_duplicated:
+        grm_pruned = related.append(duplicated)
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+        process_complete = True
+    
+    if prune_duplicated and not prune_related:
+        grm_pruned = duplicated
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+        process_complete = True
+        
+    if not prune_related and not prune_duplicated:
+        plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
+        related_pruned_out = None
+        process_complete = True
+        
+    if not prune_duplicated and prune_related:
+        print('This option is invalid. Cannot prune related without also pruning duplicated')
+        process_complete = False
+
     process_complete = True
-    step = 'king_prune'
 
     outfiles_dict = {
-        'pruned_samples': pruned_samples_file,
+        'pruned_samples': related_pruned_out,
+        'related_samples': related_out,
         'plink_out': out_path
     }
 
     metrics_dict = {
-        'outlier_count': outlier_count
+        'related_count': related_count,
+        'duplicated_count': duplicated_count
     }
 
     out_dict = {
@@ -435,7 +458,6 @@ def related_prune(geno_path, out_path, related_grm_cutoff=0.125, duplicated_grm_
     return out_dict
 
     
-
 ################ Variant pruning methods ####################
 # this will eventually be broken up into multiple functions!!!!
 def variant_prune(geno_path, out_path):

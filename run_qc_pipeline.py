@@ -92,8 +92,7 @@ for label, data in variant_dict.items():
 # copy list of related samples to out_path
 for label, data in related_dict.items():
     if data['pass']:
-        # related_file = f"{data['output']['related_samples']}"
-        related_file = f"{data['output']['pruned_samples']}"
+        related_file = f"{data['output']['related_samples']}"
         related_outfile = f"{out_path}_{label}.related"
         shutil.copyfile(src=related_file, dst=related_outfile)
 
