@@ -299,20 +299,26 @@ def king_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.3
     related = pd.read_csv(f'{grm2}.related')
     duplicated = pd.read_csv(f'{grm3}.duplicated')
 
-    grm_related = pd.concat([related, duplicated], axis = 0)
-    grm_related.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
+    grm_related = pd.concat([related, duplicated], axis = 0)     # make related file look like original with FID and IID
+    grm_related['FID'] = 0
+    grm_related.rename(columns={"#IID": "IID"}, inplace = True)
+    grm_related.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
     grm_related.to_csv(related_out, sep='\t', header=True, index=False)
 
     # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
     if prune_related and prune_duplicated:
         grm_pruned = related.append(duplicated)
-        grm_pruned.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
+        grm_pruned['FID'] = 0
+        grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
         grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
         process_complete = True
     
     if prune_duplicated and not prune_related:
         grm_pruned = duplicated
-        grm_pruned.drop_duplicates(subset=['#IID'], keep='last', inplace=True)
+        grm_pruned['FID'] = 0
+        grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
+        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
         grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
         process_complete = True
         
