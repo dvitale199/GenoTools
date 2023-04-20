@@ -23,11 +23,10 @@ import pickle as pkl
 #local imports
 from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
 
-from utils.dependencies import check_plink, check_plink2, check_admixture
+from utils.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
-admix_exec = check_admixture()
 
 def ancestry_prune(geno_path, out_path=None):
     '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.
@@ -170,14 +169,8 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     ref_snps_cols = ref_snps.columns.str.extract('(.*)_')[0]
     ref_snps.columns = ref_snps_cols
 
-    # col names to set post-imputation
+    # full col names
     col_names = ['FID','IID'] + list(ref_snps_cols)
-
-    # mean imputation for missing SNPs data
-    mean_imp = SimpleImputer(missing_values=np.nan, strategy='mean')
-    ref_snps = mean_imp.fit_transform(ref_snps)
-    ref_snps = pd.DataFrame(ref_snps)
-    ref_snps.columns = ref_snps_cols
 
     ref_raw = pd.concat([ref_ids,ref_snps], axis=1)
     ref_raw.columns = col_names
@@ -245,12 +238,8 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         if len(missing_cols) > 0:
             missing_cols = pd.concat(missing_cols, axis=1)
             geno_snps = pd.concat([geno_snps, missing_cols], axis=1)
-        # reordering columns to match ref for imputation
+        # reordering columns to match ref
         geno_snps = geno_snps[ref_snps.columns]
-
-    # mean imputation for missing SNPs data
-    geno_snps = mean_imp.transform(geno_snps)
-    geno_snps = pd.DataFrame(geno_snps)
 
     raw_geno = pd.concat([geno_ids, geno_snps], axis=1)
     raw_geno.columns = col_names
@@ -316,6 +305,10 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     train_labels = label_encoder.inverse_transform(y_train)
     test_labels = label_encoder.inverse_transform(y_test)
 
+    mean_imp = SimpleImputer(missing_values=np.nan, strategy='mean')
+    X_train = mean_imp.fit_transform(X_train)
+    X_test = mean_imp.transform(X_test)
+
     # mean and SD for flashPCA style scaling
     # paper: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0093766
     train_mean = X_train.mean(axis=0)
@@ -351,6 +344,8 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
 
     geno_ids = raw_geno[['FID','IID','label']]
     geno_snps = raw_geno.drop(columns=['FID','IID','label'], axis=1)
+
+    geno_snps = mean_imp.transform(geno_snps)
 
     # transform new samples
     projected = transform(geno_snps, train_mean, train_flash_sd, sk_pca, col_names)
