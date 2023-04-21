@@ -125,7 +125,7 @@ for item in steps2:
         step = metrics['step']
         pf = metrics['pass']
         
-        if step in ['het_prune','related_prune']:
+        if step in ['het_prune', 'related_prune']:
             level = 'sample'
 
             samplefile = metrics['output']['pruned_samples']

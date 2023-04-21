@@ -128,9 +128,6 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
-def check_gcta():
-    return __check_package('GCTA')
-
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -164,18 +161,6 @@ __DEPENDENCIES = {
             'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
         }
     },
-
-    'GCTA': {
-        'checker': check_gcta,
-        'Darwin': {
-            'binary': 'gcta_v1.94.0Beta_macOS/gcta_v1.94.0Beta_macOS',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_macOS.zip'
-        },
-        'Linux': {
-            'binary': 'gcta_v1.94.0Beta_linux_kernel_3_x86_64/gcta_v1.94.0Beta_linux_kernel_3_x86_64_static',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_linux_kernel_3_x86_64.zip'
         }
     }
 }
