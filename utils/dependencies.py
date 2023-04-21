@@ -128,12 +128,6 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
-def check_admixture():
-    if platform.system() == 'Windows':
-        logging.warning('Admixture not available on Windows')
-        return
-    return __check_package('Admixture')
-
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -167,18 +161,6 @@ __DEPENDENCIES = {
             'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
         }
     },
-
-    'Admixture': {
-        'checker': check_admixture,
-        'Darwin': {
-            'binary': 'dist/admixture_macosx-1.3.0/admixture',
-            'version_args': ['--version'],
-            'url': 'https://dalexander.github.io/admixture/binaries/admixture_macosx-1.3.0.tar.gz'
-        },
-        'Linux': {
-            'binary': 'dist/admixture_linux-1.3.0/admixture',
-            'version_args': ['--version'],
-            'url': 'https://dalexander.github.io/admixture/binaries/admixture_linux-1.3.0.tar.gz'
         }
     }
 }
