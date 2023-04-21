@@ -10,11 +10,10 @@ import sys
 # local imports
 from QC.utils import shell_do, rm_tmps, count_file_lines
 
-from utils.dependencies import check_plink, check_plink2, check_gcta
+from utils.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
-gcta_exec = check_gcta()
 
 
 ################ Sample pruning methods ####################
@@ -237,7 +236,7 @@ def het_prune(geno_path, out_path):
 
 
 def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True):
-    
+
     # what step are we running?
     step = "related_prune"
     print()
@@ -249,16 +248,19 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
     grm2 = f"{out_path}_related_grm"
     grm3 = f"{out_path}_duplicated_grm"
 
-    related_out = f"{out_path}.related"
+    related_out = f"{out_path}_pairs.related"
     related_pruned_out = f"{out_path}.pruned"
 
+    # create pfiles
     king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
+    # create table of related pairs
+    king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --king-table-filter {related_cutoff} --out {out_path}_pairs'
     # see if any samples are related (includes duplicates)
-    king_cmd2 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_cutoff} --out {grm2}' 
+    king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_cutoff} --out {grm2}' 
     # see if any samples are duplicated (grm cutoff >= 0.354)
-    king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {duplicated_cutoff} --out {grm3}' 
+    king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {duplicated_cutoff} --out {grm3}' 
 
-    cmds = [king_cmd1, king_cmd2, king_cmd3]
+    cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
     for cmd in cmds:
         shell_do(cmd)
 
@@ -281,33 +283,29 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
 
         process_complete = False
 
+    # create .related related pair sample files
+    shutil.copy(f'{out_path}_pairs.kin0',f'{out_path}_pairs.related')
 
-    shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related') # source, destination
+    # create .related and .duplicated single sample files
+    shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
     related_count = sum(1 for line in open(f'{grm2}.related'))
 
-    shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated') # source, destination
+    shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated')
     duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
 
     related_count = related_count - duplicated_count
 
-    # # remove intermediate files
-    # os.remove(f'{out_path}_tmp.pgen')
-    # os.remove(f'{out_path}_tmp.pvar')
-    # os.remove(f'{out_path}_tmp.psam')
-    # os.remove(f'{out_path}.king.cutoff.out.id')
+    # remove intermediate files
+    os.remove(f'{grm1}.pgen')
+    os.remove(f'{grm1}.pvar')
+    os.remove(f'{grm1}.psam')
+    os.remove(f'{out_path}_pairs.kin0')
 
-    # combine full list of related and duplicated
-    related = pd.read_csv(f'{grm2}.related')
     duplicated = pd.read_csv(f'{grm3}.duplicated')
-
-    grm_related = pd.concat([related, duplicated], axis = 0)     # make related file look like original with FID and IID
-    grm_related['FID'] = 0
-    grm_related.rename(columns={"#IID": "IID"}, inplace = True)
-    grm_related.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
-    grm_related.to_csv(related_out, sep='\t', header=True, index=False)
 
     # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
     if prune_related and prune_duplicated:
+        related = pd.read_csv(f'{grm2}.related')
         grm_pruned = related.append(duplicated)
         grm_pruned['FID'] = 0
         grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)

@@ -134,9 +134,6 @@ def check_admixture():
         return
     return __check_package('Admixture')
 
-def check_gcta():
-    return __check_package('GCTA')
-
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -182,20 +179,6 @@ __DEPENDENCIES = {
             'binary': 'dist/admixture_linux-1.3.0/admixture',
             'version_args': ['--version'],
             'url': 'https://dalexander.github.io/admixture/binaries/admixture_linux-1.3.0.tar.gz'
-        }
-    },
-
-    'GCTA': {
-        'checker': check_gcta,
-        'Darwin': {
-            'binary': 'gcta_v1.94.0Beta_macOS/gcta_v1.94.0Beta_macOS',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_macOS.zip'
-        },
-        'Linux': {
-            'binary': 'gcta_v1.94.0Beta_linux_kernel_3_x86_64/gcta_v1.94.0Beta_linux_kernel_3_x86_64_static',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_linux_kernel_3_x86_64.zip'
         }
     }
 }
