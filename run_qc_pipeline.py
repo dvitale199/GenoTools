@@ -85,7 +85,7 @@ for label, data in variant_dict.items():
         
         # per-ancestry pcs
         pca_geno_path = f'{out_path}_{label}'
-        pca_out_path = f'{out_path}_{label}_maf_hwe'
+        pca_out_path = f'{out_path}_{label}_maf_hwe_pca'
         plink_pca(pca_geno_path, pca_out_path) 
 
 # copy list of related samples to out_path
