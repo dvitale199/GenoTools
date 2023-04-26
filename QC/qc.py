@@ -597,7 +597,7 @@ def plink_pca(geno_path, out_path, build='hg38'):
         shell_do(extract_cmd)
         
         # Calculate/generate PCs
-        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}_pca"
+        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}"
         shell_do(pca_cmd)
 
         # Remove intermediate files
