@@ -264,84 +264,95 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
     for cmd in cmds:
         shell_do(cmd)
 
-    if prune_related and prune_duplicated:
-        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
-        shell_do(plink_cmd1) 
+    if os.path.isfile(f'{out_path}_pairs.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
-    if prune_duplicated and not prune_related:
-        plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
-        shell_do(plink_cmd1) 
+        # create .related related pair sample files
+        shutil.copy(f'{out_path}_pairs.kin0',f'{out_path}_pairs.related')
 
-    if not prune_related and not prune_duplicated:
-        plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
-        shell_do(plink_cmd1)
+        # create .related and .duplicated single sample files
+        shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
+        related_count = sum(1 for line in open(f'{grm2}.related'))
 
-        process_complete = True
-    
-    if not prune_duplicated and prune_related:
-        print('This option is invalid. Cannot prune related without also pruning duplicated')
+        shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated')
+        duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
 
+        related_count = related_count - duplicated_count
+        duplicated = pd.read_csv(f'{grm3}.duplicated', '\s+')
+
+        # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
+        if prune_related and prune_duplicated:
+            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
+            shell_do(plink_cmd1) 
+
+            related = pd.read_csv(f'{grm2}.related', '\s+')
+            grm_pruned = related.append(duplicated)
+
+            if '#FID' in grm_pruned:
+                grm_pruned.rename(columns={"#FID": "FID", "#IID": "IID"}, inplace = True)
+            else:
+                grm_pruned['FID'] = 0
+                grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
+            grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+            grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+            process_complete = True
+        
+        if prune_duplicated and not prune_related:
+            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
+            shell_do(plink_cmd1) 
+
+            grm_pruned = duplicated
+            
+            if '#FID' in grm_pruned:
+                grm_pruned.rename(columns={"#FID": "FID", "#IID": "IID"}, inplace = True)
+            else:
+                grm_pruned['FID'] = 0
+                grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
+            grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+            grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
+            process_complete = True
+            
+        if not prune_related and not prune_duplicated:
+            plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
+            shell_do(plink_cmd1)
+
+            process_complete = True
+            related_pruned_out = None
+            process_complete = True
+            
+        if not prune_duplicated and prune_related:
+            print('This option is invalid. Cannot prune related without also pruning duplicated')
+            process_complete = False
+
+        # remove intermediate files
+        os.remove(f'{grm1}.pgen')
+        os.remove(f'{grm1}.pvar')
+        os.remove(f'{grm1}.psam')
+        os.remove(f'{out_path}_pairs.kin0')
+
+        outfiles_dict = {
+            'pruned_samples': related_pruned_out,
+            'related_samples': related_out,
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'related_count': related_count,
+            'duplicated_count': duplicated_count
+        }
+
+    else:
         process_complete = False
 
-    # create .related related pair sample files
-    shutil.copy(f'{out_path}_pairs.kin0',f'{out_path}_pairs.related')
+        outfiles_dict = {
+            'pruned_samples': 'Related Pruning Failed',
+            'related_samples': 0, 
+            'plink_out': [grm1, grm2, grm3]
+        }
 
-    # create .related and .duplicated single sample files
-    shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
-    related_count = sum(1 for line in open(f'{grm2}.related'))
-
-    shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated')
-    duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
-
-    related_count = related_count - duplicated_count
-
-    # remove intermediate files
-    os.remove(f'{grm1}.pgen')
-    os.remove(f'{grm1}.pvar')
-    os.remove(f'{grm1}.psam')
-    os.remove(f'{out_path}_pairs.kin0')
-
-    duplicated = pd.read_csv(f'{grm3}.duplicated')
-
-    # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
-    if prune_related and prune_duplicated:
-        related = pd.read_csv(f'{grm2}.related')
-        grm_pruned = related.append(duplicated)
-        grm_pruned['FID'] = 0
-        grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
-        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
-        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
-        process_complete = True
-    
-    if prune_duplicated and not prune_related:
-        grm_pruned = duplicated
-        grm_pruned['FID'] = 0
-        grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
-        grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
-        grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
-        process_complete = True
-        
-    if not prune_related and not prune_duplicated:
-        plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
-        related_pruned_out = None
-        process_complete = True
-        
-    if not prune_duplicated and prune_related:
-        print('This option is invalid. Cannot prune related without also pruning duplicated')
-        process_complete = False
-
-    process_complete = True
-
-    outfiles_dict = {
-        'pruned_samples': related_pruned_out,
-        'related_samples': related_out,
-        'plink_out': out_path
-    }
-
-    metrics_dict = {
-        'related_count': related_count,
-        'duplicated_count': duplicated_count
-    }
+        metrics_dict = {
+            'related_count': 0,
+            'duplicated_count': 0
+        }
 
     out_dict = {
         'pass': process_complete,
