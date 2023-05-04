@@ -341,6 +341,8 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         }
 
     else:
+        print(f'Relatedness pruning failed!')
+        print(f'Check {grm1}.log, {grm2}.log, {grm3}.log, or {out_path}_pairs.log for more information')
         process_complete = False
 
         outfiles_dict = {
