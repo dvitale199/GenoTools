@@ -66,7 +66,7 @@ for geno, label in zip(cohort_split['paths'], cohort_split['labels']):
         het_dict[label] = het
     else:
         related_out = geno
-        het = (related_out, het_out)
+        het = het_prune(related_out, het_out)
         variant_dict[label] = variant
     
     # variant
