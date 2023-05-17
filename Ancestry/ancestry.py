@@ -214,8 +214,20 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     merge_common_snps_bim = geno_common_snps_bim[['merge_id','a1','a2']].merge(ref_common_snps_bim, how='inner', on=['merge_id'])
     merge_common_snps_bim[['chr','rsid','kb','pos','a1_x','a2_x']].to_csv(f'{geno_common_snps}.bim', sep='\t', header=None, index=None)
 
+    # dictionary to switch alleles
+    switch = {'A':'T','T':'A','C':'G','G':'C'}
+
+    # finding alleles to be switched
+    merge_common_snps_bim['a1_x_switch'] = merge_common_snps_bim['a1_x'].map(switch)
+    merge_common_snps_switch = merge_common_snps_bim[(merge_common_snps_bim['a1_y'] != merge_common_snps_bim['a1_x']) & (merge_common_snps_bim['a1_y'] != merge_common_snps_bim['a1_x_switch'])]
+    merge_common_snps_switch[['rsid','a2_x']].to_csv(f'{geno_common_snps}_switch.alleles', sep='\t', header=False, index=False)
+
+    # # set alleles
+    # set_alleles_cmd = f'{plink2_exec} --bfile {geno_common_snps} --alt1-allele {geno_common_snps}_switch.alleles --make-bed --out {geno_common_snps}_switch'
+    # shell_do(set_alleles_cmd)
+
     # getting raw version of common snps - genotype
-    raw_geno_cmd = f'{plink2_exec} --bfile {geno_common_snps} --recode A --out {geno_common_snps}'
+    raw_geno_cmd = f'{plink2_exec} --bfile {geno_common_snps} --alt1-allele {geno_common_snps}_switch.alleles --recode A --out {geno_common_snps}'
     shell_do(raw_geno_cmd)
 
     # read in raw genotypes
