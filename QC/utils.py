@@ -23,6 +23,30 @@ def shell_do(command, log=False, return_log=False):
         return(res.stdout.decode('utf-8'))
     
 
+def concat_logs(out_path, listOfFiles):
+
+    out_dir = os.path.dirname(os.path.abspath(listOfFiles[0]))
+    test = os.listdir(out_dir)
+    
+    # for item in test:
+    #     if item.endswith(".gtlog"):
+    #         os.remove(os.path.join(out_dir, item))
+
+    # combine log files and delete intermediates
+    # when transition to Classes: clear log on every new run
+    with open(f'all_plink_logs.gtlog', "a+") as new_created_file:
+        for name in listOfFiles:
+            with open(name) as file:
+                new_created_file.write(f'Step: {name}')
+                for line in file:
+                    new_created_file.write(line)
+        
+                new_created_file.write("\n")
+
+    for files in listOfFiles:
+        os.remove(files)
+
+
 def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
     """Label SNPs with the gene they are in."""
     # Check if the gene reference file exists
