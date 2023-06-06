@@ -34,7 +34,7 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     shell_do(plink_cmd1)
 
     listOfFiles = [f'{out_path}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
     
     if os.path.isfile(f'{out_path}.mindrem.id'):
         irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+', header=None, names=['FID','IID'])
@@ -88,7 +88,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         shell_do(cmd)
 
     listOfFiles = [f'{sex_tmp1}.log', f'{sex_tmp2}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
 
     if os.path.isfile(f'{sex_tmp1}.sexcheck') and os.path.isfile(f'{sex_tmp2}.sexcheck'):
 
@@ -111,7 +111,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         shell_do(plink_cmd3)
 
         listOfFiles = [f'{out_path}.log']
-        concat_logs(out_path, listOfFiles)
+        concat_logs(step, out_path, listOfFiles)
         
         process_complete = True
 
@@ -173,7 +173,7 @@ def het_prune(geno_path, out_path):
         shell_do(cmd)
 
     listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
     
     # check if het_tmp3 is created. if not, skip this.
     # NOTE: there may be legitimate reasons for this, for example, if only one sample in genotype file (sometimes happens in ancestry split method)
@@ -189,7 +189,7 @@ def het_prune(geno_path, out_path):
         shell_do(plink_cmd4)
 
         listOfFiles = [f'{out_path}.log']
-        concat_logs(out_path, listOfFiles)
+        concat_logs(step, out_path, listOfFiles)
 
         if os.path.isfile(f'{out_path}.bed'):
             outfiles_dict = {
@@ -280,7 +280,7 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         shell_do(cmd)
 
     listOfFiles = [f'{grm1}.log', f'{out_path}_pairs.log', f'{grm2}.log', f'{grm3}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
 
     if os.path.isfile(f'{out_path}_pairs.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
@@ -344,7 +344,7 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
 
         if os.path.isfile('{out_path}.log'):
             listOfFiles = [f'{out_path}.log']
-            concat_logs(out_path, listOfFiles)
+            concat_logs(step, out_path, listOfFiles)
 
         # remove intermediate files
         os.remove(f'{grm1}.pgen')
@@ -419,7 +419,7 @@ def variant_prune(geno_path, out_path):
     shell_do(plink_cmd1)
 
     listOfFiles = [f'{geno_tmp1}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
     
     # geno pruned count
     geno_snp_count = count_file_lines(f'{geno_tmp1}.bim')
@@ -434,7 +434,7 @@ def variant_prune(geno_path, out_path):
         shell_do(plink_cmd2)
 
         listOfFiles = [f'{mis_tmp1}.log']
-        concat_logs(out_path, listOfFiles)
+        concat_logs(step, out_path, listOfFiles)
 
         mis1 = f'{mis_tmp1}.missing'
         if os.path.isfile(mis1):
@@ -447,7 +447,7 @@ def variant_prune(geno_path, out_path):
             shell_do(plink_cmd3)
 
             listOfFiles = [f'{mis_tmp2}.log']
-            concat_logs(out_path, listOfFiles)
+            concat_logs(step, out_path, listOfFiles)
 
             # mis purned count
             mis_snp_count = count_file_lines(f'{mis_tmp2}.bim')
@@ -485,7 +485,7 @@ def variant_prune(geno_path, out_path):
             shell_do(cmd)
 
         listOfFiles = [f'{hap_tmp1}.log', f'{hap_tmp2}.log', f'{hwe_tmp1}.log', f'{out_path}.log']
-        concat_logs(out_path, listOfFiles)
+        concat_logs(step, out_path, listOfFiles)
 
         # hap pruned count
         hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
@@ -550,7 +550,7 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     shell_do(plink_miss_cmd)
 
     listOfFiles = [f'{out_path}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
     lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
@@ -666,7 +666,7 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print()
     
     listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log', f'{out_path}.log']
-    concat_logs(out_path, listOfFiles)
+    concat_logs(step, out_path, listOfFiles)
 
     # Remove intermediate files
     os.remove(f"{out_path}_tmp.bed")

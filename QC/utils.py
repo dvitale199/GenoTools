@@ -82,7 +82,7 @@ def process_log(out_dir, concat_log):
             stop += 1
 
 
-def concat_logs(out_path, listOfFiles):
+def concat_logs(step, out_path, listOfFiles):
     # stores concat log in processing directory
     # out_dir = os.path.dirname(os.path.abspath(listOfFiles[0])) # don't need out_path?
     out_dir = os.path.dirname(os.path.abspath(out_path))
@@ -92,6 +92,7 @@ def concat_logs(out_path, listOfFiles):
     with open(f'{out_dir}/all_plink_logs.gtlog', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
+                new_file.write(f'Process: {name}')
                 new_file.write(f'Step: {name}')
                 for line in file:
                     new_file.write(line)
