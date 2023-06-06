@@ -23,26 +23,29 @@ def shell_do(command, log=False, return_log=False):
         return(res.stdout.decode('utf-8'))
     
 
+def process_log(concat_log):
+    pass
+
+
 def concat_logs(out_path, listOfFiles):
+    # stores concat log in processing directory
+    # out_dir = os.path.dirname(os.path.abspath(listOfFiles[0])) # don't need out_path?
+    out_dir = os.path.dirname(os.path.abspath(out_path))
 
-    out_dir = os.path.dirname(os.path.abspath(listOfFiles[0]))
-    test = os.listdir(out_dir)
-    
-    # for item in test:
-    #     if item.endswith(".gtlog"):
-    #         os.remove(os.path.join(out_dir, item))
-
-    # combine log files and delete intermediates
+    # combine log files into 1 file
     # when transition to Classes: clear log on every new run
-    with open(f'all_plink_logs.gtlog', "a+") as new_created_file:
+    with open(f'{out_dir}/all_plink_logs.gtlog', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
-                new_created_file.write(f'Step: {name}')
+                new_file.write(f'Step: {name}')
                 for line in file:
-                    new_created_file.write(line)
+                    new_file.write(line)
         
-                new_created_file.write("\n")
+                new_file.write("\n")
 
+        process_log(new_file.readlines())
+
+    # remove intermediate log files 
     for files in listOfFiles:
         os.remove(files)
 
