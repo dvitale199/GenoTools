@@ -23,8 +23,63 @@ def shell_do(command, log=False, return_log=False):
         return(res.stdout.decode('utf-8'))
     
 
-def process_log(concat_log):
-    pass
+def replace_all(text, dict):
+    # method to replace multiple components in a string at once
+    for i, j in dict.items():
+        text = text.replace(i, j)
+    return text
+
+
+def process_log(out_dir, concat_log):
+    # exclude lines containing this information from log file
+    exclude = ['Hostname', 'Working directory', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
+    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam',
+    '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:']
+
+    # save all indices in log file where these instances occur
+    step_indices = [i for i, s in enumerate(concat_log) if 'Step:' in s]
+    bfile_indices = [i for i, s in enumerate(concat_log) if '--bfile' in s]
+    pfile_indices = [i for i, s in enumerate(concat_log) if '--pfile' in s]
+
+    # combine bfile and pfile indices
+    bfile_indices.extend(pfile_indices)
+    bfile_indices.sort()
+
+    # add final index of log to traverse entire log
+    step_indices.append(len(concat_log))
+
+    start = 0
+    stop = 1
+
+    # write final processed log
+    with open(f"{out_dir}/cleaned_plink_logs.gt", "w") as f:
+        while start < len(step_indices)-1:
+            # list step names
+            step_line = concat_log[step_indices[start]]
+            bfile_line = concat_log[bfile_indices[start]]
+            bfile_name = bfile_line.split()[1].replace(out_dir, "")
+            step_name = step_line.split()[1]
+
+            # remove input path from output path
+            replace_dict = {out_dir: "", bfile_name: "", "_": " ", ".logPLINK": ""}
+            step = replace_all(step_name, replace_dict)
+
+            # if last portion of path is an ancestry acronym save in step name
+            if bfile_name.split("_")[-1].isupper():
+                ancestry_check = bfile_name.split("_")[-1]
+            
+            # check if input file path = out path
+            if not step:
+                f.write(f'Step: {bfile_name.replace("_", " ")} \n')
+            else:
+                f.write(f'Step: {ancestry_check} {step} \n')
+            
+            # rewrite concatenated log section by section with exclusion criteria
+            for i in range(step_indices[start], step_indices[stop]):
+                if not any([x in concat_log[i].strip('\n') for x in exclude]):
+                    f.write(concat_log[i])
+            start += 1
+            stop += 1
 
 
 def concat_logs(out_path, listOfFiles):
@@ -43,7 +98,7 @@ def concat_logs(out_path, listOfFiles):
         
                 new_file.write("\n")
 
-        process_log(new_file.readlines())
+        process_log(out_dir, new_file.readlines())
 
     # remove intermediate log files 
     for files in listOfFiles:
