@@ -92,18 +92,19 @@ def concat_logs(step, out_path, listOfFiles):
     with open(f'{out_dir}/all_plink_logs.gtlog', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
-                new_file.write(f'Process: {name}')
+                new_file.write(f'Process: {step} \n')
                 new_file.write(f'Step: {name}')
                 for line in file:
                     new_file.write(line)
         
                 new_file.write("\n")
 
-        process_log(out_dir, new_file.readlines())
-
     # remove intermediate log files 
     for files in listOfFiles:
         os.remove(files)
+
+    with open(f'{out_dir}/all_plink_logs.gtlog', 'r') as file:
+        process_log(out_dir, file.readlines())
 
 
 def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
