@@ -74,7 +74,7 @@ def process_log(out_dir, concat_log):
                 ancestry_check = bfile_name.split("_")[-1]
 
             # write final labels for concise step name & ancestry of focus
-            f.write(f'Step: {step_name}')
+            f.write(f'Step: {step_name}\n')
             f.write(f'Ancestry: {ancestry_check}\n')
             
             # rewrite concatenated log section by section with exclusion criteria
@@ -96,7 +96,7 @@ def concat_logs(step, out_path, listOfFiles):
         for name in listOfFiles:
             with open(name) as file:
                 new_file.write(f'Step: {name}\n')
-                new_file.write(f'Process: {step}')
+                new_file.write(f'Process: {step}\n')
                 for line in file:
                     new_file.write(line)
         
