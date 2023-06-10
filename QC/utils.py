@@ -32,12 +32,13 @@ def replace_all(text, dict):
 
 def process_log(out_dir, concat_log):
     # exclude lines containing this information from log file
-    exclude = ['Hostname', 'Working directory', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
-    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam',
+    exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
+    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit',
     '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:']
 
     # save all indices in log file where these instances occur
     step_indices = [i for i, s in enumerate(concat_log) if 'Step:' in s]
+    process_indices = [i for i, s in enumerate(concat_log) if 'Process:' in s]
     bfile_indices = [i for i, s in enumerate(concat_log) if '--bfile' in s]
     pfile_indices = [i for i, s in enumerate(concat_log) if '--pfile' in s]
 
@@ -47,32 +48,34 @@ def process_log(out_dir, concat_log):
 
     # add final index of log to traverse entire log
     step_indices.append(len(concat_log))
-
     start = 0
     stop = 1
 
     # write final processed log
     with open(f"{out_dir}/cleaned_plink_logs.gt", "w") as f:
         while start < len(step_indices)-1:
-            # list step names
+            # list step and process names
             step_line = concat_log[step_indices[start]]
+            process_line = concat_log[process_indices[start]]
+            process_name = process_line.split('_')[0].replace('Process: ', '')
             bfile_line = concat_log[bfile_indices[start]]
             bfile_name = bfile_line.split()[1].replace(out_dir, "")
-            step_name = step_line.split()[1]
 
-            # remove input path from output path
-            replace_dict = {out_dir: "", bfile_name: "", "_": " ", ".logPLINK": ""}
-            step = replace_all(step_name, replace_dict)
+            # split by second part of plink_pca process name
+            if process_name == 'plink':
+                process_name = 'pca'
 
-            # if last portion of path is an ancestry acronym save in step name
+            # split full step name by process name to get better label components & add back in
+            step_name = step_line.split(f'{process_name}')[-1]
+            step_name = (process_name + step_name).replace('.log', '')
+
+            # find ancestry acronym in bfile input line
             if bfile_name.split("_")[-1].isupper():
                 ancestry_check = bfile_name.split("_")[-1]
-            
-            # check if input file path = out path
-            if not step:
-                f.write(f'Step: {bfile_name.replace("_", " ")} \n')
-            else:
-                f.write(f'Step: {ancestry_check} {step} \n')
+
+            # write final labels for concise step name & ancestry of focus
+            f.write(f'Step: {step_name}')
+            f.write(f'Ancestry: {ancestry_check}\n')
             
             # rewrite concatenated log section by section with exclusion criteria
             for i in range(step_indices[start], step_indices[stop]):
@@ -92,8 +95,8 @@ def concat_logs(step, out_path, listOfFiles):
     with open(f'{out_dir}/all_plink_logs.gtlog', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
-                new_file.write(f'Process: {step} \n')
-                new_file.write(f'Step: {name}')
+                new_file.write(f'Step: {name}\n')
+                new_file.write(f'Process: {step}')
                 for line in file:
                     new_file.write(line)
         

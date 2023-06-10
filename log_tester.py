@@ -41,16 +41,18 @@ def replace_all(text, dict):
     return text
 
 def process_log(out_dir, mega_log):
-    exclude = ['Hostname', 'Working directory', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
-    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam',
+    exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
+    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit',
     '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:']
 
     step_indices = [i for i, s in enumerate(mega_log) if 'Step:' in s]
+    process_indices = [i for i, s in enumerate(mega_log) if 'Process:' in s]
     bfile_indices = [i for i, s in enumerate(mega_log) if '--bfile' in s]
     pfile_indices = [i for i, s in enumerate(mega_log) if '--pfile' in s]
 
     bfile_indices.extend(pfile_indices)
     bfile_indices.sort()
+
     step_indices.append(len(mega_log))
     start = 0
     stop = 1
@@ -59,26 +61,68 @@ def process_log(out_dir, mega_log):
         while start < len(step_indices)-1:
             # step names
             step_line = mega_log[step_indices[start]]
+            process_line = mega_log[process_indices[start]]
+            process_name = process_line.split('_')[0].replace('Process: ', '')
             bfile_line = mega_log[bfile_indices[start]]
             bfile_name = bfile_line.split()[1].replace(out_dir, "")
-            step_name = step_line.split()[1]
 
-            replace_dict = {out_dir: "", bfile_name: "", "_": " ", ".logPLINK": ""}
-            step = replace_all(step_name, replace_dict)
+            if process_name == 'plink':
+                process_name = 'pca'
+
+            step_name = step_line.split(f'{process_name}')[-1]
+            step_name = (process_name + step_name).replace('.log', '')
 
             if bfile_name.split("_")[-1].isupper():
                 ancestry_check = bfile_name.split("_")[-1]
-            
-            if not step: # when bfile = out file
-                f.write(f'Step: {bfile_name.replace("_", " ")} \n')
-            else:
-                f.write(f'Step: {ancestry_check} {step} \n')
+
+            f.write(f'Step: {step_name}')
+            f.write(f'Ancestry: {ancestry_check}\n')
             
             for i in range(step_indices[start], step_indices[stop]):
                 if not any([x in mega_log[i].strip('\n') for x in exclude]):
                     f.write(mega_log[i])
             start += 1
             stop += 1
+
+# def process_log(out_dir, mega_log):
+#     exclude = ['Hostname', 'Working directory', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
+#     'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam',
+#     '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:']
+
+#     step_indices = [i for i, s in enumerate(mega_log) if 'Step:' in s]
+#     bfile_indices = [i for i, s in enumerate(mega_log) if '--bfile' in s]
+#     pfile_indices = [i for i, s in enumerate(mega_log) if '--pfile' in s]
+
+#     bfile_indices.extend(pfile_indices)
+#     bfile_indices.sort()
+#     step_indices.append(len(mega_log))
+#     start = 0
+#     stop = 1
+
+#     with open("data/cleaned_log.gt", "w") as f:
+#         while start < len(step_indices)-1:
+#             # step names
+#             step_line = mega_log[step_indices[start]]
+#             bfile_line = mega_log[bfile_indices[start]]
+#             bfile_name = bfile_line.split()[1].replace(out_dir, "")
+#             step_name = step_line.split()[1]
+
+#             replace_dict = {out_dir: "", bfile_name: "", "_": " ", ".logPLINK": ""}
+#             step = replace_all(step_name, replace_dict)
+
+#             if bfile_name.split("_")[-1].isupper():
+#                 ancestry_check = bfile_name.split("_")[-1]
+            
+#             if not step: # when bfile = out file
+#                 f.write(f'Step: {bfile_name.replace("_", " ")} \n')
+#             else:
+#                 f.write(f'Step: {ancestry_check} {step} \n')
+            
+#             for i in range(step_indices[start], step_indices[stop]):
+#                 if not any([x in mega_log[i].strip('\n') for x in exclude]):
+#                     f.write(mega_log[i])
+#             start += 1
+#             stop += 1
         
 
 # def process_log(out_path, mega_log):
@@ -91,7 +135,7 @@ def process_log(out_dir, mega_log):
 #             if not any([x in line.strip('\n') for x in exclude]):
 #                 f.write(line)
 
-with open('data/all_plink_logs.gtlog', 'r') as file:
+with open('data/all_plink_logs_new.gtlog', 'r') as file:
     # clean_log(file.readlines())
     # out_dir = os.path.dirname(os.path.abspath('data/all_plink_logs_SHORT.gtlog')) # simulate obtaining processing directory
     # print(out_dir)
