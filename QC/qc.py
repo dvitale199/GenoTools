@@ -642,6 +642,9 @@ def plink_pca(geno_path, out_path, build='hg38'):
     prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
     shell_do(prune_cmd)
 
+    listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log']
+    concat_logs(step, out_path, listOfFiles)
+
     # Check if prune.in file exists
     if os.path.isfile(f'{out_path}_pruned.prune.in'):
         # Extract pruned SNPs
@@ -656,6 +659,9 @@ def plink_pca(geno_path, out_path, build='hg38'):
         # os.remove(f"{out_path}_pruned.log")
         os.remove(f"{out_path}_pruned.prune.in")
         os.remove(f"{out_path}_pruned.prune.out")
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
     
     # Otherwise throw an error (less than 50 samples = bad LD)
     else:
@@ -664,9 +670,6 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print(f'Check {out_path}_pruned.log for more information.')
         print('Likely there are <50 samples for this ancestry leading to bad LD calculations.')
         print()
-    
-    listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log', f'{out_path}.log']
-    concat_logs(step, out_path, listOfFiles)
 
     # Remove intermediate files
     os.remove(f"{out_path}_tmp.bed")
