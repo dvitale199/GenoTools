@@ -58,7 +58,7 @@ def process_log(out_dir, concat_log):
     replace = {'loaded from': 'loaded', '(see': '', ');': ';'}
 
     # write final processed log
-    with open(f"{out_dir}/cleaned_plink_logs.gt", "w") as f:
+    with open(f"{out_dir}/cleaned_genotools.log", "w") as f:
         while start < len(step_indices)-1:
             # list step and process names
             step_line = concat_log[step_indices[start]]
@@ -108,7 +108,7 @@ def concat_logs(step, out_path, listOfFiles):
 
     # combine log files into 1 file
     # when transition to Classes: clear log on every new run
-    with open(f'{out_dir}/all_plink_logs.gtlog', "a+") as new_file:
+    with open(f'{out_dir}/all_plink_logs.log', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
                 new_file.write(f'Step: {name}\n')
@@ -122,7 +122,7 @@ def concat_logs(step, out_path, listOfFiles):
     for files in listOfFiles:
         os.remove(files)
 
-    with open(f'{out_dir}/all_plink_logs.gtlog', 'r') as file:
+    with open(f'{out_dir}/all_plink_logs.log', 'r') as file:
         process_log(out_dir, file.readlines())
 
 
