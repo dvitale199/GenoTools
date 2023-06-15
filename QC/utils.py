@@ -45,7 +45,7 @@ def process_log(out_dir, concat_log):
     stop = 1
     
     # list ancestry only for the following steps
-    ancestry_steps = ['related', 'het', 'variant', 'plink']
+    ancestry_steps = ['related', 'het', 'variant', 'pca']
     # exclude filler terms
     fillers = ['and', '.']
 
