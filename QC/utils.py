@@ -21,13 +21,6 @@ def shell_do(command, log=False, return_log=False):
         print(res.stdout.decode('utf-8'))
     if return_log:
         return(res.stdout.decode('utf-8'))
-    
-
-def replace_all(text, dict):
-    # method to replace multiple components in a string at once
-    for i, j in dict.items():
-        text = text.replace(i, j)
-    return text
 
 
 def process_log(out_dir, concat_log):
@@ -50,6 +43,11 @@ def process_log(out_dir, concat_log):
     step_indices.append(len(concat_log))
     start = 0
     stop = 1
+    
+    # list ancestry only for the following steps
+    ancestry_steps = ['related', 'het', 'variant', 'plink']
+    # exclude filler terms
+    fillers = ['and', '.']
 
     # write final processed log
     with open(f"{out_dir}/cleaned_plink_logs.gt", "w") as f:
@@ -75,12 +73,22 @@ def process_log(out_dir, concat_log):
 
             # write final labels for concise step name & ancestry of focus
             f.write(f'Step: {step_name}')
-            f.write(f'Ancestry: {ancestry_check}\n')
+            if process_name in ancestry_steps:
+                f.write(f'Ancestry: {ancestry_check}\n')
             
             # rewrite concatenated log section by section with exclusion criteria
             for i in range(step_indices[start], step_indices[stop]):
-                if not any([x in concat_log[i].strip('\n') for x in exclude]):
+                if "error" in concat_log[i].strip('\n'):
                     f.write(concat_log[i])
+                elif concat_log[i].strip('\n') in fillers:
+                    pass
+                elif len(concat_log[i]) == 1:
+                    pass
+                elif not any([x in concat_log[i].strip('\n') for x in exclude]):
+                    f.write(concat_log[i])
+
+            f.write('\n')
+            f.write('\n')
             start += 1
             stop += 1
 
