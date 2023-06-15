@@ -104,7 +104,6 @@ def process_log(out_dir, concat_log):
 
 def concat_logs(step, out_path, listOfFiles):
     # stores concat log in processing directory
-    # out_dir = os.path.dirname(os.path.abspath(listOfFiles[0])) # don't need out_path?
     out_dir = os.path.dirname(os.path.abspath(out_path))
 
     # combine log files into 1 file
