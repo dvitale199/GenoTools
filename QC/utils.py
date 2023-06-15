@@ -23,6 +23,13 @@ def shell_do(command, log=False, return_log=False):
         return(res.stdout.decode('utf-8'))
 
 
+def replace_all(text, dict):
+    # replaces any applicable dictionary elements in text
+    for i, j in dict.items():
+        text = text.replace(i, j)
+    return text
+
+
 def process_log(out_dir, concat_log):
     # exclude lines containing this information from log file
     exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
@@ -46,8 +53,9 @@ def process_log(out_dir, concat_log):
     
     # list ancestry only for the following steps
     ancestry_steps = ['related', 'het', 'variant', 'pca']
-    # exclude filler terms
+    # exclude/replace from text
     fillers = ['and', '.']
+    replace = {'loaded from': 'loaded', '(see': '', ');': ';'}
 
     # write final processed log
     with open(f"{out_dir}/cleaned_plink_logs.gt", "w") as f:
@@ -85,7 +93,8 @@ def process_log(out_dir, concat_log):
                 elif len(concat_log[i]) == 1:
                     pass
                 elif not any([x in concat_log[i].strip('\n') for x in exclude]):
-                    f.write(concat_log[i])
+                    content = replace_all(concat_log[i], replace)
+                    f.write(content)
 
             f.write('\n')
             f.write('\n')
