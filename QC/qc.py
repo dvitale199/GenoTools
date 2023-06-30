@@ -8,7 +8,7 @@ import shutil
 import sys
 
 # local imports
-from QC.utils import shell_do, rm_tmps, count_file_lines
+from QC.utils import shell_do, rm_tmps, count_file_lines, concat_logs
 
 from utils.dependencies import check_plink, check_plink2
 
@@ -32,6 +32,9 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
 
     shell_do(plink_cmd1)
+
+    listOfFiles = [f'{out_path}.log']
+    concat_logs(step, out_path, listOfFiles)
     
     if os.path.isfile(f'{out_path}.mindrem.id'):
         irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+', header=None, names=['FID','IID'])
@@ -84,6 +87,9 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     for cmd in cmds:
         shell_do(cmd)
 
+    listOfFiles = [f'{sex_tmp1}.log', f'{sex_tmp2}.log']
+    concat_logs(step, out_path, listOfFiles)
+
     if os.path.isfile(f'{sex_tmp1}.sexcheck') and os.path.isfile(f'{sex_tmp2}.sexcheck'):
 
         # grab fails from .sexcheck files
@@ -103,6 +109,9 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
         
         shell_do(plink_cmd3)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
         
         process_complete = True
 
@@ -162,6 +171,9 @@ def het_prune(geno_path, out_path):
 
     for cmd in cmds1:
         shell_do(cmd)
+
+    listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
+    concat_logs(step, out_path, listOfFiles)
     
     # check if het_tmp3 is created. if not, skip this.
     # NOTE: there may be legitimate reasons for this, for example, if only one sample in genotype file (sometimes happens in ancestry split method)
@@ -175,6 +187,9 @@ def het_prune(geno_path, out_path):
         plink_cmd4 = f"{plink2_exec} --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
 
         shell_do(plink_cmd4)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
 
         if os.path.isfile(f'{out_path}.bed'):
             outfiles_dict = {
@@ -264,6 +279,9 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
     for cmd in cmds:
         shell_do(cmd)
 
+    listOfFiles = [f'{grm1}.log', f'{out_path}_pairs.log', f'{grm2}.log', f'{grm3}.log']
+    concat_logs(step, out_path, listOfFiles)
+
     if os.path.isfile(f'{out_path}_pairs.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
         # create .related related pair sample files
@@ -323,6 +341,11 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
             print('This option is invalid. Cannot prune related without also pruning duplicated')
             process_complete = False
 
+
+        if os.path.isfile('{out_path}.log'):
+            listOfFiles = [f'{out_path}.log']
+            concat_logs(step, out_path, listOfFiles)
+
         # remove intermediate files
         os.remove(f'{grm1}.pgen')
         os.remove(f'{grm1}.pvar')
@@ -342,7 +365,8 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
 
     else:
         print(f'Relatedness pruning failed!')
-        print(f'Check {grm1}.log, {grm2}.log, {grm3}.log, or {out_path}_pairs.log for more information')
+        # print(f'Check {grm1}.log, {grm2}.log, {grm3}.log, or {out_path}_pairs.log for more information')
+        print(f'Check all_plink_logs.gtlog for more information')
         process_complete = False
 
         outfiles_dict = {
@@ -393,6 +417,9 @@ def variant_prune(geno_path, out_path):
     # variant missingness
     plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
     shell_do(plink_cmd1)
+
+    listOfFiles = [f'{geno_tmp1}.log']
+    concat_logs(step, out_path, listOfFiles)
     
     # geno pruned count
     geno_snp_count = count_file_lines(f'{geno_tmp1}.bim')
@@ -406,6 +433,9 @@ def variant_prune(geno_path, out_path):
         plink_cmd2 = f"{plink_exec} --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
         shell_do(plink_cmd2)
 
+        listOfFiles = [f'{mis_tmp1}.log']
+        concat_logs(step, out_path, listOfFiles)
+
         mis1 = f'{mis_tmp1}.missing'
         if os.path.isfile(mis1):
 
@@ -415,6 +445,9 @@ def variant_prune(geno_path, out_path):
 
             plink_cmd3 = f"{plink2_exec} --bfile {geno_tmp1} --exclude {mis_tmp1}.exclude --make-bed --out {mis_tmp2}"
             shell_do(plink_cmd3)
+
+            listOfFiles = [f'{mis_tmp2}.log']
+            concat_logs(step, out_path, listOfFiles)
 
             # mis purned count
             mis_snp_count = count_file_lines(f'{mis_tmp2}.bim')
@@ -450,6 +483,9 @@ def variant_prune(geno_path, out_path):
         cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
         for cmd in cmds3:
             shell_do(cmd)
+
+        listOfFiles = [f'{hap_tmp1}.log', f'{hap_tmp2}.log', f'{hwe_tmp1}.log', f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
 
         # hap pruned count
         hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
@@ -512,6 +548,9 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
+
+    listOfFiles = [f'{out_path}.log']
+    concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
     lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
@@ -603,6 +642,9 @@ def plink_pca(geno_path, out_path, build='hg38'):
     prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
     shell_do(prune_cmd)
 
+    listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log']
+    concat_logs(step, out_path, listOfFiles)
+
     # Check if prune.in file exists
     if os.path.isfile(f'{out_path}_pruned.prune.in'):
         # Extract pruned SNPs
@@ -614,9 +656,12 @@ def plink_pca(geno_path, out_path, build='hg38'):
         shell_do(pca_cmd)
 
         # Remove intermediate files
-        os.remove(f"{out_path}_pruned.log")
+        # os.remove(f"{out_path}_pruned.log")
         os.remove(f"{out_path}_pruned.prune.in")
         os.remove(f"{out_path}_pruned.prune.out")
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
     
     # Otherwise throw an error (less than 50 samples = bad LD)
     else:
@@ -625,11 +670,12 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print(f'Check {out_path}_pruned.log for more information.')
         print('Likely there are <50 samples for this ancestry leading to bad LD calculations.')
         print()
-    
+
     # Remove intermediate files
     os.remove(f"{out_path}_tmp.bed")
     os.remove(f"{out_path}_tmp.bim")
     os.remove(f"{out_path}_tmp.fam")
-    os.remove(f"{out_path}_tmp.log")
+    
+    # os.remove(f"{out_path}_tmp.log")
     # remove exclusion file
     os.remove(exclusion_file)

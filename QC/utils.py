@@ -21,7 +21,110 @@ def shell_do(command, log=False, return_log=False):
         print(res.stdout.decode('utf-8'))
     if return_log:
         return(res.stdout.decode('utf-8'))
+
+
+def replace_all(text, dict):
+    # replaces any applicable dictionary elements in text
+    for i, j in dict.items():
+        text = text.replace(i, j)
+    return text
+
+
+def process_log(out_dir, concat_log):
+    # exclude lines containing this information from log file
+    exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
+    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit',
+    '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:']
+
+    # save all indices in log file where these instances occur
+    step_indices = [i for i, s in enumerate(concat_log) if 'Step:' in s]
+    process_indices = [i for i, s in enumerate(concat_log) if 'Process:' in s]
+    bfile_indices = [i for i, s in enumerate(concat_log) if '--bfile' in s]
+    pfile_indices = [i for i, s in enumerate(concat_log) if '--pfile' in s]
+
+    # combine bfile and pfile indices
+    bfile_indices.extend(pfile_indices)
+    bfile_indices.sort()
+
+    # add final index of log to traverse entire log
+    step_indices.append(len(concat_log))
+    start = 0
+    stop = 1
     
+    # list ancestry only for the following steps
+    ancestry_steps = ['related', 'het', 'variant', 'pca']
+    # exclude/replace from text
+    fillers = ['and', '.']
+    replace = {'loaded from': 'loaded', '(see': '', ');': ';'}
+
+    # write final processed log
+    with open(f"{out_dir}/cleaned_genotools.log", "w") as f:
+        while start < len(step_indices)-1:
+            # list step and process names
+            step_line = concat_log[step_indices[start]]
+            process_line = concat_log[process_indices[start]]
+            process_name = process_line.split('_')[0].replace('Process: ', '')
+            bfile_line = concat_log[bfile_indices[start]]
+            bfile_name = bfile_line.split()[1].replace(out_dir, "")
+
+            # split by second part of plink_pca process name
+            if process_name == 'plink':
+                process_name = 'pca'
+
+            # split full step name by process name to get better label components & add back in
+            step_name = step_line.split(f'{process_name}')[-1]
+            step_name = (process_name + step_name).replace('.log', '')
+
+            # find ancestry acronym in bfile input line
+            if bfile_name.split("_")[-1].isupper():
+                ancestry_check = bfile_name.split("_")[-1]
+
+            # write final labels for concise step name & ancestry of focus
+            f.write(f'Step: {step_name}')
+            if process_name in ancestry_steps:
+                f.write(f'Ancestry: {ancestry_check}\n')
+            
+            # rewrite concatenated log section by section with exclusion criteria
+            for i in range(step_indices[start], step_indices[stop]):
+                if "error" in concat_log[i].strip('\n'):
+                    f.write(concat_log[i])
+                elif concat_log[i].strip('\n') in fillers:
+                    pass
+                elif len(concat_log[i]) == 1:
+                    pass
+                elif not any([x in concat_log[i].strip('\n') for x in exclude]):
+                    content = replace_all(concat_log[i], replace)
+                    f.write(content)
+
+            f.write('\n')
+            f.write('\n')
+            start += 1
+            stop += 1
+
+
+def concat_logs(step, out_path, listOfFiles):
+    # stores concat log in processing directory
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+
+    # combine log files into 1 file
+    # when transition to Classes: clear log on every new run
+    with open(f'{out_dir}/all_plink_logs.log', "a+") as new_file:
+        for name in listOfFiles:
+            with open(name) as file:
+                new_file.write(f'Step: {name}\n')
+                new_file.write(f'Process: {step}\n')
+                for line in file:
+                    new_file.write(line)
+        
+                new_file.write("\n")
+
+    # remove intermediate log files 
+    for files in listOfFiles:
+        os.remove(files)
+
+    with open(f'{out_dir}/all_plink_logs.log', 'r') as file:
+        process_log(out_dir, file.readlines())
+
 
 def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
     """Label SNPs with the gene they are in."""
