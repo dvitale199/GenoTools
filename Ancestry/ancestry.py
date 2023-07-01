@@ -28,58 +28,6 @@ from utils.dependencies import check_plink, check_plink2
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-def ancestry_prune(geno_path, out_path=None):
-    '''Pruning of --maf 0.05, --geno 0.01, --hwe 0.0001, palindrome snps, and high-LD regions for ancestry methods.
-    
-    Parameters: 
-    geno_path (string): path to plink genotype (everything before .bed/.bim/.fam).
-    out_path (string): path to output plink genotype (everything before .bed/.bim/.fam).
-    
-    Returns:
-    None.
-    '''
-
-    geno_ancestry_prune_tmp = f'{geno_path}_ancestry_prune_tmp'
-    
-    if out_path:
-        geno_ancestry_prune_out = out_path
-    else:
-        geno_ancestry_prune_out = f'{geno_path}_ancestry_prune'
-
-    # prune geno_path for geno, maf, hwe, and palindromes
-    geno_bim = pd.read_csv(f'{geno_path}.bim', sep='\t', header=None)
-
-    # find and drop palindromes in geno_path .bim file
-    geno_bim.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-    palindromes = geno_bim.loc[((geno_bim.a1 == 'A') & (geno_bim.a2 == 'T')) | ((geno_bim.a1 == 'T') & (geno_bim.a2 == 'A')) | ((geno_bim.a1 == 'C') & (geno_bim.a2 == 'G')) | ((geno_bim.a1 == 'G') & (geno_bim.a2 == 'C'))]
-    palindromes['rsid'].to_csv(f'{geno_path}_palindromes.snplist', header=False, index=False, sep='\t')
-
-    plink_cmd1 = f'{plink_exec} --bfile {geno_path}\
-     --maf 0.05\
-     --geno 0.01\
-     --hwe 0.0001\
-     --autosome\
-     --allow-no-sex\
-     --exclude {geno_path}_palindromes.snplist\
-     --make-bed\
-     --out {geno_ancestry_prune_tmp}' 
-
-    # exclude high-LD regions
-    plink_cmd2 = f'{plink_exec} --bfile {geno_ancestry_prune_tmp}\
-     --exclude range ref_data/hg19_exclusion_regions.txt\
-     --autosome\
-     --allow-no-sex\
-     --make-bed\
-     --out {geno_ancestry_prune_out}'
-
-    cmds = [plink_cmd1, plink_cmd2]
-
-    for cmd in cmds:
-        shell_do(cmd)
-    
-    rm_tmps([f'{geno_ancestry_prune_tmp}'], ['bed','bim','fam','log'])
-
-
 def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='PC3', title=None, x_range=None, y_range=None, z_range=None):
     '''
     Parameters: 
@@ -339,6 +287,13 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     train_pca['label'] = train_labels
     train_ids = train_ids.reset_index(drop=True)
     train_pca = pd.concat([train_ids, train_pca], axis=1)
+
+    # create df for eigenvalues and explained variance ratio
+    ev = pd.Series(sk_pca.explained_variance_)
+    evr = pd.Series(sk_pca.explained_variance_ratio_)
+    ev_df = pd.concat([pd.Series(col_names), ev, evr], axis=1)
+    ev_df.columns = ['PC','eigenvalue','explained_variance_ratio']
+    ev_df.to_csv(f'{out}_pca_eigenvalues.txt', sep='\t', index=False)
 
     # plot_3d(train_pca, color='label', title='Reference Panel PCA - Training', plot_out=f'{plot_dir}/plot_train_skPCA', x='PC1', y='PC2', z='PC3')
 
