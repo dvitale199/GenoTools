@@ -310,7 +310,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 #     print()
 
 
-def rm_tmps(step, prefixes, process_complete):
+def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
     # add miss_rates?
     outputs_dict = {'callrate_prune': ['.bed', '.bim', '.fam'],
                     'sex_prune': [],
@@ -330,9 +330,13 @@ def rm_tmps(step, prefixes, process_complete):
 
         else: # process completed
             key_index = list(outputs_dict.keys()).index(step)
-            while key_index >= 0:
+            original_key = key_index
+            while key_index > original_key - 2: # make sure to delete the intermed files from previous step
                 for ext in outputs_dict[key_index]:
-                    rmfile = f'{prefix}.{ext}'
+                    if key_index == original_key:
+                        rmfile = f'{prefix}.{ext}'
+                    else:  # now creating files to remove from previous step in qc pipeline
+                        rmfile = f'{prev_out}.{ext}'
                     try:
                         os.remove(rmfile)
                     except OSError:
