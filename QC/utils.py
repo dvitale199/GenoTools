@@ -319,8 +319,8 @@ def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
                     'variant_prune': ['bed', 'bim', 'fam', 'exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
                     'plink_pca': ['bed', 'bim', 'fam', 'txt']}
 
-    for prefix in prefixes: 
-        if not process_complete:
+    if not process_complete:
+        for prefix in prefixes: 
             for ext in outputs_dict[step]:
                 rmfile = f'{prefix}.{ext}'
                 try:
@@ -328,24 +328,25 @@ def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
                 except OSError:
                     pass
 
-        else: # process completed
-            key_index = list(outputs_dict.keys()).index(step) - 1
-            if key_index > 0:
-                for ext in outputs_dict[list(outputs_dict.keys())[key_index]]:
-                    # this would prevent the next steps from running but we can make primary and secondary file dicts
-                    # primary files would be necessary for continuation of pipeline 
+    else: # process completed
+        key_index = list(outputs_dict.keys()).index(step) - 1
+        if key_index >= 0:
+            for ext in outputs_dict[list(outputs_dict.keys())[key_index]]:
+                # this would prevent the next steps from running but we can make primary and secondary file dicts
+                # primary files would be necessary for continuation of pipeline 
 
-                    # if key_index == original_key:
-                    #     rmfile = f'{prefix}.{ext}'
-                    # else:  
-                    
-                    # create files to remove from previous step in qc pipeline
-                    rmfile = f'{prev_out}.{ext}'
-                    print(rmfile)
-                    try:
-                        os.remove(rmfile)
-                    except OSError:
-                        pass
+                # if key_index == original_key:
+                #     rmfile = f'{prefix}.{ext}'
+                # else:  
+                
+                # create files to remove from previous step in qc pipeline
+                rmfile = f'{prev_out}.{ext}'
+                print(rmfile)
+                
+                try:
+                    os.remove(rmfile)
+                except OSError:
+                    pass
 
 
 def count_file_lines(file_path):

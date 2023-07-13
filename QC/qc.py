@@ -151,7 +151,6 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         'output': outfiles_dict
     }
 
-
     prefixes = [out_path, sex_tmp1, sex_tmp2]
     rm_tmps(step, prefixes, process_complete, geno_path)
 
