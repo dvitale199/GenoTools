@@ -311,42 +311,65 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
 
 def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
-    # add miss_rates?
-    outputs_dict = {'callrate_prune': ['bed', 'bim', 'fam'],
-                    'sex_prune': ['hh', 'sexcheck', 'outliers', 'bed', 'bim', 'fam'],
-                    'het_prune': ['prune.in', 'prune.out', 'bed', 'bim', 'fam', 'het'],
-                    'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated', 'related'],
-                    'variant_prune': ['bed', 'bim', 'fam', 'exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
-                    'plink_pca': ['bed', 'bim', 'fam', 'txt']}
+    # may need to import in run_qc_pipeline as well
+    # pca step takes in user's selected out name instead of variant prune outputs
 
-    if not process_complete:
-        for prefix in prefixes: 
-            for ext in outputs_dict[step]:
+    # add miss_rates?
+    # will need to delete predict ancestry and variant prune bed, bim, fam somehow
+    # will need to delete more files from all ancestry methods
+
+    # deleted after next step is complete to avoid disrupting pipeline
+    primary_dict = {'callrate_prune': ['bed', 'bim', 'fam'],
+                    'sex_prune': ['bed', 'bim', 'fam'],
+                    'split_cohort_ancestry': ['bed', 'bim', 'fam'],
+                    'het_prune': ['bed', 'bim', 'fam'],
+                    'related_prune': ['bed', 'bim', 'fam', 'related'],
+                    'variant_prune': ['bed', 'bim', 'fam'],
+                    'plink_pca': []}
+
+    # deleted immediately - do not impact pipeline
+    secondary_dict = {'callrate_prune': ['mindrem.id', 'outliers'],
+                    'sex_prune': ['hh', 'sexcheck', 'outliers'],
+                    'split_cohort_ancestry': ['txt'],
+                    'het_prune': ['_tmp', '_tmp2', '_tmp3'],
+                    'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated', 'related'],
+                    'variant_prune': ['exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
+                    'plink_pca': []}
+
+    for prefix in prefixes: 
+        for ext in secondary_dict[step]:
+            rmfile = f'{prefix}.{ext}'
+            try:
+                os.remove(rmfile)
+            except OSError:
+                pass
+        if not process_complete:
+            for ext in primary_dict[step]:
                 rmfile = f'{prefix}.{ext}'
                 try:
                     os.remove(rmfile)
                 except OSError:
                     pass
 
-    else: # process completed
-        key_index = list(outputs_dict.keys()).index(step) - 1
-        if key_index >= 0:
-            for ext in outputs_dict[list(outputs_dict.keys())[key_index]]:
-                # this would prevent the next steps from running but we can make primary and secondary file dicts
-                # primary files would be necessary for continuation of pipeline 
+    if process_complete:
+        dict_keys = list(primary_dict.keys())
+        key_index = dict_keys.index(step) - 1
+        end_step = len(dict_keys) - 2  # do not want plink_pca step to delete any final outputs
 
-                # if key_index == original_key:
-                #     rmfile = f'{prefix}.{ext}'
-                # else:  
+        if key_index >= 0 and key_index != end_step:
+            for ext in primary_dict[dict_keys[key_index]]:
                 
                 # create files to remove from previous step in qc pipeline
                 rmfile = f'{prev_out}.{ext}'
                 print(rmfile)
-                
                 try:
                     os.remove(rmfile)
                 except OSError:
                     pass
+
+        elif key_index == end_step:
+            pass # clean up those that didn't get cut
+
 
 
 def count_file_lines(file_path):

@@ -305,14 +305,14 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
 
         related_count = related_count - duplicated_count
-        duplicated = pd.read_csv(f'{grm3}.duplicated', '\s+')
+        duplicated = pd.read_csv(f'{grm3}.duplicated', sep = '\s+')
 
         # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
         if prune_related and prune_duplicated:
             plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
             shell_do(plink_cmd1) 
 
-            related = pd.read_csv(f'{grm2}.related', '\s+')
+            related = pd.read_csv(f'{grm2}.related', sep = '\s+')
             grm_pruned = related.append(duplicated)
 
             if '#FID' in grm_pruned:
@@ -554,7 +554,7 @@ def variant_prune(geno_path, out_path):
         'output': outfiles_dict
     }
 
-    prefixes = [hap_tmp1, hap_tmp2, hwe_tmp1, out_path, mis_tmp2, mis_tmp1, geno_tmp1]
+    prefixes = [hap_tmp1, hap_tmp2, hwe_tmp1, out_path, mis_tmp2, mis_tmp1, geno_tmp1, f'{out_path}_pruned', f'{out_path}_pruned_flip']
     rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
