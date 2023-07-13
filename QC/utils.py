@@ -286,10 +286,10 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 #         suffixes=suffixes
 #     else:
 #         suffixes=[
-#             'hh','log','nosex','bed','bim','fam',
-#             'prune.in','prune.out','sexcheck','het',
-#             'grm.bim','grm.id','grm.N.bim',
-#             'missing','missing.hap','exclude','snplist'
+            # 'hh','log','nosex','bed','bim','fam',
+            # 'prune.in','prune.out','sexcheck','het',
+            # 'grm.bim','grm.id','grm.N.bim',
+            # 'missing','missing.hap','exclude','snplist'
 #         ]
 
 #     print()
@@ -312,16 +312,16 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
 def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
     # add miss_rates?
-    outputs_dict = {'callrate_prune': ['.bed', '.bim', '.fam'],
-                    'sex_prune': [],
-                    'het_prune': [],
-                    'related_prune': [],
-                    'variant_prune': [],
-                    'plink_pca': []}
+    outputs_dict = {'callrate_prune': ['bed', 'bim', 'fam'],
+                    'sex_prune': ['hh', 'sexcheck', 'outliers', 'bed', 'bim', 'fam'],
+                    'het_prune': ['prune.in', 'prune.out', 'bed', 'bim', 'fam', 'het'],
+                    'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated', 'related'],
+                    'variant_prune': ['bed', 'bim', 'fam', 'exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
+                    'plink_pca': ['bed', 'bim', 'fam', 'txt']}
 
     for prefix in prefixes: 
         if not process_complete:
-            for ext in outputs_dict['step']:
+            for ext in outputs_dict[step]:
                 rmfile = f'{prefix}.{ext}'
                 try:
                     os.remove(rmfile)
@@ -329,19 +329,23 @@ def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
                     pass
 
         else: # process completed
-            key_index = list(outputs_dict.keys()).index(step)
-            original_key = key_index
-            while key_index > original_key - 2: # make sure to delete the intermed files from previous step
-                for ext in outputs_dict[key_index]:
-                    if key_index == original_key:
-                        rmfile = f'{prefix}.{ext}'
-                    else:  # now creating files to remove from previous step in qc pipeline
-                        rmfile = f'{prev_out}.{ext}'
+            key_index = list(outputs_dict.keys()).index(step) - 1
+            if key_index > 0:
+                for ext in outputs_dict[list(outputs_dict.keys())[key_index]]:
+                    # this would prevent the next steps from running but we can make primary and secondary file dicts
+                    # primary files would be necessary for continuation of pipeline 
+
+                    # if key_index == original_key:
+                    #     rmfile = f'{prefix}.{ext}'
+                    # else:  
+                    
+                    # create files to remove from previous step in qc pipeline
+                    rmfile = f'{prev_out}.{ext}'
+                    print(rmfile)
                     try:
                         os.remove(rmfile)
                     except OSError:
                         pass
-                key_index -= 1
 
 
 def count_file_lines(file_path):

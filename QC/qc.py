@@ -103,7 +103,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         sex_fail2 = sex2[sex2.STATUS=='PROBLEM']
 
         # combine and output
-        sex_fail_df = sex_fail1.append(sex_fail2)
+        # sex_fail_df = sex_fail1.append(sex_fail2)
+        sex_fail_df = pd.concat([sex_fail1, sex_fail2], ignore_index=True)
         sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
         sex_fail_count = sex_fail_ids.shape[0]
         sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
@@ -697,5 +698,5 @@ def plink_pca(geno_path, out_path, build='hg38'):
     # remove exclusion file
     # os.remove(exclusion_file)
 
-    prefixes = [f'{out_path}_tmp', exclusion_file, out_path, f'{out_path}_pruned']
+    prefixes = [f'{out_path}_tmp', f'{out_path}_hg19', f'{out_path}_hg38', out_path, f'{out_path}_pruned']
     rm_tmps(step, prefixes, prev_out = geno_path)
