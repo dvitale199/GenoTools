@@ -63,6 +63,9 @@ def callrate_prune(geno_path, out_path, mind=0.02):
         'output': outfiles_dict
     }
 
+    prefixes = [out_path]
+    rm_tmps(step, prefixes, process_complete)
+
     return out_dict
 
 
@@ -146,6 +149,10 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+
+    prefixes = [out_path, sex_tmp1, sex_tmp2]
+    rm_tmps(step, prefixes, process_complete)
 
     return out_dict
 
@@ -246,6 +253,9 @@ def het_prune(geno_path, out_path):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+    prefixes = [het_tmp, het_tmp2, het_tmp3, out_path]
+    rm_tmps(step, prefixes, process_complete)
 
     return out_dict
 
@@ -386,6 +396,9 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+    prefixes = [grm1, grm2, grm3, out_path, f'{out_path}_pairs']
+    rm_tmps(step, prefixes, process_complete)
 
     return out_dict
 
@@ -541,16 +554,20 @@ def variant_prune(geno_path, out_path):
         'output': outfiles_dict
     }
 
+    prefixes = [hap_tmp1, hap_tmp2, hwe_tmp1, out_path, mis_tmp2, mis_tmp1, geno_tmp1]
+    rm_tmps(step, prefixes, process_complete)
+
     return out_dict
 
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
+    # step = 'missrates_prune' # need to finalize name
     plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
 
-    listOfFiles = [f'{out_path}.log']
-    concat_logs(step, out_path, listOfFiles)
+    # listOfFiles = [f'{out_path}.log']
+    # concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
     lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
@@ -672,10 +689,13 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print()
 
     # Remove intermediate files
-    os.remove(f"{out_path}_tmp.bed")
-    os.remove(f"{out_path}_tmp.bim")
-    os.remove(f"{out_path}_tmp.fam")
+    # os.remove(f"{out_path}_tmp.bed")
+    # os.remove(f"{out_path}_tmp.bim")
+    # os.remove(f"{out_path}_tmp.fam")
     
     # os.remove(f"{out_path}_tmp.log")
     # remove exclusion file
-    os.remove(exclusion_file)
+    # os.remove(exclusion_file)
+
+    prefixes = [f'{out_path}_tmp', exclusion_file, out_path, f'{out_path}_pruned']
+    rm_tmps(step, prefixes, process_complete)
