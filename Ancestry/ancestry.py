@@ -263,6 +263,9 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         'out_paths': out_paths
     }
 
+    # prefixes = [out_path, geno_prune_path, ref_common_snps, f'{ref_common_snps}_switch']
+    # rm_tmps(step, prefixes, prev_out = geno_path)
+
     return out_dict
 
 
@@ -790,7 +793,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     }
 
     # need to add all variations of out_path from all ancestry methods
-    prefixes = [out_path]
-    rm_tmps(step, prefixes, prev_out = geno_path)
+    # prefixes = [out_path]
+    # rm_tmps(step, prefixes, prev_out = geno_path)
 
     return out_dict
