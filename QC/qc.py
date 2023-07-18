@@ -510,8 +510,8 @@ def variant_prune(geno_path, out_path):
         total_rm_count = initial_snp_count - final_snp_count
 
         # remove temp files
-        tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
-        rm_tmps(tmps)
+        # tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
+        # rm_tmps(tmps)
         
         process_complete = True
         
@@ -689,13 +689,18 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print()
 
     # Remove intermediate files
-    os.remove(f"{out_path}_tmp.bed")
-    os.remove(f"{out_path}_tmp.bim")
-    os.remove(f"{out_path}_tmp.fam")
+    try:
+        os.remove(f"{out_path}_tmp.bed")
+        os.remove(f"{out_path}_tmp.bim")
+        os.remove(f"{out_path}_tmp.fam")
+
+        # Remove exclusion file
+        os.remove(exclusion_file)
+
+    except OSError:
+        pass
     
-    os.remove(f"{out_path}_tmp.log")
-    # Remove exclusion file
-    os.remove(exclusion_file)
+    # os.remove(f"{out_path}_tmp.log")
 
     # prefixes = [f'{out_path}_tmp', f'{out_path}_hg19', f'{out_path}_hg38', out_path, f'{out_path}_pruned']
     # rm_tmps(step, prefixes, prev_out = geno_path)
