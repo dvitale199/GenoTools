@@ -63,6 +63,9 @@ def callrate_prune(geno_path, out_path, mind=0.02):
         'output': outfiles_dict
     }
 
+    # prefixes = [out_path]
+    # rm_tmps(step, prefixes, process_complete)
+
     return out_dict
 
 
@@ -100,7 +103,8 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         sex_fail2 = sex2[sex2.STATUS=='PROBLEM']
 
         # combine and output
-        sex_fail_df = sex_fail1.append(sex_fail2)
+        # sex_fail_df = sex_fail1.append(sex_fail2)
+        sex_fail_df = pd.concat([sex_fail1, sex_fail2], ignore_index=True)
         sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
         sex_fail_count = sex_fail_ids.shape[0]
         sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
@@ -146,6 +150,9 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+    # prefixes = [out_path, sex_tmp1, sex_tmp2]
+    # rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
 
@@ -247,6 +254,9 @@ def het_prune(geno_path, out_path):
         'output': outfiles_dict
     }
 
+    # prefixes = [out_path, het_tmp, het_tmp2, het_tmp3]
+    # rm_tmps(step, prefixes, process_complete, geno_path)
+
     return out_dict
 
 
@@ -295,14 +305,14 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
 
         related_count = related_count - duplicated_count
-        duplicated = pd.read_csv(f'{grm3}.duplicated', '\s+')
+        duplicated = pd.read_csv(f'{grm3}.duplicated', sep = '\s+')
 
         # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
         if prune_related and prune_duplicated:
             plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
             shell_do(plink_cmd1) 
 
-            related = pd.read_csv(f'{grm2}.related', '\s+')
+            related = pd.read_csv(f'{grm2}.related', sep = '\s+')
             grm_pruned = related.append(duplicated)
 
             if '#FID' in grm_pruned:
@@ -386,6 +396,9 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+    # prefixes = [out_path, grm1, grm2, grm3, f'{out_path}_pairs']
+    # rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
 
@@ -497,8 +510,8 @@ def variant_prune(geno_path, out_path):
         total_rm_count = initial_snp_count - final_snp_count
 
         # remove temp files
-    #     tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
-    #     rm_tmps(tmps)
+        # tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
+        # rm_tmps(tmps)
         
         process_complete = True
         
@@ -541,16 +554,20 @@ def variant_prune(geno_path, out_path):
         'output': outfiles_dict
     }
 
+    # prefixes = [hap_tmp1, hap_tmp2, hwe_tmp1, out_path, mis_tmp2, mis_tmp1, geno_tmp1, f'{out_path}_pruned', f'{out_path}_pruned_flip']
+    # rm_tmps(step, prefixes, process_complete, geno_path)
+
     return out_dict
 
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
+    # step = 'missrates_prune' # need to finalize name
     plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
 
-    listOfFiles = [f'{out_path}.log']
-    concat_logs(step, out_path, listOfFiles)
+    # listOfFiles = [f'{out_path}.log']
+    # concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
     lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
@@ -672,10 +689,18 @@ def plink_pca(geno_path, out_path, build='hg38'):
         print()
 
     # Remove intermediate files
-    os.remove(f"{out_path}_tmp.bed")
-    os.remove(f"{out_path}_tmp.bim")
-    os.remove(f"{out_path}_tmp.fam")
+    try:
+        os.remove(f"{out_path}_tmp.bed")
+        os.remove(f"{out_path}_tmp.bim")
+        os.remove(f"{out_path}_tmp.fam")
+
+        # Remove exclusion file
+        os.remove(exclusion_file)
+
+    except OSError:
+        pass
     
     # os.remove(f"{out_path}_tmp.log")
-    # remove exclusion file
-    os.remove(exclusion_file)
+
+    # prefixes = [f'{out_path}_tmp', f'{out_path}_hg19', f'{out_path}_hg38', out_path, f'{out_path}_pruned']
+    # rm_tmps(step, prefixes, prev_out = geno_path)

@@ -211,6 +211,9 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         'out_paths': out_paths
     }
 
+    # prefixes = [out_path, geno_prune_path, ref_common_snps, f'{ref_common_snps}_switch']
+    # rm_tmps(step, prefixes, prev_out = geno_path)
+
     return out_dict
 
 
@@ -305,7 +308,8 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     test_pca = pd.concat([test_ids, test_pca], axis=1)
 
     # get full reference panel pca
-    ref_pca = train_pca.append(test_pca)
+    # ref_pca = train_pca.append(test_pca)
+    ref_pca = pd.concat([train_pca, test_pca], ignore_index=True)
 
     # plot_3d(ref_pca, color='label', title='Reference Panel PCA - All', plot_out=f'{plot_dir}/plot_ref_skPCA', x='PC1', y='PC2', z='PC3')
 
@@ -319,7 +323,8 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     projected['label'] = geno_ids['label']
 
     # project new samples onto reference panel
-    total_pca = ref_pca.append(projected)
+    # total_pca = ref_pca.append(projected)
+    total_pca = pd.concat([ref_pca, projected])
 
     # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_projected_skPCA', x='PC1', y='PC2', z='PC3')
 
@@ -551,7 +556,8 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, classifier=None):
     # assign dataset and get full UMAP
     ref_umap.loc[:,'dataset'] = 'ref'
     new_samples_umap.loc[:, 'dataset'] = 'predicted'
-    total_umap = ref_umap.append(new_samples_umap)
+    # total_umap = ref_umap.append(new_samples_umap)
+    total_umap = pd.concat([ref_umap, new_samples_umap], ignore_index=True)
 
     out_dict = {
         'total_umap': total_umap,
@@ -563,6 +569,7 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, classifier=None):
 
 
 def split_cohort_ancestry(geno_path, labels_path, out_path):
+    step = 'split_cohort_ancestry'
     pred_labels = pd.read_csv(labels_path, sep='\t')
     labels_list = list()
     outfiles = list()
@@ -581,7 +588,10 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
         'labels': labels_list,
         'paths': outfiles
     }
-    
+
+    # prefixes = [out_path]
+    # rm_tmps(step, prefixes, prev_out = geno_path)
+
     return output_dict
 
 
@@ -736,5 +746,9 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
+
+    # need to add all variations of out_path from all ancestry methods
+    # prefixes = [out_path]
+    # rm_tmps(step, prefixes, prev_out = geno_path)
 
     return out_dict

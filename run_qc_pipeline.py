@@ -115,14 +115,16 @@ for item in steps:
     
     for metric, value in item['metrics'].items():
         tmp_metrics_df = pd.DataFrame({'step':[step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
-        metrics_df = metrics_df.append(tmp_metrics_df)
+        # metrics_df = metrics_df.append(tmp_metrics_df)
+        metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
     
     samplefile = item['output']['pruned_samples']
     if os.path.isfile(samplefile):
         pruned = pd.read_csv(samplefile, sep='\t')
         if pruned.shape[0] > 0:
             pruned.loc[:,'step'] = step
-            pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+            # pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+            pruned_samples_df = pd.concat([pruned_samples_df, pruned[['FID','IID','step']]], ignore_index=True)
         
 for item in steps2:
     for ancestry_label, metrics in item.items():
@@ -138,14 +140,16 @@ for item in steps2:
                 pruned = pd.read_csv(samplefile, sep='\t', header=0, usecols=[0,1], names=['FID','IID'])
                 if pruned.shape[0] > 0:
                     pruned.loc[:,'step'] = step
-                    pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+                    # pruned_samples_df = pruned_samples_df.append(pruned[['FID','IID','step']])
+                    pruned_samples_df = pd.concat([pruned_samples_df, pruned[['FID','IID','step']]], ignore_index=True)
             
         else:
             level = 'variant'
 
         for metric, value in metrics['metrics'].items():
             tmp_metrics_df = pd.DataFrame({'step':[step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
-            metrics_df = metrics_df.append(tmp_metrics_df)
+            # metrics_df = metrics_df.append(tmp_metrics_df)
+            metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
 
 metrics_df.reset_index(drop=True, inplace=True)
 
