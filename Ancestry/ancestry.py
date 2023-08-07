@@ -279,7 +279,7 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
 
     # set up pca
     n_pcs = 50
-    sk_pca = PCA(n_components=n_pcs)
+    sk_pca = PCA(n_components=n_pcs, svd_solver='full')
 
     # column names for PCA
     col_names = ['PC'+str(i+1) for i in range(n_pcs)]
