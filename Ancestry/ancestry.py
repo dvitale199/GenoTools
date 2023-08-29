@@ -14,7 +14,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
-from sklearn.svm import LinearSVC
+from xgboost import XGBClassifier
 import plotly.express as px
 import plotly
 import joblib
@@ -384,15 +384,16 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
         "umap__n_components": [15, 25],
         "umap__a":[0.75, 1.0, 1.5],
         "umap__b": [0.25, 0.5, 0.75],
-        "svc__C": [10**i for i in range(-3,3)],
+        "xgb__lambda": [10**i for i in range(-3,3)],
     }
 
     le = label_encoder
 
     # Transformation with UMAP followed by classification with svc
     umap = UMAP(random_state=123)
-    svc = LinearSVC(dual=False, random_state=123)
-    pipeline = Pipeline([("umap", umap), ("svc", svc)])
+    
+    xgb = XGBClassifier(booster='gblinear', random_state=123)
+    pipeline = Pipeline([("umap", umap), ("xgb", xgb)])
     
     cross_validation = StratifiedKFold(n_splits=5, shuffle=True, random_state=123)
     pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy')
@@ -471,10 +472,14 @@ def load_umap_classifier(pkl_path, X_test, y_test):
     pipe_clf_pred = pipe_clf.predict(X_test)
     pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
 
+    # parameters
+    params = pipe_clf.get_params()
+
     out_dict = {
         'classifier': pipe_clf,
         'confusion_matrix': pipe_clf_c_matrix,
-        'test_accuracy': test_acc
+        'test_accuracy': test_acc,
+        'umap_parameters': params
     }
 
     return out_dict
@@ -522,7 +527,7 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     return out_dict
 
 
-def umap_transform_with_fitted(ref_pca, X_new, y_pred, classifier=None):
+def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
     # 
     y_ref = ref_pca.loc[:,'label']
     X_ = ref_pca.drop(columns=['FID','IID','label'])
@@ -530,9 +535,7 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, classifier=None):
     y_pred = y_pred.drop(columns=['FID','IID'])
 
     # if classifier provided, use those params else, use UMAP defaults
-    if classifier:
-        params = classifier.get_params()
-
+    if params:
         a = params['umap__a']
         b = params['umap__b']
 
@@ -665,7 +668,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
         ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
         y_pred=pred['data']['ids'],
-        classifier=trained_clf['classifier']
+        params=trained_clf['umap_parameters']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
