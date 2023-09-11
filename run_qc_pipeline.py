@@ -4,18 +4,22 @@ import shutil
 import os
 
 # local imports
-from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca
+from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca, run_dp_gq_filter
 from Ancestry.ancestry import run_ancestry, split_cohort_ancestry
 from QC.utils import shell_do
 
 
 parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data in Plink .bim/.bam/.fam format)')
-parser.add_argument('--geno', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format genotype file, everything before the *.bed/bim/fam [default: nope].')
+parser.add_argument('--geno', type=str, default='nope', help='Genotype or sequencing data: (string file path). Path to PLINK format genotype file (for microarray data), everything before the *.bed/bim/fam [default: nope]. Path to VCF format genotype file (For WGS or WES data), include vcf.gz.')
 parser.add_argument('--ref', type=str, default='nope', help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
 parser.add_argument('--ref_labels', type=str, default='nope', help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
 parser.add_argument('--model', type=str, default=None, help='Path to pickle file with trained ancestry model for passed reference panel')
 parser.add_argument('--callrate', type=float, default=0.02, help='Minimum Callrate threshold for QC')
 parser.add_argument('--out', type=str, default='nope', help='Prefix for output (including path)')
+parser.add_argument('--data_type', type=str, default='microarray', choices=['wgs', 'wes', 'microarray'], help='Type of input data (wgs, wes, microarray) [default: microarray]')
+parser.add_argument('--DP', type=int, default='10', help='Threshold for genotype depth [default: 10]')
+parser.add_argument('--GQ', type=int, default='20', help='Threshold for genotype quality [default: 20]')
+
 
 args = parser.parse_args()
 
@@ -25,10 +29,32 @@ ref_labels = args.ref_labels
 model_path = args.model
 callrate = args.callrate
 out_path = args.out
+dp_threshold=args.DP
+gq_threshold=args.GQ
+
+dp_qc_filter_result = None  # Initialize dp_qc_filter_result to None
+
+if args.data_type in ['wgs', 'wes']:
+    # Run DP QC Filter for wgs or wes data
+    dp_qc_filter_result = run_dp_gq_filter(args.geno, args.data_type)  
+
+# variant level pruning and metrics for genotype depth (DP) and Genotype Quality (GQ)
+callrate_out = f'{geno_path}_callrate'
+
+if args.data_type in ['wgs', 'wes']:
+    # Run DP QC Filter for wgs or wes data
+    dp_gq_filter_result = run_dp_qc_filter(args.geno, DP, GQ)  # Replace with your actual function
+    # Optionally, you can use dp_gq_filter_result if needed.
 
 # sample-level pruning and metrics
 callrate_out = f'{geno_path}_callrate'
-callrate = callrate_prune(geno_path, callrate_out, mind=callrate)
+
+# Pass dp_gq_filter_result to callrate_prune if it's not None
+if dp_gq_filter_result is not None:
+    callrate = callrate_prune(dp_gq_filter_result, callrate_out, mind=callrate)
+else:
+    # If dp_gq_filter_result is None, use the original geno_path
+    callrate = callrate_prune(args.geno, callrate_out, mind=callrate)
 
 sex_out = f'{callrate_out}_sex'
 sex = sex_prune(callrate_out, sex_out)

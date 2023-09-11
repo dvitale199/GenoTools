@@ -6,6 +6,7 @@ import os
 import glob
 import shutil
 import sys
+import subprocess
 
 # local imports
 from QC.utils import shell_do, rm_tmps, count_file_lines, concat_logs
@@ -17,6 +18,32 @@ plink2_exec = check_plink2()
 
 
 ################ Sample pruning methods ####################
+
+def run_dp_gq_filter(geno_path, dp_threshold=10, gq_threshold=20, output_prefix=None):
+    if output_prefix is None:
+        output_prefix = f"{geno_path}.DP{dp_threshold}.GQ{gq_threshold}"
+    
+    output_vcf_path = f"{output_prefix}.vcf"
+    
+    # Construct the vcftools command
+    vcftools_cmd = [
+        'vcftools',
+        '--gzvcf', geno_path,
+        '--minDP', str(dp_threshold),
+        '--minGQ', str(gq_threshold),
+        '--remove-filtered-all',
+        '--recode',
+        '--recode-INFO-all',
+        '--out', output_prefix
+    ]
+    
+    # Run the vcftools command using subprocess
+    subprocess.run(vcftools_cmd, check=True)
+    
+    # Optionally, you can return the path to the filtered VCF file
+    return output_vcf_path
+
+
 def callrate_prune(geno_path, out_path, mind=0.02):
     
     # what step are we running?
