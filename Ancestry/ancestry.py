@@ -439,7 +439,7 @@ def train_umap_classifier(X_train, X_test, y_train, y_test, label_encoder, out, 
     out_dict = {
         'classifier': pipe_clf,
         'label_encoder' : le,
-        'best_params': pipe_grid.best_params_,
+        'params': pipe_grid.best_params_,
         'confusion_matrix': pipe_clf_c_matrix,
         'fitted_pipe_grid': pipe_grid,
         'train_accuracy': train_acc,
@@ -479,7 +479,7 @@ def load_umap_classifier(pkl_path, X_test, y_test):
         'classifier': pipe_clf,
         'confusion_matrix': pipe_clf_c_matrix,
         'test_accuracy': test_acc,
-        'umap_parameters': params
+        'params': params
     }
 
     return out_dict
@@ -668,7 +668,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
         ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
         y_pred=pred['data']['ids'],
-        params=trained_clf['umap_parameters']
+        params=trained_clf['params']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
