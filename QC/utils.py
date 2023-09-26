@@ -3,6 +3,7 @@ import sys
 import os
 import shutil
 import pandas as pd
+import warnings 
 
 from utils.dependencies import check_plink, check_plink2
 
@@ -18,6 +19,49 @@ def shell_do(command, log=False, return_log=False):
         print(res.stdout.decode('utf-8'))
     if return_log:
         return(res.stdout.decode('utf-8'))
+
+
+def upfront_check(geno_path):
+    fam = pd.read_csv(f'{geno_path}.fam', header=None, sep = '\s+', 
+                      names = ['FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype'])
+    bim = pd.read_csv(f'{geno_path}.bim', header = None, sep = '\s+', low_memory = False,
+                      names = ['CHR', 'SNP_ID', 'Genetic_Distance', 'Position', 'A1', 'A2'])
+
+    sex_counts = fam['Sex'].value_counts().to_dict()
+    pheno_counts = fam['Phenotype'].value_counts().to_dict()
+    chr_counts = bim['CHR'].value_counts().to_dict()
+
+    # print breakdown of data 
+    print("Your data has the following breakdown:")
+    print("- Genetic Sex:")
+    for sex in sex_counts.keys():
+        if sex == 1:
+            print(f'{sex_counts[sex]} Males \n')
+        if sex == 2:
+            print(f'{sex_counts[sex]} Females \n')
+        if sex == 0 or sex == -9:
+            print(f'{sex_counts[sex]} Unknown \n')
+
+    print("- Phenotypes:")
+    for pheno in pheno_counts.keys():
+        if pheno == 2:
+            print(f'{pheno_counts[pheno]} Cases \n')
+        if pheno == 1:
+            print(f'{pheno_counts[pheno]} Controls \n')
+        if pheno == 0 or pheno == -9:
+            print(f'{pheno_counts[pheno]} Missing \n')
+            # if pheno_counts[pheno] > 50:  # may want to createe a threshold for how many missing phenos allowed
+            #     warnings.warn("You are missing too many phenotypes (over 50).")
+
+    # check for items necessary to the pipeline
+    if len(fam) < 50:
+        warnings.warn("You do not have enough total participants in your data (less than 50).")
+    elif 1 not in pheno_counts.keys() and 2 not in pheno_counts.keys():
+        warnings.warn("You are missing at least 1 phenotype class in your data.")
+    elif "23" not in chr_counts and "X" not in chr_counts:
+        warnings.warn("No sign of sex chromosome in your bim file.")
+    elif 1 in sex_counts.keys() or 2 in sex_counts.keys():
+        print("You are all set to continue in the pipeline!")
 
 
 def replace_all(text, dict):
