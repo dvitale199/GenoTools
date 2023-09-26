@@ -1,14 +1,10 @@
-import subprocess
-import argparse
 import pandas as pd
 import numpy as np
 import os
-import glob
 import shutil
-import sys
 
 # local imports
-from QC.utils import shell_do, rm_tmps, count_file_lines, concat_logs
+from QC.utils import shell_do, count_file_lines, concat_logs
 
 from utils.dependencies import check_plink, check_plink2
 
@@ -26,8 +22,6 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     print()
     
     outliers_out = f'{out_path}.outliers'
-
-    fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None)
     
     plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
 
@@ -62,9 +56,6 @@ def callrate_prune(geno_path, out_path, mind=0.02):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
-
-    # prefixes = [out_path]
-    # rm_tmps(step, prefixes, process_complete)
 
     return out_dict
 
@@ -150,9 +141,6 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
-
-    # prefixes = [out_path, sex_tmp1, sex_tmp2]
-    # rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
 
@@ -253,9 +241,6 @@ def het_prune(geno_path, out_path):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
-
-    # prefixes = [out_path, het_tmp, het_tmp2, het_tmp3]
-    # rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
 
@@ -397,9 +382,6 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         'output': outfiles_dict
     }
 
-    # prefixes = [out_path, grm1, grm2, grm3, f'{out_path}_pairs']
-    # rm_tmps(step, prefixes, process_complete, geno_path)
-
     return out_dict
 
     
@@ -508,10 +490,6 @@ def variant_prune(geno_path, out_path):
         hwe_rm_count = hap_snp_count - final_snp_count
         # total pruned count
         total_rm_count = initial_snp_count - final_snp_count
-
-        # remove temp files
-        # tmps = [geno_tmp1, mis_tmp1, mis_tmp2, hap_tmp1, hap_tmp2, hwe_tmp1]
-        # rm_tmps(tmps)
         
         process_complete = True
         
@@ -553,9 +531,6 @@ def variant_prune(geno_path, out_path):
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
-
-    # prefixes = [hap_tmp1, hap_tmp2, hwe_tmp1, out_path, mis_tmp2, mis_tmp1, geno_tmp1, f'{out_path}_pruned', f'{out_path}_pruned_flip']
-    # rm_tmps(step, prefixes, process_complete, geno_path)
 
     return out_dict
 
@@ -699,8 +674,3 @@ def plink_pca(geno_path, out_path, build='hg38'):
 
     except OSError:
         pass
-    
-    # os.remove(f"{out_path}_tmp.log")
-
-    # prefixes = [f'{out_path}_tmp', f'{out_path}_hg19', f'{out_path}_hg38', out_path, f'{out_path}_pruned']
-    # rm_tmps(step, prefixes, prev_out = geno_path)
