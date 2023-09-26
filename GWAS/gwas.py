@@ -1,9 +1,6 @@
 import pandas as pd
 import numpy as np
-import subprocess
 import os
-import sys
-import random
 from scipy.stats import ncx2
 
 from QC.utils import shell_do

@@ -1,8 +1,5 @@
 import subprocess
 import sys
-import matplotlib.pyplot as plt
-from matplotlib import cm 
-import numpy as np
 import os
 import shutil
 import pandas as pd
@@ -217,17 +214,6 @@ def ld_prune(geno_path, out_name, window_size=1000, step_size=50, rsq_thresh=0.0
 
     for cmd in ld_prune_cmds:
         shell_do(cmd)
-
-        
-def random_sample_snps(geno_path, out_name, n=10000):
-    rand_samp_snplist = f'{geno_path}_rand_samp.snplist'
-    bim = pd.read_csv(f'{geno_path}.bim', sep='\t', header=None)
-    ref_panel_random_sample = bim.sample(n, random_state=123)
-    ref_panel_random_sample.to_csv(rand_samp_snplist, header=False, index=False, sep='\t')
-
-    rand_sample_cmd = f'{plink_exec} --bfile {geno_path} --allow-no-sex --extract {rand_samp_snplist} --autosome --make-bed --out {out_name}'
-    
-    shell_do(rand_sample_cmd)
     
 
 def get_common_snps(geno_path1, geno_path2, out_name):  
@@ -238,22 +224,27 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     """
    
     print('Getting Common SNPs')	
- 
+    
+    # read both bim files
     bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
     bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
     bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     
+    # write bim 1 ids to snplist
     bim1['rsid'].to_csv(f'{geno_path1}.snplist', sep='\t', header=None, index=None)
 
+    # creating merge ids
     bim1['merge_id'] = bim1['chr'].astype(str) + ':' + bim1['pos'].astype(str) + ':' + bim1['a2'] + ':' + bim1['a1']
     bim2['merge_id1'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a2'] + ':' + bim2['a1']
     bim2['merge_id2'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a1'] + ':' + bim2['a2']
 
+    # two merges and concatenation
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
     common_snps = pd.concat([common_snps1, common_snps2], axis=0)
     
+    # flip and merge again
     flip_cmd = f'{plink_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
     shell_do(flip_cmd)
 
@@ -264,15 +255,18 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
 
+    # concat merges and drop duplicates
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
     common_snps = common_snps.drop_duplicates(subset=['chr','pos'], ignore_index=True)
 
+    # write snps to txt and extract
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
     
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     shell_do(ext_snps_cmd)
 
+    # return outfiles
     outfiles = {
         'common_snps': common_snps_file,
         'bed': out_name
@@ -281,7 +275,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
 
 def rm_tmps(tmps, suffixes=None):
-    
+    # OVERHAUL
     if suffixes:
         suffixes=suffixes
     else:
@@ -308,69 +302,6 @@ def rm_tmps(tmps, suffixes=None):
             # else:
             #     pass
     print()
-
-
-# def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
-#     # may need to import in run_qc_pipeline as well
-#     # pca step takes in user's selected out name instead of variant prune outputs
-
-#     # add miss_rates?
-#     # will need to delete predict ancestry and variant prune bed, bim, fam somehow
-#     # will need to delete more files from all ancestry methods
-
-#     # deleted after next step is complete to avoid disrupting pipeline
-#     primary_dict = {'callrate_prune': ['bed', 'bim', 'fam'],
-#                     'sex_prune': ['bed', 'bim', 'fam'],
-#                     'get_raw_files': ['common_snps', 'bed', 'bim', 'fam', 'raw', 'log'],
-#                     'split_cohort_ancestry': ['bed', 'bim', 'fam'],
-#                     'het_prune': ['bed', 'bim', 'fam'],
-#                     'related_prune': ['bed', 'bim', 'fam', 'related'],
-#                     'variant_prune': ['bed', 'bim', 'fam'],
-#                     'plink_pca': []}
-
-#     # deleted immediately - do not impact pipeline
-#     secondary_dict = {'callrate_prune': ['mindrem.id', 'outliers'],
-#                     'sex_prune': ['hh', 'sexcheck', 'outliers'],
-#                     'get_raw_files': ['alleles', 'hh', 'snplist', 'log'],
-#                     'split_cohort_ancestry': ['txt', 'samples'],
-#                     'het_prune': ['_tmp', '_tmp2', '_tmp3'],
-#                     'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated', 'related'],
-#                     'variant_prune': ['exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
-#                     'plink_pca': []}
-
-#     for prefix in prefixes: 
-#         for ext in secondary_dict[step]:
-#             rmfile = f'{prefix}.{ext}'
-#             try:
-#                 os.remove(rmfile)
-#             except OSError:
-#                 pass
-#         if not process_complete:
-#             for ext in primary_dict[step]:
-#                 rmfile = f'{prefix}.{ext}'
-#                 try:
-#                     os.remove(rmfile)
-#                 except OSError:
-#                     pass
-
-#     if process_complete:
-#         dict_keys = list(primary_dict.keys())
-#         key_index = dict_keys.index(step) - 1
-#         end_step = len(dict_keys) - 2  # do not want plink_pca step to delete any final outputs
-
-#         if key_index >= 0 and key_index != end_step:
-#             for ext in primary_dict[dict_keys[key_index]]:
-                
-#                 # create files to remove from previous step in qc pipeline
-#                 rmfile = f'{prev_out}.{ext}'
-#                 print(rmfile)
-#                 try:
-#                     os.remove(rmfile)
-#                 except OSError:
-#                     pass
-
-#         elif key_index == end_step:
-#             pass # clean up those that didn't get cut
 
 
 def count_file_lines(file_path):
