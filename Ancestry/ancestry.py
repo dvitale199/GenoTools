@@ -1,13 +1,6 @@
 import pandas as pd
-import subprocess
-import sys
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import seaborn as sns
-from matplotlib import cm 
 import numpy as np
 import os
-import shutil
 from umap import UMAP
 from sklearn import preprocessing, metrics
 from sklearn.impute import SimpleImputer
@@ -16,12 +9,12 @@ from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKF
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 import plotly.express as px
-import plotly
-import joblib
 import pickle as pkl
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 #local imports
-from QC.utils import shell_do, get_common_snps, rm_tmps, merge_genos
+from QC.utils import shell_do, get_common_snps
 
 from utils.dependencies import check_plink, check_plink2
 
@@ -62,8 +55,6 @@ def plot_3d(labeled_df, color, symbol=None, plot_out=None, x='PC1', y='PC2', z='
     )
 
     fig.update_traces(marker={'size': 3})
-
-    fig.show()
 
     if plot_out:
         fig.write_image(f'{plot_out}.png', width=1980, height=1080)
@@ -170,11 +161,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
     merge_common_snps_switch = merge_common_snps_bim[(merge_common_snps_bim['a1_y'] != merge_common_snps_bim['a1_x']) & (merge_common_snps_bim['a1_y'] != merge_common_snps_bim['a1_x_switch'])]
     merge_common_snps_switch[['rsid','a2_x']].to_csv(f'{geno_common_snps}_switch.alleles', sep='\t', header=False, index=False)
 
-    # # set alleles
-    # set_alleles_cmd = f'{plink2_exec} --bfile {geno_common_snps} --alt1-allele {geno_common_snps}_switch.alleles --make-bed --out {geno_common_snps}_switch'
-    # shell_do(set_alleles_cmd)
-
-    # getting raw version of common snps - genotype
+    # getting raw version of common snps and setting alleles - genotype
     raw_geno_cmd = f'{plink2_exec} --bfile {geno_common_snps} --alt1-allele {geno_common_snps}_switch.alleles --recode A --out {geno_common_snps}'
     shell_do(raw_geno_cmd)
 
@@ -210,9 +197,6 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
         'raw_geno': raw_geno,
         'out_paths': out_paths
     }
-
-    # prefixes = [out_path, geno_prune_path, ref_common_snps, f'{ref_common_snps}_switch']
-    # rm_tmps(step, prefixes, prev_out = geno_path)
 
     return out_dict
 
@@ -308,7 +292,6 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     test_pca = pd.concat([test_ids, test_pca], axis=1)
 
     # get full reference panel pca
-    # ref_pca = train_pca.append(test_pca)
     ref_pca = pd.concat([train_pca, test_pca], ignore_index=True)
 
     # plot_3d(ref_pca, color='label', title='Reference Panel PCA - All', plot_out=f'{plot_dir}/plot_ref_skPCA', x='PC1', y='PC2', z='PC3')
@@ -323,7 +306,6 @@ def calculate_pcs(X_train, X_test, y_train, y_test, train_ids, test_ids, raw_gen
     projected['label'] = geno_ids['label']
 
     # project new samples onto reference panel
-    # total_pca = ref_pca.append(projected)
     total_pca = pd.concat([ref_pca, projected])
 
     # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_projected_skPCA', x='PC1', y='PC2', z='PC3')
@@ -528,13 +510,17 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
 
 
 def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
-    # 
+    step = 'umap_transform'
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     y_ref = ref_pca.loc[:,'label']
     X_ = ref_pca.drop(columns=['FID','IID','label'])
 
     y_pred = y_pred.drop(columns=['FID','IID'])
 
-    # if classifier provided, use those params else, use UMAP defaults
+    # if params provided, use those else, use UMAP defaults
     if params:
         a = params['umap__a']
         b = params['umap__b']
@@ -559,7 +545,6 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
     # assign dataset and get full UMAP
     ref_umap.loc[:,'dataset'] = 'ref'
     new_samples_umap.loc[:, 'dataset'] = 'predicted'
-    # total_umap = ref_umap.append(new_samples_umap)
     total_umap = pd.concat([ref_umap, new_samples_umap], ignore_index=True)
 
     out_dict = {
@@ -573,6 +558,10 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
 
 def split_cohort_ancestry(geno_path, labels_path, out_path):
     step = 'split_cohort_ancestry'
+    print()
+    print(f"RUNNING: {step}")
+    print()
+
     pred_labels = pd.read_csv(labels_path, sep='\t')
     labels_list = list()
     outfiles = list()
@@ -592,9 +581,6 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
         'paths': outfiles
     }
 
-    # prefixes = [out_path]
-    # rm_tmps(step, prefixes, prev_out = geno_path)
-
     return output_dict
 
 
@@ -607,9 +593,6 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     print(os.getcwd())
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
-
-    # create directories if not already in existence
-    # os.makedirs(plot_dir, exist_ok=True)
 
     if model_path:
         train=False
@@ -749,9 +732,5 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
         'metrics': metrics_dict,
         'output': outfiles_dict
     }
-
-    # need to add all variations of out_path from all ancestry methods
-    # prefixes = [out_path]
-    # rm_tmps(step, prefixes, prev_out = geno_path)
 
     return out_dict
