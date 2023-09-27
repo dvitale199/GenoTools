@@ -73,7 +73,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
 
     # variant prune geno before getting common snps
     geno_prune_path = f'{out_path}_variant_pruned'
-    geno_prune_cmd = f'{plink2_exec} --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
+    geno_prune_cmd = f'{plink2_exec} --pfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
     shell_do(geno_prune_cmd)
     out_paths['geno_pruned_bed'] = geno_prune_path
 
@@ -668,7 +668,7 @@ def split_cohort_ancestry(geno_path, labels_path, out_path, subset=False):
         ancestry_group_outpath = f'{outname}.samples'
         pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-        plink_cmd = f'{plink2_exec} --bfile {geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
+        plink_cmd = f'{plink2_exec} --pfile {geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
 
         shell_do(plink_cmd)
 

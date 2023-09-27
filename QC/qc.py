@@ -264,7 +264,7 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
     related_pruned_out = f"{out_path}.pruned"
 
     # create pfiles
-    king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
+    king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,phenos --out {grm1}'
     # create table of related pairs
     king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {out_path}_pairs'
     # see if any samples are related (includes duplicates)
@@ -296,7 +296,7 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
 
         # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
         if prune_related and prune_duplicated:
-            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
+            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
             shell_do(plink_cmd1) 
 
             related = pd.read_csv(f'{grm2}.related', sep = '\s+')
@@ -312,7 +312,7 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
             process_complete = True
         
         if prune_duplicated and not prune_related:
-            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
+            plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
             shell_do(plink_cmd1) 
 
             grm_pruned = duplicated
