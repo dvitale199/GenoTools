@@ -93,7 +93,7 @@ def __check_package(name):
         raise EnvironmentError(
             "Unknown supported OK: {}".format(platform_system))
 
-    if platform_system == "Darwin" and platform_processor == "arm":
+    if (platform_system == "Darwin") and (platform_processor == "arm") and (name == "Plink2"):
         platform_system = "Darwin_arm64"
 
     entry = __DEPENDENCIES[name][platform_system]
