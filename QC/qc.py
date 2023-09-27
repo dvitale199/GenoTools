@@ -4,7 +4,7 @@ import os
 import shutil
 
 # local imports
-from QC.utils import shell_do, count_file_lines, concat_logs
+from QC.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
 
 from utils.dependencies import check_plink, check_plink2
 
@@ -23,7 +23,7 @@ def callrate_prune(geno_path, out_path, mind=0.02):
     
     outliers_out = f'{out_path}.outliers'
     
-    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
+    plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --mind {mind} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
     shell_do(plink_cmd1)
 
@@ -73,6 +73,9 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
     sex_tmp2 = f"{out_path}_tmp2"
     sex_fails = f"{out_path}.outliers"
 
+    # convert to bfiles
+    bfiles_to_pfiles(pfile_path=geno_path)
+
     # check sex 2 methods
     plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
     plink_cmd2 = f"{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
@@ -101,7 +104,7 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 
         # remove sex fail samples from geno
-        plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+        plink_cmd3 = f"{plink2_exec} --pfile {geno_path} --remove {sex_fails} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         
         shell_do(plink_cmd3)
 
@@ -158,9 +161,9 @@ def het_prune(geno_path, out_path):
     het_tmp3 = f"{out_path}_tmp3"
     outliers_out = f"{out_path}.outliers"
     
-    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
-    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {het_tmp}.prune.in --make-bed --out {het_tmp2}"
-    plink_cmd3 = f"{plink2_exec} --bfile {het_tmp2} --het --out {het_tmp3}"
+    plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
+    plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {het_tmp2}"
+    plink_cmd3 = f"{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}"
 
     cmds1 = [plink_cmd1, plink_cmd2, plink_cmd3]
 
@@ -179,14 +182,14 @@ def het_prune(geno_path, out_path):
         outlier_count = het_outliers.shape[0]
         het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
     
-        plink_cmd4 = f"{plink2_exec} --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+        plink_cmd4 = f"{plink2_exec} --pfile {geno_path} --remove {outliers_out} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         shell_do(plink_cmd4)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        if os.path.isfile(f'{out_path}.bed'):
+        if os.path.isfile(f'{out_path}.pgen'):
             outfiles_dict = {
                 'pruned_samples': outliers_out,
                 'plink_out': out_path
@@ -407,10 +410,10 @@ def variant_prune(geno_path, out_path):
     hwe_tmp1 = f'{out_path}_hwe_tmp1'
 
     # get initial snp count
-    initial_snp_count = count_file_lines(f'{geno_path}.bim')
+    initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
     
     # variant missingness
-    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
+    plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.05 --make-bed --out {geno_tmp1}"
     shell_do(plink_cmd1)
 
     listOfFiles = [f'{geno_tmp1}.log']
@@ -421,9 +424,9 @@ def variant_prune(geno_path, out_path):
     geno_rm_count = initial_snp_count - geno_snp_count
     
     
-    fam = pd.read_csv(f'{geno_path}.fam', sep='\s+', header=None, usecols=[5], names=['case'])
+    fam = pd.read_csv(f'{geno_path}.psam', sep='\s+')
     # check if this contains both cases and controls
-    if  all(x in fam['case'].unique() for x in [1, 2]):
+    if  all(x in fam['PHENO1'].unique() for x in [1, 2]):
         # missingness by case control (--test-missing), using P > 1E-4
         plink_cmd2 = f"{plink_exec} --bfile {geno_tmp1} --test-missing --out {mis_tmp1}"
         shell_do(plink_cmd2)
@@ -473,7 +476,7 @@ def variant_prune(geno_path, out_path):
 
         # HWE from controls only using P > 1E-4
         plink_cmd6 = f"{plink_exec} --bfile {hap_tmp2} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp1}"
-        plink_cmd7 = f"{plink2_exec} --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-bed --out {out_path}"
+        plink_cmd7 = f"{plink2_exec} --bfile {hap_tmp2} --extract {hwe_tmp1}.snplist --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         cmds3 = [plink_cmd5, plink_cmd6, plink_cmd7]
         for cmd in cmds3:
@@ -486,7 +489,7 @@ def variant_prune(geno_path, out_path):
         hap_snp_count = count_file_lines(f'{hap_tmp2}.bim')
         hap_rm_count = mis_snp_count - hap_snp_count
         # hwe pruned count
-        final_snp_count = count_file_lines(f'{out_path}.bim')
+        final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         hwe_rm_count = hap_snp_count - final_snp_count
         # total pruned count
         total_rm_count = initial_snp_count - final_snp_count
@@ -544,17 +547,17 @@ def geno_prune(geno_path, out_path):
     print()
 
     # get initial snp count
-    initial_snp_count = count_file_lines(f'{geno_path}.bim')
+    initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
     # variant missingness
-    plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.05 --make-bed --out {out_path}"
+    plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.05 --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
     shell_do(plink_cmd1)
 
     listOfFiles = [f'{out_path}.log']
     concat_logs(step, out_path, listOfFiles)
 
     # geno pruned count
-    geno_snp_count = count_file_lines(f'{out_path}.bim')
+    geno_snp_count = count_file_lines(f'{out_path}.pvar') - 1
     geno_rm_count = initial_snp_count - geno_snp_count
 
     process_complete = True
@@ -587,6 +590,9 @@ def case_control_prune(geno_path, out_path):
     # make tmp names
     # missingness by case-control
     mis_tmp = f'{out_path}_mis_tmp'
+
+    # convert to bfiles
+    bfiles_to_pfiles(pfile_path=geno_path)
     
     # get initial snp count
     initial_snp_count = count_file_lines(f'{geno_path}.bim')
@@ -608,14 +614,14 @@ def case_control_prune(geno_path, out_path):
             exclude = mis[mis.P <= 0.0001].loc[:,'SNP']
             exclude.to_csv(f'{mis_tmp}.exclude', sep='\t', header=False, index=False)
 
-            plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-bed --out {out_path}"
+            plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
             shell_do(plink_cmd2)
 
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
 
             # mis pruned count
-            mis_snp_count = count_file_lines(f'{out_path}.bim')
+            mis_snp_count = count_file_lines(f'{out_path}.pvar') - 1
             mis_rm_count = initial_snp_count - mis_snp_count
 
             process_complete = True
@@ -662,6 +668,9 @@ def haplotype_prune(geno_path, out_path):
     # missingness by haplotype
     hap_tmp = f'{out_path}_hap_tmp'
 
+    # convert to bfiles
+    bfiles_to_pfiles(pfile_path=geno_path)
+
     # get initial snp count
     initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
@@ -678,14 +687,14 @@ def haplotype_prune(geno_path, out_path):
     snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
     snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
 
-    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-bed --out {out_path}"
+    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
     shell_do(plink_cmd2)
 
     listOfFiles = [f'{out_path}.log']
     concat_logs(step, out_path, listOfFiles)
 
     # hap pruned count
-    hap_snp_count = count_file_lines(f'{out_path}.bim')
+    hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
     hap_rm_count = initial_snp_count - hap_snp_count
 
     outfiles_dict = {
@@ -719,12 +728,15 @@ def hwe_prune(geno_path, out_path):
     # HWE
     hwe_tmp = f'{out_path}_hwe_tmp'
 
+    # convert to bfiles
+    bfiles_to_pfiles(pfile_path=geno_path)
+
     # get initial snp count
     initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
     # HWE from controls only using P > 1E-4
     plink_cmd1 = f"{plink_exec} --bfile {geno_path} --filter-controls --hwe 1E-4 --write-snplist --out {hwe_tmp}"
-    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-bed --out {out_path}"
+    plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
     cmds = [plink_cmd1, plink_cmd2]
     for cmd in cmds:
@@ -734,7 +746,7 @@ def hwe_prune(geno_path, out_path):
     concat_logs(step, out_path, listOfFiles)
 
     # hwe pruned count
-    final_snp_count = count_file_lines(f'{out_path}.bim')
+    final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
     hwe_rm_count = initial_snp_count - final_snp_count
 
     outfiles_dict = {
@@ -759,7 +771,7 @@ def hwe_prune(geno_path, out_path):
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
     # step = 'missrates_prune' # need to finalize name
-    plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
+    plink_miss_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
 
@@ -767,14 +779,14 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     # concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
-    lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
-    imiss = pd.read_csv(f'{out_path}.imiss', sep='\s+')
-    avg_lmiss = lmiss.F_MISS.mean()
-    avg_imiss = imiss.F_MISS.mean()
+    vmiss = pd.read_csv(f'{out_path}.vmiss', sep='\s+')
+    smiss = pd.read_csv(f'{out_path}.smiss', sep='\s+')
+    avg_vmiss = vmiss.F_MISS.mean()
+    avg_smiss = smiss.F_MISS.mean()
     # print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
     # print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
 
-    i_total = imiss.shape[0]
+    s_total = smiss.shape[0]
     thresh_list = np.arange(0.0, max_threshold+0.01, 0.01)
     
     # suggest most-stringent threshold which retains >= 90% of samples
@@ -782,8 +794,8 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     
     for thresh in thresh_list:
         
-        i_pass = imiss.loc[imiss.F_MISS<=thresh]
-        pass_prop = i_pass.shape[0]/i_total
+        s_pass = smiss.loc[smiss.F_MISS<=thresh]
+        pass_prop = s_pass.shape[0]/s_total
 
         if pass_prop < 0.9:
             pass
@@ -797,8 +809,8 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
         suggested_threshold = None
         
     metrics = {
-        'avg_lmiss': avg_lmiss,
-        'avg_imiss': avg_imiss,
+        'avg_lmiss': avg_vmiss,
+        'avg_imiss': avg_smiss,
         'suggested_threshold': suggested_threshold
     }
 
@@ -849,11 +861,11 @@ def plink_pca(geno_path, out_path, build='hg38'):
         
 
     # Filter data
-    filter_cmd = f"{plink2_exec} --bfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-bed --out {out_path}_tmp"
+    filter_cmd = f"{plink2_exec} --pfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}_tmp"
     shell_do(filter_cmd)
     
     # Prune SNPs
-    prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
+    prune_cmd = f"{plink2_exec} --pfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
     shell_do(prune_cmd)
 
     listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log']
@@ -862,11 +874,11 @@ def plink_pca(geno_path, out_path, build='hg38'):
     # Check if prune.in file exists
     if os.path.isfile(f'{out_path}_pruned.prune.in'):
         # Extract pruned SNPs
-        extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
+        extract_cmd = f"{plink2_exec} --pfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(extract_cmd)
         
         # Calculate/generate PCs
-        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}"
+        pca_cmd = f"{plink2_exec} --pfile {out_path} --pca --out {out_path}"
         shell_do(pca_cmd)
 
         # Remove intermediate files
@@ -887,9 +899,9 @@ def plink_pca(geno_path, out_path, build='hg38'):
 
     # Remove intermediate files
     try:
-        os.remove(f"{out_path}_tmp.bed")
-        os.remove(f"{out_path}_tmp.bim")
-        os.remove(f"{out_path}_tmp.fam")
+        os.remove(f"{out_path}_tmp.pgen")
+        os.remove(f"{out_path}_tmp.pvar")
+        os.remove(f"{out_path}_tmp.psam")
 
         # Remove exclusion file
         os.remove(exclusion_file)
