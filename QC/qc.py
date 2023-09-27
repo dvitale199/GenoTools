@@ -97,7 +97,6 @@ def sex_prune(geno_path, out_path, check_sex=[0.25,0.75]):
         sex_fail2 = sex2[sex2.STATUS=='PROBLEM']
 
         # combine and output
-        # sex_fail_df = sex_fail1.append(sex_fail2)
         sex_fail_df = pd.concat([sex_fail1, sex_fail2], ignore_index=True)
         sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
         sex_fail_count = sex_fail_ids.shape[0]
@@ -267,11 +266,11 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
     # create pfiles
     king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
     # create table of related pairs
-    king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --king-table-filter {related_cutoff} --out {out_path}_pairs'
+    king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {out_path}_pairs'
     # see if any samples are related (includes duplicates)
-    king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_cutoff} --out {grm2}' 
+    king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {related_cutoff} --out {grm2}' 
     # see if any samples are duplicated (grm cutoff >= 0.354)
-    king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {duplicated_cutoff} --out {grm3}' 
+    king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {duplicated_cutoff} --out {grm3}' 
 
     cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
     for cmd in cmds:
@@ -295,13 +294,13 @@ def related_prune(geno_path, out_path, related_cutoff=0.0884, duplicated_cutoff=
         related_count = related_count - duplicated_count
         duplicated = pd.read_csv(f'{grm3}.duplicated', sep = '\s+')
 
-        # append duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
+        # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
         if prune_related and prune_duplicated:
             plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
             shell_do(plink_cmd1) 
 
             related = pd.read_csv(f'{grm2}.related', sep = '\s+')
-            grm_pruned = related.append(duplicated)
+            grm_pruned = pd.concat([related, duplicated], ignore_index=True)
 
             if '#FID' in grm_pruned:
                 grm_pruned.rename(columns={"#FID": "FID", "#IID": "IID"}, inplace = True)
