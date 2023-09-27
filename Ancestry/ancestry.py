@@ -12,6 +12,7 @@ import plotly.express as px
 import pickle as pkl
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
 
 #local imports
 from QC.utils import shell_do, get_common_snps
@@ -509,6 +510,94 @@ def predict_ancestry_from_pcs(projected, pipe_clf, label_encoder, out):
     return out_dict
 
 
+def get_containerized_predictions(X_test, y_test, projected, label_encoder, out, docker=False):
+    container_dir = f'{os.path.dirname(__file__)}/container'
+
+    # write test data and projections to txt
+    X_test.to_csv(f'{container_dir}/X_test.txt', sep='\t', index=False)
+    pd.Series(y_test).to_csv(f'{container_dir}/y_test.txt', sep='\t', index=False, header=False)
+    projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
+
+    if docker:
+        shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.8')
+        shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.8')
+        shell_do(f'docker rm get_predictions')
+    else:
+        shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
+        shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
+        os.remove(f'{container_dir}/get_predictions.sif')
+
+    # test accuracy
+    accuracy_dict_path = f'{container_dir}/accuracy.json'
+    with open(accuracy_dict_path, 'r') as f:
+        accuracy_dict = json.load(f)
+        f.close()
+    
+    test_acc = accuracy_dict['test_acc']
+    print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+    margin_of_error = accuracy_dict['margin_of_error']
+    print(f"Balanced Accuracy on Test Set, 95% Confidence Interval: ({test_acc-margin_of_error}, {test_acc+margin_of_error})")
+    
+    # confusion matrix
+    y_test = pd.read_csv(f'{container_dir}/y_test.txt', sep='\t', header=None)
+    pipe_clf_pred = pd.read_csv(f'{container_dir}/pipe_clf_pred.txt', sep='\t', header=None)
+    pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
+
+    # parameters
+    params_path = f'{container_dir}/params.json'
+    with open(params_path) as f:
+        params = json.load(f)
+        f.close()
+
+    trained_clf_out_dict = {
+        'confusion_matrix': pipe_clf_c_matrix,
+        'test_accuracy': test_acc,
+        'umap_parameters': params
+    }
+
+    le = label_encoder
+
+    X_new = projected.drop(columns=['FID','IID','label'])
+
+    # predicted new samples
+    predict_path = f'{container_dir}/predicted_labels.txt'
+    y_pred = pd.read_csv(predict_path, sep='\t', header=None)
+    ancestry_pred = le.inverse_transform(y_pred)
+    projected.loc[:,'label'] = ancestry_pred
+
+    print()
+    print('predicted:\n', projected.label.value_counts())
+    print()
+
+    projected[['FID','IID','label']].to_csv(f'{out}_umap_linearsvc_predicted_labels.txt', sep='\t', index=False)
+
+    # remove created files
+    files = ['X_test.txt','y_test.txt','projected.txt','accuracy.json','pipe_clf_pred.txt','predicted_labels.txt','params.json']
+
+    for file in files:
+        os.remove(f'{container_dir}/{file}')
+
+    data_out = {
+        'ids': projected.loc[:,['FID','IID','label']],
+        'X_new': X_new,
+        'y_pred': ancestry_pred,
+        'label_encoder': le
+    }
+
+    outfiles_dict = {
+        'labels_outpath': f'{out}_umap_linearsvc_predicted_labels.txt'
+    }
+
+    pred_out_dict = {
+        'data': data_out,
+        'metrics': projected.label.value_counts(),
+        'output': outfiles_dict
+    }
+
+    return trained_clf_out_dict, pred_out_dict
+
+
 def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
     step = 'umap_transform'
     print()
@@ -556,7 +645,7 @@ def umap_transform_with_fitted(ref_pca, X_new, y_pred, params=None):
     return out_dict
 
 
-def split_cohort_ancestry(geno_path, labels_path, out_path):
+def split_cohort_ancestry(geno_path, labels_path, out_path, subset=False):
     step = 'split_cohort_ancestry'
     print()
     print(f"RUNNING: {step}")
@@ -565,7 +654,14 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
     pred_labels = pd.read_csv(labels_path, sep='\t')
     labels_list = list()
     outfiles = list()
-    for label in pred_labels.label.unique():
+
+    # subset is a list of ancestries to continue analysis for passed by the user
+    if subset:
+        split_labels = subset
+    else:
+        split_labels = pred_labels.label.unique()
+
+    for label in split_labels:
         labels_list.append(label)
         outname = f'{out_path}_{label}'
         outfiles.append(outname)
@@ -575,7 +671,7 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
         plink_cmd = f'{plink2_exec} --bfile {geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
 
         shell_do(plink_cmd)
-    
+
     output_dict = {
         'labels': labels_list,
         'paths': outfiles
@@ -584,7 +680,7 @@ def split_cohort_ancestry(geno_path, labels_path, out_path):
     return output_dict
 
 
-def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_param_grid=None):
+def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path=None, containerized=False, docker=False,  train_param_grid=None):
     step = "predict_ancestry"
     print()
     print(f"RUNNING: {step}")
@@ -594,7 +690,10 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
     outdir = os.path.dirname(out_path)
     plot_dir = f'{outdir}/plot_ancestry'
 
-    if model_path:
+    # create directories if not already in existence
+    # os.makedirs(plot_dir, exist_ok=True)
+
+    if model_path or containerized:
         train=False
     else:
         train=True
@@ -622,36 +721,50 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path, train_p
         plot_dir=plot_dir
     )
 
-    if model_path:
-        trained_clf = load_umap_classifier(
-            pkl_path=model_path,
-            X_test=calc_pcs['X_test'],
-            y_test=train_split['y_test']
-        )
+    if containerized == False:
+        if model_path:
+            trained_clf = load_umap_classifier(
+                pkl_path=model_path,
+                X_test=calc_pcs['X_test'],
+                y_test=train_split['y_test']
+            )
 
+        else:
+            trained_clf = train_umap_classifier(
+                X_train=calc_pcs['X_train'],
+                X_test=calc_pcs['X_test'],
+                y_train=train_split['y_train'],
+                y_test=train_split['y_test'],
+                label_encoder=train_split['label_encoder'],
+                out=out_path,
+                plot_dir=plot_dir
+            )
+
+        pred = predict_ancestry_from_pcs(
+            projected=calc_pcs['new_samples_projected'],
+            pipe_clf=trained_clf['classifier'],
+            label_encoder=train_split['label_encoder'],
+            out=out_path
+        )
+    
     else:
-        trained_clf = train_umap_classifier(
-            X_train=calc_pcs['X_train'],
+        trained_clf, pred = get_containerized_predictions(
             X_test=calc_pcs['X_test'],
-            y_train=train_split['y_train'],
             y_test=train_split['y_test'],
+            projected=calc_pcs['new_samples_projected'],
             label_encoder=train_split['label_encoder'],
             out=out_path,
-            plot_dir=plot_dir
+            docker=docker
         )
 
-    pred = predict_ancestry_from_pcs(
-        projected=calc_pcs['new_samples_projected'],
-        pipe_clf=trained_clf['classifier'],
-        label_encoder=train_split['label_encoder'],
-        out=out_path
-    )
+    print(trained_clf)
+    print(pred)
 
     umap_transforms = umap_transform_with_fitted(
         ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
         y_pred=pred['data']['ids'],
-        params=trained_clf['params']
+        params=trained_clf['umap_parameters']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
