@@ -4,6 +4,7 @@ import os
 import shutil
 import pandas as pd
 import warnings 
+import numpy as np
 
 from utils.dependencies import check_plink, check_plink2
 
