@@ -553,7 +553,7 @@ def get_containerized_predictions(X_test, y_test, projected, label_encoder, out,
     trained_clf_out_dict = {
         'confusion_matrix': pipe_clf_c_matrix,
         'test_accuracy': test_acc,
-        'umap_parameters': params
+        'params': params
     }
 
     le = label_encoder
@@ -764,7 +764,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path=None, co
         ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
         y_pred=pred['data']['ids'],
-        params=trained_clf['umap_parameters']
+        params=trained_clf['params']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
