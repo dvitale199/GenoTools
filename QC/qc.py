@@ -4,7 +4,7 @@ import os
 import shutil
 
 # local imports
-from QC.utils import shell_do, count_file_lines, concat_logs
+from QC.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
 
 from utils.dependencies import check_plink, check_plink2
 

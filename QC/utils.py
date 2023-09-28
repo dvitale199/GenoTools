@@ -20,6 +20,27 @@ def shell_do(command, log=False, return_log=False):
         print(res.stdout.decode('utf-8'))
     if return_log:
         return(res.stdout.decode('utf-8'))
+    
+
+def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
+    # check if both are none
+    if not (bfile_path or pfile_path):
+        print()
+        print('ERROR: Need either PLINK1.9 or PLINK2 binaries!')
+        print()
+    
+    elif bfile_path and pfile_path:
+        print()
+        print('ERROR: Cannot accept both PLINK1.9 and PLINK2 binaries simulaneously!')
+        print()
+    
+    elif bfile_path and (not pfile_path):
+        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,phenos --out {bfile_path}'
+        shell_do(convert_cmd)
+    
+    else:
+        convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
+        shell_do(convert_cmd)
 
 
 def upfront_check(geno_path):
@@ -352,8 +373,6 @@ def rm_tmps(tmps, suffixes=None):
 def count_file_lines(file_path):
     
     return sum(1 for line in open(file_path))
-
-
 def plink_pca(geno_path, out_path, build='hg38'):
 
     step = 'plink_pca'
