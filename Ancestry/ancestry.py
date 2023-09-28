@@ -73,7 +73,7 @@ def get_raw_files(geno_path, ref_path, labels_path, out_path, train):
 
     # variant prune geno before getting common snps
     geno_prune_path = f'{out_path}_variant_pruned'
-    geno_prune_cmd = f'{plink2_exec} --bfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
+    geno_prune_cmd = f'{plink2_exec} --pfile {geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
     shell_do(geno_prune_cmd)
     out_paths['geno_pruned_bed'] = geno_prune_path
 
@@ -553,7 +553,7 @@ def get_containerized_predictions(X_test, y_test, projected, label_encoder, out,
     trained_clf_out_dict = {
         'confusion_matrix': pipe_clf_c_matrix,
         'test_accuracy': test_acc,
-        'umap_parameters': params
+        'params': params
     }
 
     le = label_encoder
@@ -668,7 +668,7 @@ def split_cohort_ancestry(geno_path, labels_path, out_path, subset=False):
         ancestry_group_outpath = f'{outname}.samples'
         pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-        plink_cmd = f'{plink2_exec} --bfile {geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
+        plink_cmd = f'{plink2_exec} --pfile {geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
 
         shell_do(plink_cmd)
 
@@ -764,7 +764,7 @@ def run_ancestry(geno_path, out_path, ref_panel, ref_labels, model_path=None, co
         ref_pca=calc_pcs['labeled_ref_pca'],
         X_new=pred['data']['X_new'],
         y_pred=pred['data']['ids'],
-        params=trained_clf['umap_parameters']
+        params=trained_clf['params']
     )
     
 #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
