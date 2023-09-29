@@ -182,7 +182,7 @@ class SampleQC:
             process_complete = True
 
             # remove intermediate files
-            for f in os.listdir():
+            for f in os.listdir(f'{out_path}'):
                 if f.startswith(f'{out_path}_tmp'):
                     os.remove(f)  
 
