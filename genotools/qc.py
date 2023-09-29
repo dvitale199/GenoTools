@@ -467,7 +467,6 @@ class SampleQC:
                 concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
-            os.remove(f'{grm1}.log')
             os.remove(f'{grm1}.pgen')
             os.remove(f'{grm1}.psam')
             os.remove(f'{grm1}.pvar')
