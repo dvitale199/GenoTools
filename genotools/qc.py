@@ -823,7 +823,7 @@ class VariantQC:
             raise TypeError("p_threshold should be of type int or float.")
         
         # Check type of filter_controls
-        if not isinstance(filter_controls, float):
+        if not isinstance(filter_controls, bool):
             raise TypeError("filter_controls should be of type boolean.")
 
         step = "hwe_prune"
