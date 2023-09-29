@@ -477,7 +477,8 @@ class SampleQC:
             os.remove(f'{grm3}.king.cutoff.in.id')
             os.remove(f'{grm3}.king.cutoff.out.id')
             os.remove(f'{related_pairs}.king.bin')
-            os.remove(f'{related_pairs}.king.id')            
+            os.remove(f'{related_pairs}.king.id')
+            os.remove(f'{related_pairs}.kin0')            
 
             outfiles_dict = {
                 'pruned_samples': related_pruned_out,
@@ -541,6 +542,22 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of geno_treshold
+        if not isinstance(geno_threshold, float):
+            raise TypeError("geno_threshold should be of type int or float.")
+        
+        # Check valid range for geno_threshold
+        if geno_threshold < 0 or geno_threshold > 1:
+            raise ValueError("geno_threshold should be between 0 and 1.")
+
         step = "geno_prune"
 
         # get initial snp count
@@ -596,6 +613,22 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of p_threshold
+        if not isinstance(p_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check valid range for p_threshold
+        if p_threshold < 0 or p_threshold > 1:
+            raise ValueError("p_threshold should be between 0 and 1.")
+
         step = "case_control_missingness_prune"
         mis_tmp = f'{out_path}_mis_tmp'
         
@@ -630,6 +663,10 @@ class VariantQC:
                 mis_rm_count = initial_snp_count - mis_snp_count
 
                 process_complete = True
+
+                os.remove(f'{mis_tmp}.exclude')
+                os.remove(f'{mis_tmp}.hh')
+                os.remove(f'{mis_tmp}.missing')
 
             else:
                 print(f'Case/Control Missingness pruning failed!')
@@ -681,6 +718,22 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of p_threshold
+        if not isinstance(p_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check valid range for p_threshold
+        if p_threshold < 0 or p_threshold > 1:
+            raise ValueError("p_threshold should be between 0 and 1.")
+
         step = "haplotype_prune"
 
         # make tmp names
@@ -723,6 +776,10 @@ class VariantQC:
 
         process_complete = True
 
+        os.remove(f'{hap_tmp}.exclude')
+        os.remove(f'{hap_tmp}.hh')
+        os.remove(f'{hap_tmp}.missing.hap')
+
         out_dict = {
             'pass': process_complete,
             'step': step,
@@ -752,6 +809,22 @@ class VariantQC:
         
         geno_path = self.geno_path
         out_path = self.out_path
+
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of hwe_threshold
+        if not isinstance(hwe_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check type of filter_controls
+        if not isinstance(filter_controls, float):
+            raise TypeError("filter_controls should be of type boolean.")
 
         step = "hwe_prune"
 
@@ -789,6 +862,9 @@ class VariantQC:
         }
 
         process_complete = True
+
+        os.remove(f'{hwe_tmp}.hh')
+        os.remove(f'{hwe_tmp}.snplist')
 
         out_dict = {
             'pass': process_complete,
