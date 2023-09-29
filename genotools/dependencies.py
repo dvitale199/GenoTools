@@ -1,4 +1,4 @@
-# Adapted from GenoML (https://github.com/GenoML/genoml2/blob/master/genoml/dependencies.py)
+# From: https://github.com/GenoML/genoml2
 #
 # Copyright 2020 The GenoML Authors. All Rights Reserved.
 #
@@ -24,6 +24,7 @@ import requests
 import stat
 import subprocess
 import zipfile
+import tarfile
 import sys
 
 # can decide where to throw the executable files later
@@ -64,18 +65,26 @@ def __check_exec(exec_path, *args, absolute_path=False):
 
 def __install_exec(url, exec_path):
     r = requests.get(url, verify=False, stream=True)
-    r.raw.decode_content = True
-    buffer = io.BytesIO()
-    buffer.write(r.content)
-    with zipfile.ZipFile(buffer, "r") as fp:
-        fp.extractall(__executable_folder)
+
+    if '.zip' in url:
+        r.raw.decode_content = True
+        buffer = io.BytesIO()
+        buffer.write(r.content)
+        with zipfile.ZipFile(buffer, "r") as fp:
+            fp.extractall(__executable_folder)
+        
+    elif '.tar.gz' in url:
+        file = tarfile.open(fileobj=r.raw, mode="r|gz")
+        file.extractall(__executable_folder)
 
     binary_path = os.path.join(__executable_folder, exec_path)
+
     os.chmod(binary_path, stat.S_IEXEC)
 
 
 def __check_package(name):
     platform_system = platform.system()
+    platform_processor = platform.processor()
 
     if name not in __DEPENDENCIES:
         raise EnvironmentError("Unknown package: {}".format(name))
@@ -84,6 +93,9 @@ def __check_package(name):
         raise EnvironmentError(
             "Unknown supported OK: {}".format(platform_system))
 
+    if (platform_system == "Darwin") and (platform_processor == "arm") and (name == "Plink2"):
+        platform_system = "Darwin_arm64"
+
     entry = __DEPENDENCIES[name][platform_system]
 
     binary_name = entry["binary"]
@@ -91,7 +103,7 @@ def __check_package(name):
     url = entry["url"]
 
     if __check_exec(binary_name, *args):
-        print(f'{name} is found')
+        # print(f'{name} is found')
         logging.debug("{} is found".format(name))
         return os.path.join(__executable_folder, binary_name)
 
@@ -120,15 +132,6 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
-def check_admixture():
-    if platform.system() == 'Windows':
-        logging.warning('Admixture not available on Windows')
-        return
-    return __check_package('Admixture')
-
-def check_gcta():
-    return __check_package('GCTA')
-
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -151,53 +154,20 @@ __DEPENDENCIES = {
 
     'Plink2': {
         'checker': check_plink2,
+        'Darwin_arm64': {
+            'binary': 'plink2',
+            'version_args': ['--version'],
+            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_mac_arm64_20230923.zip'
+        },
         'Darwin': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_mac_avx2.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_mac_avx2_20220603.zip'
         },
         'Linux': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha2/plink2_linux_x86_64.zip'
-        },
-        'Windows': {
-            'binary': 'plink',
-            'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_win_avx2_20220503.zip'
-        }
-    },
-
-    'Admixture': {
-        'checker': check_admixture,
-        'Darwin': {
-            'binary': 'dist/admixture_macosx-1.3.0/admixture',
-            'version_args': ['--version'],
-            'url': 'https://dalexander.github.io/admixture/binaries/admixture_macosx-1.3.0.tar.gz'
-        },
-        'Linux': {
-            'binary': 'dist/admixture_linux-1.3.0/admixture',
-            'version_args': ['--version'],
-            'url': 'https://dalexander.github.io/admixture/binaries/admixture_linux-1.3.0.tar.gz'
-        }
-    },
-
-    'GCTA': {
-        'checker': check_gcta,
-        'Darwin': {
-            'binary': 'gcta_v1.94.0Beta_macOS/gcta_v1.94.0Beta_macOS',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_macOS.zip'
-        },
-        'Linux': {
-            'binary': 'gcta_v1.94.0Beta_linux_kernel_3_x86_64/gcta_v1.94.0Beta_linux_kernel_3_x86_64_static',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_linux_kernel_3_x86_64.zip'
-        },
-        'Windows': {
-            'binary': 'gcta_v1.94.0Beta_windows_x86_64/bin/gcta_v1.94.0Beta_windows_x86_64',
-            'version_args': ['--version'],
-            'url': 'https://yanglab.westlake.edu.cn/software/gcta/bin/gcta_v1.94.0Beta_windows_x86_64.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
         }
     }
 }

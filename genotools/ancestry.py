@@ -11,8 +11,8 @@ from xgboost import XGBClassifier
 import pickle as pkl
 import json
 
-from QC.utils import shell_do, get_common_snps
-from utils.dependencies import check_plink, check_plink2
+from genotools.utils import shell_do, get_common_snps
+from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()

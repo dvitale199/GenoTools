@@ -1,1 +1,6 @@
 data/*
+genotools/__pycache__/*
+GenoTools.egg-info/*
+test_data/*
+executables/*
+test.ipynb

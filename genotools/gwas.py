@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import ncx2
-from QC.utils import shell_do
-from utils.dependencies import check_plink, check_plink2
+from genotools.utils import shell_do
+from genotools.dependencies import check_plink, check_plink2
 
 
 plink_exec = check_plink()

@@ -2,11 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
-
-# local imports
-from QC.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
-
-from utils.dependencies import check_plink, check_plink2
+from genotools.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
+from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
@@ -14,7 +11,7 @@ plink2_exec = check_plink2()
 
 class SampleQC:
 
-    def __init__(self, geno_path, out_path):
+    def __init__(self, geno_path=None, out_path=None):
         self.geno_path = geno_path
         self.out_path = out_path
 
@@ -37,9 +34,25 @@ class SampleQC:
             * 'metrics': Metrics associated with the pruning, such as the 'outlier_count'.
             * 'output': Dictionary containing paths to the generated output files like 'pruned_samples' and 'plink_out'.
         """
-
+        
         geno_path = self.geno_path
         out_path = self.out_path
+
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of mind
+        if not isinstance(mind, (int, float)):
+            raise TypeError("mind should be of type int or float.")
+        
+        # Check valid range for mind
+        if mind < 0 or mind > 1:
+            raise ValueError("mind should be between 0 and 1.")
 
         step = "callrate_prune"
         
