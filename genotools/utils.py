@@ -11,15 +11,18 @@ from genotools.dependencies import check_plink, check_plink2
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-def shell_do(command, log=False, return_log=False):
-    print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
+def shell_do(command, print_cmd=False, log=False, return_log=False):
+    if print_cmd:
+        print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
 
-    res=subprocess.run(command.split(), stdout=subprocess.PIPE)
+    res=subprocess.run(command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    output = res.stdout.decode('utf-8') + res.stderr.decode('utf-8')
 
     if log:
-        print(res.stdout.decode('utf-8'))
+        print(output)
     if return_log:
-        return(res.stdout.decode('utf-8'))
+        return output
     
 
 def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
