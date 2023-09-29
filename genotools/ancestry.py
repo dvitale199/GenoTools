@@ -18,7 +18,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class ancestry:
-    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, docker=False, train_param_grid=None):
+    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, singularity=False, train_param_grid=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -26,7 +26,7 @@ class ancestry:
         self.out_path = out_path
         self.model_path = model_path
         self.containerized = containerized
-        self.docker = docker
+        self.singulatity = singularity
         self.train_param_grid = train_param_grid
         #NOTE: plotting may eventually go somewhere different
         self.plot_dir = f'{os.path.dirname(out_path)}/plot_ancestry'
@@ -588,14 +588,14 @@ class ancestry:
         pd.Series(y_test).to_csv(f'{container_dir}/y_test.txt', sep='\t', index=False, header=False)
         projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
 
-        if self.docker:
-            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.8')
-            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.8')
-            shell_do(f'docker rm get_predictions')
-        else:
+        if self.singulatity:
             shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
             shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
             os.remove(f'{container_dir}/get_predictions.sif')
+        else:
+            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'docker rm get_predictions')
 
         # test accuracy
         accuracy_dict_path = f'{container_dir}/accuracy.json'
