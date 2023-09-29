@@ -84,7 +84,6 @@ def __install_exec(url, exec_path):
 
 def __check_package(name):
     platform_system = platform.system()
-    platform_processor = platform.processor()
 
     if name not in __DEPENDENCIES:
         raise EnvironmentError("Unknown package: {}".format(name))
@@ -93,9 +92,6 @@ def __check_package(name):
         raise EnvironmentError(
             "Unknown supported OK: {}".format(platform_system))
 
-    if (platform_system == "Darwin") and (platform_processor == "arm") and (name == "Plink2"):
-        platform_system = "Darwin_arm64"
-
     entry = __DEPENDENCIES[name][platform_system]
 
     binary_name = entry["binary"]
@@ -103,7 +99,7 @@ def __check_package(name):
     url = entry["url"]
 
     if __check_exec(binary_name, *args):
-        # print(f'{name} is found')
+        print(f'{name} is found')
         logging.debug("{} is found".format(name))
         return os.path.join(__executable_folder, binary_name)
 
@@ -154,11 +150,6 @@ __DEPENDENCIES = {
 
     'Plink2': {
         'checker': check_plink2,
-        'Darwin_arm64': {
-            'binary': 'plink2',
-            'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_mac_arm64_20230923.zip'
-        },
         'Darwin': {
             'binary': 'plink2',
             'version_args': ['--version'],

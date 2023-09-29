@@ -1,94 +1,26 @@
 import subprocess
 import sys
+import matplotlib.pyplot as plt
+from matplotlib import cm 
+import numpy as np
 import os
 import shutil
 import pandas as pd
-import warnings 
-import numpy as np
-from scipy.stats import norm
-from genotools.dependencies import check_plink, check_plink2
+
+from utils.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-def shell_do(command, print_cmd=False, log=False, return_log=False, err=False):
-    if print_cmd:
-        print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
+def shell_do(command, log=False, return_log=False):
+    print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
 
-    res=subprocess.run(command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    output = res.stdout.decode('utf-8') + res.stderr.decode('utf-8')
+    res=subprocess.run(command.split(), stdout=subprocess.PIPE)
 
     if log:
-        print(output)
+        print(res.stdout.decode('utf-8'))
     if return_log:
-        return output
-    if err:
-        return res.stderr.decode('utf-8')
-    
-
-def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
-    # check if both are none
-    if not (bfile_path or pfile_path):
-        print()
-        print('ERROR: Need either PLINK1.9 or PLINK2 binaries!')
-        print()
-    
-    elif bfile_path and pfile_path:
-        print()
-        print('ERROR: Cannot accept both PLINK1.9 and PLINK2 binaries simulaneously!')
-        print()
-    
-    elif bfile_path and (not pfile_path):
-        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,phenos --out {bfile_path}'
-        shell_do(convert_cmd)
-    
-    else:
-        convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
-        shell_do(convert_cmd)
-
-
-def upfront_check(geno_path):
-    fam = pd.read_csv(f'{geno_path}.fam', header=None, sep = '\s+', 
-                      names = ['FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype'])
-    bim = pd.read_csv(f'{geno_path}.bim', header = None, sep = '\s+', low_memory = False,
-                      names = ['CHR', 'SNP_ID', 'Genetic_Distance', 'Position', 'A1', 'A2'])
-
-    sex_counts = fam['Sex'].value_counts().to_dict()
-    pheno_counts = fam['Phenotype'].value_counts().to_dict()
-    chr_counts = bim['CHR'].value_counts().to_dict()
-
-    # print breakdown of data 
-    print("Your data has the following breakdown:")
-    print("- Genetic Sex:")
-    for sex in sex_counts.keys():
-        if sex == 1:
-            print(f'{sex_counts[sex]} Males \n')
-        if sex == 2:
-            print(f'{sex_counts[sex]} Females \n')
-        if sex == 0 or sex == -9:
-            print(f'{sex_counts[sex]} Unknown \n')
-
-    print("- Phenotypes:")
-    for pheno in pheno_counts.keys():
-        if pheno == 2:
-            print(f'{pheno_counts[pheno]} Cases \n')
-        if pheno == 1:
-            print(f'{pheno_counts[pheno]} Controls \n')
-        if pheno == 0 or pheno == -9:
-            print(f'{pheno_counts[pheno]} Missing \n')
-            # if pheno_counts[pheno] > 50:  # may want to createe a threshold for how many missing phenos allowed
-            #     warnings.warn("You are missing too many phenotypes (over 50).")
-
-    # check for items necessary to the pipeline
-    if len(fam) < 50:
-        warnings.warn("You do not have enough total participants in your data (less than 50).")
-    elif 1 not in pheno_counts.keys() and 2 not in pheno_counts.keys():
-        warnings.warn("You are missing at least 1 phenotype class in your data.")
-    elif "23" not in chr_counts and "X" not in chr_counts:
-        warnings.warn("No sign of sex chromosome in your bim file.")
-    elif 1 in sex_counts.keys() or 2 in sex_counts.keys():
-        print("You are all set to continue in the pipeline!")
+        return(res.stdout.decode('utf-8'))
 
 
 def replace_all(text, dict):
@@ -285,6 +217,17 @@ def ld_prune(geno_path, out_name, window_size=1000, step_size=50, rsq_thresh=0.0
 
     for cmd in ld_prune_cmds:
         shell_do(cmd)
+
+        
+def random_sample_snps(geno_path, out_name, n=10000):
+    rand_samp_snplist = f'{geno_path}_rand_samp.snplist'
+    bim = pd.read_csv(f'{geno_path}.bim', sep='\t', header=None)
+    ref_panel_random_sample = bim.sample(n, random_state=123)
+    ref_panel_random_sample.to_csv(rand_samp_snplist, header=False, index=False, sep='\t')
+
+    rand_sample_cmd = f'{plink_exec} --bfile {geno_path} --allow-no-sex --extract {rand_samp_snplist} --autosome --make-bed --out {out_name}'
+    
+    shell_do(rand_sample_cmd)
     
 
 def get_common_snps(geno_path1, geno_path2, out_name):  
@@ -295,27 +238,22 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     """
    
     print('Getting Common SNPs')	
-    
-    # read both bim files
+ 
     bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
     bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
     bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     
-    # write bim 1 ids to snplist
     bim1['rsid'].to_csv(f'{geno_path1}.snplist', sep='\t', header=None, index=None)
 
-    # creating merge ids
     bim1['merge_id'] = bim1['chr'].astype(str) + ':' + bim1['pos'].astype(str) + ':' + bim1['a2'] + ':' + bim1['a1']
     bim2['merge_id1'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a2'] + ':' + bim2['a1']
     bim2['merge_id2'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a1'] + ':' + bim2['a2']
 
-    # two merges and concatenation
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
     common_snps = pd.concat([common_snps1, common_snps2], axis=0)
     
-    # flip and merge again
     flip_cmd = f'{plink_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
     shell_do(flip_cmd)
 
@@ -326,18 +264,15 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
 
-    # concat merges and drop duplicates
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
     common_snps = common_snps.drop_duplicates(subset=['chr','pos'], ignore_index=True)
 
-    # write snps to txt and extract
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
     
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     shell_do(ext_snps_cmd)
 
-    # return outfiles
     outfiles = {
         'common_snps': common_snps_file,
         'bed': out_name
@@ -345,200 +280,163 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     return outfiles
 
 
-def rm_tmps(tmps, suffixes=None):
-    # OVERHAUL
-    if suffixes:
-        suffixes=suffixes
-    else:
-        suffixes=[
-            'hh','log','nosex','bed','bim','fam',
-            'prune.in','prune.out','sexcheck','het',
-            'grm.bim','grm.id','grm.N.bim',
-            'missing','missing.hap','exclude','snplist'
-        ]
+# def rm_tmps(tmps, suffixes=None):
+    
+#     if suffixes:
+#         suffixes=suffixes
+#     else:
+#         suffixes=[
+            # 'hh','log','nosex','bed','bim','fam',
+            # 'prune.in','prune.out','sexcheck','het',
+            # 'grm.bim','grm.id','grm.N.bim',
+            # 'missing','missing.hap','exclude','snplist'
+#         ]
 
-    print()
-    print("REMOVING TEMPORARY FILES")
-    for tmp in tmps:
-        for suf in suffixes:
-            tmpfile = f'{tmp}.{suf}'
+#     print()
+#     print("REMOVING TEMPORARY FILES")
+#     for tmp in tmps:
+#         for suf in suffixes:
+#             tmpfile = f'{tmp}.{suf}'
+#             try:
+#                 os.remove(tmpfile)
+#             except OSError:
+#                 pass
+#             # old method below... remove eventually
+#             # if os.path.isfile(tmpfile):
+#             #     os.remove(tmpfile)
+#             #     print(f"REMOVED: {tmpfile}")
+#             # else:
+#             #     pass
+#     print()
+
+
+# def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
+#     # may need to import in run_qc_pipeline as well
+#     # pca step takes in user's selected out name instead of variant prune outputs
+#     if step == 'variant_prune': # delete its own files, not necessary to continue pipeline
+#         process_complete = False
+
+#     # add miss_rates?
+#     # will need to delete predict ancestry and variant prune bed bim fam somehow
+#     # will need to delete more files from all ancestry methods
+#     # do not want plink_pca step to delete any final outputs
+#     outputs_dict = {'callrate_prune': ['bed', 'bim', 'fam', 'mindrem.id', 'outliers'],
+#                     'sex_prune': ['hh', 'sexcheck', 'outliers', 'bed', 'bim', 'fam'],
+#                     'split_cohort_ancestry': ['bed', 'bim', 'fam', 'txt'],
+#                     'het_prune': ['prune.in', 'prune.out', 'het'],
+#                     'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated', 'related'],
+#                     'variant_prune': ['exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
+#                     'plink_pca': ['bed', 'bim', 'fam', 'txt']}
+
+#     secondary_files = {'callrate_prune': None,
+#                     'sex_prune': ['_tmp1', '_tmp2'],
+#                     'split_cohort_ancestry': None,
+#                     'het_prune': ['_tmp', '_tmp2', '_tmp3'],
+#                     'related_prune': None,
+#                     'variant_prune': ['_pruned', '_pruned_flip', '_geno_tmp1', '_mis_tmp1', '_mis_tmp2', '_hap_tmp1', '_hap_tmp2', '_hwe_tmp1'],
+#                     'plink_pca': ['bed', 'bim', 'fam', 'txt']}
+
+#     if not process_complete:
+#         for prefix in prefixes: 
+#             for ext in outputs_dict[step]:
+#                 rmfile = f'{prefix}.{ext}'
+#                 try:
+#                     os.remove(rmfile)
+#                 except OSError:
+#                     pass
+
+#     else: # process completed
+#         dict_keys = list(outputs_dict.keys())
+#         key_index = dict_keys.index(step) - 1
+#         end_step = len(dict_keys) - 1
+
+#         if key_index >= 0 and key_index != end_step:
+#             for ext in outputs_dict[dict_keys[key_index]]:
+#                 # this would prevent the next steps from running but we can make primary and secondary file dicts
+#                 # primary files would be necessary for continuation of pipeline, secondary delete immediately
+#                 # if key_index == original_key:
+#                 #     rmfile = f'{prefix}.{ext}'
+#                 # else:  
+                
+#                 # create files to remove from previous step in qc pipeline
+#                 rmfile = f'{prev_out}.{ext}'
+#                 print(rmfile)
+#                 try:
+#                     os.remove(rmfile)
+#                 except OSError:
+#                     pass
+
+#                 add_on = secondary_files[dict_keys[key_index]]
+#                 if add_on:
+#                     for add in add_on:
+#                         rmfile = f'{prev_out}{add}.{ext}'
+#                         print(rmfile)
+#                         try:
+#                             os.remove(rmfile)
+#                         except OSError:
+#                             pass
+
+def rm_tmps(step, prefixes, process_complete = True, prev_out = None):
+    # may need to import in run_qc_pipeline as well
+    # pca step takes in user's selected out name instead of variant prune outputs
+
+    # add miss_rates?
+    # will need to delete predict ancestry and variant prune bed bim fam somehow
+    # will need to delete more files from all ancestry methods
+
+    primary_dict = {'callrate_prune': ['bed', 'bim', 'fam'],
+                    'sex_prune': ['bed', 'bim', 'fam'],
+                    'split_cohort_ancestry': ['bed', 'bim', 'fam'],
+                    'het_prune': ['bed', 'bim', 'fam'],
+                    'related_prune': ['bed', 'bim', 'fam', 'related'],
+                    'variant_prune': ['bed', 'bim', 'fam'],
+                    'plink_pca': []}
+
+    secondary_dict = {'callrate_prune': ['mindrem.id', 'outliers'],
+                    'sex_prune': ['hh', 'sexcheck', 'outliers'],
+                    'split_cohort_ancestry': ['txt'],
+                    'het_prune': ['_tmp', '_tmp2', '_tmp3'],
+                    'related_prune': ['king.cutoff.in.id', 'king.cutoff.out.id', 'pruned', 'duplicated'],
+                    'variant_prune': ['exclude', 'missing.hap', 'hh', 'snplist', 'missing'],
+                    'plink_pca': []}
+
+    for prefix in prefixes: 
+        for ext in secondary_dict[step]:
+            rmfile = f'{prefix}.{ext}'
             try:
-                os.remove(tmpfile)
+                os.remove(rmfile)
             except OSError:
                 pass
-            # old method below... remove eventually
-            # if os.path.isfile(tmpfile):
-            #     os.remove(tmpfile)
-            #     print(f"REMOVED: {tmpfile}")
-            # else:
-            #     pass
-    print()
+        if not process_complete:
+            for ext in primary_dict[step]:
+                rmfile = f'{prefix}.{ext}'
+                try:
+                    os.remove(rmfile)
+                except OSError:
+                    pass
+
+    if process_complete:
+        dict_keys = list(primary_dict.keys())
+        key_index = dict_keys.index(step) - 1
+        end_step = len(dict_keys) - 2   # do not want plink_pca step to delete any final outputs
+
+        if key_index >= 0 and key_index != end_step:
+            for ext in primary_dict[dict_keys[key_index]]:
+                
+                # create files to remove from previous step in qc pipeline
+                rmfile = f'{prev_out}.{ext}'
+                print(rmfile)
+                try:
+                    os.remove(rmfile)
+                except OSError:
+                    pass
+
+        elif key_index == end_step:
+            pass # clean up those that didn't get cut
+
 
 
 def count_file_lines(file_path):
     
     return sum(1 for line in open(file_path))
-def plink_pca(geno_path, out_path, build='hg38'):
 
-    step = 'plink_pca'
-
-    hg19_ex_regions = """
-    5 44000000 51500000 r1
-    6 25000000 33500000 r2
-    8 8000000 12000000 r3
-    11 45000000 57000000 r4
-    """
-
-    hg38_ex_regions = """
-    1   47534328    51534328    r1
-    2   133742429   137242430   r2
-    2   182135273   189135274   r3
-    3   47458510    49962567    r4
-    3   83450849    86950850    r5
-    5   98664296    101164296   r6
-    5   129664307   132664308   r7
-    5   136164311   139164311   r8
-    6   24999772    35032223    r9
-    6   139678863   142178863   r10
-    8   7142478 13142491    r11
-    8   110987771   113987771   r12
-    11  87789108    90766832    r13
-    12  109062195   111562196   r14
-    20  33412194    35912078    r15
-    """
-
-    # if build == 'hg19' write hg19_ex_regions exclusion regions to file named by out_path
-    if build == 'hg19':
-        exclusion_file = f'{out_path}_hg19.txt'
-        with open(exclusion_file, 'w') as f:
-            f.write(hg19_ex_regions)
-    if build == 'hg38':
-        exclusion_file = f'{out_path}_hg38.txt'
-        with open(exclusion_file, 'w') as f:
-            f.write(hg38_ex_regions)
-        
-
-    # Filter data
-    filter_cmd = f"{plink2_exec} --bfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-bed --out {out_path}_tmp"
-    shell_do(filter_cmd)
-    
-    # Prune SNPs
-    prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
-    shell_do(prune_cmd)
-
-    listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log']
-    concat_logs(step, out_path, listOfFiles)
-
-    # Check if prune.in file exists
-    if os.path.isfile(f'{out_path}_pruned.prune.in'):
-        # Extract pruned SNPs
-        extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
-        shell_do(extract_cmd)
-        
-        # Calculate/generate PCs
-        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}"
-        shell_do(pca_cmd)
-
-        # Remove intermediate files
-        # os.remove(f"{out_path}_pruned.log")
-        os.remove(f"{out_path}_pruned.prune.in")
-        os.remove(f"{out_path}_pruned.prune.out")
-
-        listOfFiles = [f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
-    
-    # Otherwise throw an error (less than 50 samples = bad LD)
-    else:
-        print()
-        print('PCA calculation failed!')
-        print(f'Check {out_path}_pruned.log for more information.')
-        print('Likely there are <50 samples for this ancestry leading to bad LD calculations.')
-        print()
-
-    # Remove intermediate files
-    try:
-        os.remove(f"{out_path}_tmp.bed")
-        os.remove(f"{out_path}_tmp.bim")
-        os.remove(f"{out_path}_tmp.fam")
-
-        # Remove exclusion file
-        os.remove(exclusion_file)
-
-    except OSError:
-        pass
-
-
-def miss_rates(geno_path, out_path, max_threshold=0.05):
-
-    plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
-
-    shell_do(plink_miss_cmd)
-
-    # listOfFiles = [f'{out_path}.log']
-    # concat_logs(step, out_path, listOfFiles)
-
-    # get average call rate
-    lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
-    imiss = pd.read_csv(f'{out_path}.imiss', sep='\s+')
-    avg_lmiss = lmiss.F_MISS.mean()
-    avg_imiss = imiss.F_MISS.mean()
-    # print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
-    # print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
-
-    i_total = imiss.shape[0]
-    thresh_list = np.arange(0.0, max_threshold+0.01, 0.01)
-    
-    # suggest most-stringent threshold which retains >= 90% of samples
-    accept_list = []
-    
-    for thresh in thresh_list:
-        
-        i_pass = imiss.loc[imiss.F_MISS<=thresh]
-        pass_prop = i_pass.shape[0]/i_total
-
-        if pass_prop < 0.9:
-            pass
-        else:
-            accept_list.append(thresh)
-    
-    if len(accept_list) > 0:
-        suggested_threshold = min(accept_list)
-    else:
-        print('No acceptable threshold found! Try a less-stringent max_threshold')
-        suggested_threshold = None
-        
-    metrics = {
-        'avg_lmiss': avg_lmiss,
-        'avg_imiss': avg_imiss,
-        'suggested_threshold': suggested_threshold
-    }
-
-    return metrics
-
-
-def zscore_pval_conversion(zscores=None, pvals=None, stats=None):
-
-    # neither zscore or pvals provided provided
-    if zscores is None and pvals is None:
-        print('Conversion Failed!')
-        print('Either p-values or z-scores must be provided')
-    
-    # both zscores and pvals provided
-    elif zscores is not None and pvals is not None:
-        print('Conversion Failed!')
-        print('Provide only p-values or z-scores, not both')
-    
-    # pvals provided but stats not provided to determine sign of zscore
-    elif pvals is not None and stats is None:
-        print('Conversion Failed!')
-        print('Stats must be provided when going from p-values to z-scores')
-    
-    else:
-        # convert pvals to zscores using stats to get proper sign
-        if zscores is None:
-            z = np.where(stats > 0, norm.isf(pvals/2), -norm.isf(pvals/2))
-            return z
-        # convert zscores to pvals
-        if pvals is None:
-            p = 2*norm.sf(abs(zscores))
-            return p
