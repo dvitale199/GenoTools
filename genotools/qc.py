@@ -182,9 +182,10 @@ class SampleQC:
             process_complete = True
 
             # remove intermediate files
-            for f in os.listdir(f'{out_path}'):
-                if f.startswith(f'{out_path}_tmp'):
-                    os.remove(f)  
+            os.remove(f'{sex_tmp1}.hh')
+            os.remove(f'{sex_tmp1}.sexcheck')
+            os.remove(f'{sex_tmp2}.hh')
+            os.remove(f'{sex_tmp2}.sexcheck')
 
             # log outputs
             outfiles_dict = {
@@ -306,9 +307,12 @@ class SampleQC:
                 process_complete = True
 
                 # remove intermediate files
-                for f in os.listdir():
-                    if f.startswith(f'{out_path}_tmp'):
-                        os.remove(f)  
+                os.remove(f'{het_tmp}.prune.in')
+                os.remove(f'{het_tmp}.prune.out')
+                os.remove(f'{het_tmp2}.bed')
+                os.remove(f'{het_tmp2}.bim')
+                os.remove(f'{het_tmp2}.fam')
+                os.remove(f'{het_tmp3}.het')
             
             else:
                 print(f'Heterozygosity pruning failed!')
@@ -463,11 +467,18 @@ class SampleQC:
                 concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
-            os.remove(f'{related_pairs}.kin0')
-            for prefix in [grm1, grm2, grm3]:
-                for f in os.listdir():
-                    if f.startswith(f'{prefix}'):
-                        os.remove(f)
+            os.remove(f'{grm1}.log')
+            os.remove(f'{grm1}.pgen')
+            os.remove(f'{grm1}.psam')
+            os.remove(f'{grm1}.pvar')
+            os.remove(f'{grm2}.king.cutoff.in.id')
+            os.remove(f'{grm2}.king.cutoff.out.id')
+            os.remove(f'{grm2}.related')
+            os.remove(f'{grm3}.duplicated')
+            os.remove(f'{grm3}.king.cutoff.in.id')
+            os.remove(f'{grm3}.king.cutoff.out.id')
+            os.remove(f'{related_pairs}.king.bin')
+            os.remove(f'{related_pairs}.king.id')            
 
             outfiles_dict = {
                 'pruned_samples': related_pruned_out,
