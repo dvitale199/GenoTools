@@ -70,7 +70,10 @@ class SampleQC:
             irem.to_csv(outliers_out, sep='\t', header=True, index=False)
 
             outlier_count = sum(1 for line in open(f'{outliers_out}'))
-            
+
+            # remove mindrem.id file
+            os.remove(f'{out_path}.mindrem.id')
+
         else:
             outlier_count = 0
             
@@ -115,6 +118,26 @@ class SampleQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check check_sex is two values
+        if len(check_sex) != 2:
+            raise ValueError("check_sex should contain two values.")        
+        
+        # Check type of check_sex
+        if (not isinstance(check_sex[0], float)) or (not isinstance(check_sex[1], float)) or (not isinstance(check_sex, list)):
+            raise TypeError("check_sex values should be a list of two floats.")
+        
+        # Check check_sex is within bounds
+        if (check_sex[0] < 0 or check_sex[0] > 1) or (check_sex[1] < 0 or check_sex[1] > 1):
+            raise ValueError("check_sex values should be between 0 and 1.")
+
         step = "sex_prune"
 
         # create filenames
@@ -157,6 +180,11 @@ class SampleQC:
             concat_logs(step, out_path, listOfFiles)
             
             process_complete = True
+
+            # remove intermediate files
+            for f in os.listdir():
+                if f.startswith(f'{out_path}_tmp'):
+                    os.remove(f)  
 
             # log outputs
             outfiles_dict = {
@@ -212,6 +240,22 @@ class SampleQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check het_filter is two values
+        if len(het_filter) != 2:
+            raise ValueError("check_sex should contain two values.")        
+        
+        # Check type of het_filter
+        if (not isinstance(het_filter[0], float)) or (not isinstance(het_filter[1], float)) or (not isinstance(het_filter, list)):
+            raise TypeError("check_sex values should be of type int or float.")
+
         step = "het_prune"
 
         het_tmp = f"{out_path}_tmp"
@@ -260,6 +304,11 @@ class SampleQC:
                 }
 
                 process_complete = True
+
+                # remove intermediate files
+                for f in os.listdir():
+                    if f.startswith(f'{out_path}_tmp'):
+                        os.remove(f)  
             
             else:
                 print(f'Heterozygosity pruning failed!')
@@ -274,14 +323,7 @@ class SampleQC:
                     'outlier_count': 0
                 }
 
-                process_complete = False
-
-            out_dict = {
-                'pass': process_complete,
-                'step': step,
-                'metrics': metrics_dict,
-                'output': outfiles_dict
-            }          
+                process_complete = False       
         
         else:
             print(f'Heterozygosity pruning failed!')
@@ -336,29 +378,30 @@ class SampleQC:
         grm2 = f"{out_path}_related_grm"
         grm3 = f"{out_path}_duplicated_grm"
 
-        related_out = f"{out_path}_pairs.related"
+        related_pairs = f"{out_path}_pairs"
+        related_out = f"{related_pairs}.related"
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
         king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
         # create table of related pairs
-        king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {out_path}_pairs'
+        king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
-        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {related_cutoff} --out {grm2}' 
+        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {related_cutoff} --out {grm2}' 
         # see if any samples are duplicated (grm cutoff >= 0.354)
-        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {duplicated_cutoff} --out {grm3}' 
+        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {duplicated_cutoff} --out {grm3}' 
 
         cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
         for cmd in cmds:
             shell_do(cmd)
 
-        listOfFiles = [f'{grm1}.log', f'{out_path}_pairs.log', f'{grm2}.log', f'{grm3}.log']
+        listOfFiles = [f'{grm1}.log', f'{related_pairs}.log', f'{grm2}.log', f'{grm3}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        if os.path.isfile(f'{out_path}_pairs.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
+        if os.path.isfile(f'{related_pairs}.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
             # create .related related pair sample files
-            shutil.copy(f'{out_path}_pairs.kin0',f'{out_path}_pairs.related')
+            shutil.copy(f'{related_pairs}.kin0',f'{related_pairs}.related')
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
@@ -415,15 +458,16 @@ class SampleQC:
                 process_complete = False
 
 
-            if os.path.isfile('{out_path}.log'):
+            if os.path.isfile(f'{out_path}.log'):
                 listOfFiles = [f'{out_path}.log']
                 concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
-            os.remove(f'{grm1}.pgen')
-            os.remove(f'{grm1}.pvar')
-            os.remove(f'{grm1}.psam')
-            os.remove(f'{out_path}_pairs.kin0')
+            os.remove(f'{related_pairs}.kin0')
+            for prefix in [grm1, grm2, grm3]:
+                for f in os.listdir():
+                    if f.startswith(f'{prefix}'):
+                        os.remove(f)
 
             outfiles_dict = {
                 'pruned_samples': related_pruned_out,
