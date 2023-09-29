@@ -4,3 +4,4 @@ GenoTools.egg-info/*
 test_data/*
 executables/*
 test.ipynb
+build/*
