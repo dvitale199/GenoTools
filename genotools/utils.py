@@ -5,8 +5,8 @@ import shutil
 import pandas as pd
 import warnings 
 import numpy as np
-
-from utils.dependencies import check_plink, check_plink2
+from scipy.stats import norm
+from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
@@ -509,3 +509,31 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     }
 
     return metrics
+
+
+def zscore_pval_conversion(zscores=None, pvals=None, stats=None):
+
+    # neither zscore or pvals provided provided
+    if zscores is None and pvals is None:
+        print('Conversion Failed!')
+        print('Either p-values or z-scores must be provided')
+    
+    # both zscores and pvals provided
+    elif zscores is not None and pvals is not None:
+        print('Conversion Failed!')
+        print('Provide only p-values or z-scores, not both')
+    
+    # pvals provided but stats not provided to determine sign of zscore
+    elif pvals is not None and stats is None:
+        print('Conversion Failed!')
+        print('Stats must be provided when going from p-values to z-scores')
+    
+    else:
+        # convert pvals to zscores using stats to get proper sign
+        if zscores is None:
+            z = np.where(stats > 0, norm.isf(pvals/2), -norm.isf(pvals/2))
+            return z
+        # convert zscores to pvals
+        if pvals is None:
+            p = 2*norm.sf(abs(zscores))
+            return p

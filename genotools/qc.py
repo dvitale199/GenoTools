@@ -2,11 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
-
-# local imports
-from QC.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
-
-from utils.dependencies import check_plink, check_plink2
+from genotools.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
+from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
