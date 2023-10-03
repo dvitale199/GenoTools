@@ -11,7 +11,7 @@ from xgboost import XGBClassifier
 import pickle as pkl
 import json
 
-from genotools.utils import shell_do, get_common_snps
+from genotools.utils import shell_do, get_common_snps, concat_logs
 from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
@@ -37,6 +37,22 @@ class ancestry:
             self.train = False
         else:
             self.train = True
+
+        # Check that paths are set
+        if not all([geno_path, ref_panel, ref_labels, out_path]):
+            raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.bed'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        elif not os.path.exists(f'{ref_panel}.bed'):
+            raise FileNotFoundError(f"{ref_panel} does not exist.")
+        elif not os.path.exists(f'{ref_labels}'):
+            raise FileNotFoundError(f"{ref_labels} does not exist.")
+        elif not (model_path or containerized or singularity or train_param_grid):
+            raise Exception('Must provide a path to pkl\'d model, request containerized predictions, or train a new model with provided parametrs!')  
+        elif model_path and containerized:
+            raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
     
 
     def get_raw_files(self):
@@ -57,6 +73,7 @@ class ancestry:
         out_paths = {}
 
         # variant prune geno before getting common snps
+    
         geno_prune_path = f'{self.out_path}_variant_pruned'
         geno_prune_cmd = f'{plink2_exec} --pfile {self.geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
         shell_do(geno_prune_cmd)
@@ -72,16 +89,28 @@ class ancestry:
             out_paths = {**out_paths, **common_snps_files}
         # otherwise extract common snps from training
         else:
-            extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
-            shell_do(extract_cmd)
+            if not os.path.exists(f'{common_snps_file}'):
+                raise FileNotFoundError(f"{common_snps_file} does not exist.")
+            else:
+                extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+                shell_do(extract_cmd)
 
-            # add to out_paths (same as common_snps_files)
-            out_paths['common_snps'] = common_snps_file
-            out_paths['bed'] = ref_common_snps
+                listOfFiles = [f'{ref_common_snps}.log']
+                concat_logs(step, self.out_path, listOfFiles)
+    
+                # add to out_paths (same as common_snps_files)
+                out_paths['common_snps'] = common_snps_file
+                out_paths['bed'] = ref_common_snps
+                
+        if not os.path.exists(f'{ref_common_snps}.bed'):
+            raise FileNotFoundError(f"{ref_common_snps} PLINK binaries (bed/bim/fam) do not exist.")
 
         # get raw version of common snps - reference panel
         raw_ref_cmd = f'{plink2_exec} --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
         shell_do(raw_ref_cmd)
+
+        if not os.path.exists(f'{ref_common_snps}.raw'):
+            raise FileNotFoundError(f"{ref_common_snps}.raw does not exist.")
 
         # read in raw common snps
         ref_raw = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
@@ -177,6 +206,21 @@ class ancestry:
         raw_geno = pd.concat([geno_ids, geno_snps], axis=1)
         raw_geno.columns = col_names
         raw_geno['label'] = 'new'
+
+        # concat logs
+        listOfFiles = [f'{geno_prune_path}.log', f'{geno_prune_path}_flip.log', f'{ref_common_snps}.log', f'{geno_common_snps}.log']
+        concat_logs(step, self.out_path, listOfFiles)
+        
+        # remove intermediate files
+        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw', 'common_snps']
+        files = [geno_prune_path, ref_common_snps, f'{geno_prune_path}_flip', f'{self.out_path}_common_snps',
+                 f'{self.out_path}_common_snps_switch']
+
+        for file in files:
+            for ext in extensions:
+                file_ext = f'{file}.{ext}'
+                if os.path.exists(file_ext):
+                    os.remove(file_ext)
 
         out_dict = {
             'raw_ref': labeled_ref_raw,
@@ -749,6 +793,7 @@ class ancestry:
         else:
             split_labels = pred_labels.label.unique()
 
+        listOfFiles = []
         for label in split_labels:
             labels_list.append(label)
             outname = f'{self.out_path}_{label}'
@@ -757,8 +802,11 @@ class ancestry:
             pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
             plink_cmd = f'{plink2_exec} --bfile {self.geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
-
             shell_do(plink_cmd)
+
+            listOfFiles.append(f'{outname}.log')
+            
+        concat_logs(step, self.out_path, listOfFiles)
 
         output_dict = {
             'labels': labels_list,
