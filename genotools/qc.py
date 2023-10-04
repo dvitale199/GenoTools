@@ -43,7 +43,7 @@ class SampleQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of mind
@@ -123,7 +123,7 @@ class SampleQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check check_sex is two values
@@ -249,7 +249,7 @@ class SampleQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check het_filter is two values
@@ -380,6 +380,22 @@ class SampleQC:
         out_path = self.out_path
 
         step = "related_prune"
+
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of related and duplicated cutoff
+        if not (isinstance(related_cutoff, float) and isinstance(duplicated_cutoff, float)):
+            raise TypeError("related_cutoff and duplicated_cutoff should be of type int or float.")
+        
+        # Check valid range for geno_threshold
+        if related_cutoff < 0 or related_cutoff > 1 or duplicated_cutoff < 0 or duplicated_cutoff > 1:
+            raise ValueError("related_cutoff and duplicated_cutoff should be between 0 and 1.")
 
         grm1 = f"{out_path}_total_grm"
         grm2 = f"{out_path}_related_grm"
@@ -550,7 +566,7 @@ class VariantQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of geno_treshold
@@ -621,7 +637,7 @@ class VariantQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of p_threshold
@@ -729,7 +745,7 @@ class VariantQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of p_threshold
@@ -824,7 +840,7 @@ class VariantQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of hwe_threshold
