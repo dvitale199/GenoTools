@@ -43,7 +43,7 @@ class ancestry:
             raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         elif not os.path.exists(f'{ref_panel}.bed'):
             raise FileNotFoundError(f"{ref_panel} does not exist.")
