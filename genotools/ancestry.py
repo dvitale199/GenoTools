@@ -73,7 +73,6 @@ class ancestry:
         out_paths = {}
 
         # variant prune geno before getting common snps
-    
         geno_prune_path = f'{self.out_path}_variant_pruned'
         geno_prune_cmd = f'{plink2_exec} --pfile {self.geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
         shell_do(geno_prune_cmd)
@@ -667,7 +666,7 @@ class ancestry:
         trained_clf_out_dict = {
             'confusion_matrix': pipe_clf_c_matrix,
             'test_accuracy': test_acc,
-            'umap_parameters': params
+            'params': params
         }
 
         le = label_encoder
@@ -801,7 +800,7 @@ class ancestry:
             ancestry_group_outpath = f'{outname}.samples'
             pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-            plink_cmd = f'{plink2_exec} --bfile {self.geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
+            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
             shell_do(plink_cmd)
 
             listOfFiles.append(f'{outname}.log')
@@ -873,7 +872,7 @@ class ancestry:
             ref_pca=calc_pcs['labeled_ref_pca'],
             X_new=pred['data']['X_new'],
             y_pred=pred['data']['ids'],
-            params=trained_clf['umap_parameters']
+            params=trained_clf['params']
         )
 
         #NOTE: Just copying over here for the sake of having everything, figure out plotting later

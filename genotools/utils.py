@@ -376,8 +376,9 @@ def rm_tmps(tmps, suffixes=None):
 
 
 def count_file_lines(file_path):
-    
     return sum(1 for line in open(file_path))
+
+
 def plink_pca(geno_path, out_path, build='hg38'):
 
     step = 'plink_pca'
@@ -419,11 +420,11 @@ def plink_pca(geno_path, out_path, build='hg38'):
         
 
     # Filter data
-    filter_cmd = f"{plink2_exec} --bfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-bed --out {out_path}_tmp"
+    filter_cmd = f"{plink2_exec} --pfile {geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}_tmp"
     shell_do(filter_cmd)
     
     # Prune SNPs
-    prune_cmd = f"{plink2_exec} --bfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
+    prune_cmd = f"{plink2_exec} --pfile {out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {out_path}_pruned"
     shell_do(prune_cmd)
 
     listOfFiles = [f'{out_path}_tmp.log', f'{out_path}_pruned.log']
@@ -432,11 +433,11 @@ def plink_pca(geno_path, out_path, build='hg38'):
     # Check if prune.in file exists
     if os.path.isfile(f'{out_path}_pruned.prune.in'):
         # Extract pruned SNPs
-        extract_cmd = f"{plink2_exec} --bfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-bed --out {out_path}"
+        extract_cmd = f"{plink2_exec} --pfile {out_path}_tmp --extract {out_path}_pruned.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(extract_cmd)
         
         # Calculate/generate PCs
-        pca_cmd = f"{plink2_exec} --bfile {out_path} --pca --out {out_path}"
+        pca_cmd = f"{plink2_exec} --pfile {out_path} --pca --out {out_path}"
         shell_do(pca_cmd)
 
         # Remove intermediate files
@@ -470,7 +471,7 @@ def plink_pca(geno_path, out_path, build='hg38'):
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
 
-    plink_miss_cmd = f'{plink2_exec} --bfile {geno_path} --missing --out {out_path}'
+    plink_miss_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {out_path}'
 
     shell_do(plink_miss_cmd)
 
@@ -478,14 +479,14 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     # concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
-    lmiss = pd.read_csv(f'{out_path}.lmiss', sep='\s+')
-    imiss = pd.read_csv(f'{out_path}.imiss', sep='\s+')
-    avg_lmiss = lmiss.F_MISS.mean()
-    avg_imiss = imiss.F_MISS.mean()
+    vmiss = pd.read_csv(f'{out_path}.vmiss', sep='\s+')
+    smiss = pd.read_csv(f'{out_path}.smiss', sep='\s+')
+    avg_vmiss = vmiss.F_MISS.mean()
+    avg_smiss = smiss.F_MISS.mean()
     # print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')
     # print(f'Average Missing Genotyping Rate (imiss): {avg_imiss}')
 
-    i_total = imiss.shape[0]
+    s_total = smiss.shape[0]
     thresh_list = np.arange(0.0, max_threshold+0.01, 0.01)
     
     # suggest most-stringent threshold which retains >= 90% of samples
@@ -493,8 +494,8 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     
     for thresh in thresh_list:
         
-        i_pass = imiss.loc[imiss.F_MISS<=thresh]
-        pass_prop = i_pass.shape[0]/i_total
+        s_pass = smiss.loc[smiss.F_MISS<=thresh]
+        pass_prop = s_pass.shape[0]/s_total
 
         if pass_prop < 0.9:
             pass
@@ -508,8 +509,8 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
         suggested_threshold = None
         
     metrics = {
-        'avg_lmiss': avg_lmiss,
-        'avg_imiss': avg_imiss,
+        'avg_lmiss': avg_vmiss,
+        'avg_imiss': avg_smiss,
         'suggested_threshold': suggested_threshold
     }
 
