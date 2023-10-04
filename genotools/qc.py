@@ -58,7 +58,7 @@ class SampleQC:
         
         outliers_out = f'{out_path}.outliers'
         
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --mind {mind} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         shell_do(plink_cmd1)
 
@@ -145,6 +145,9 @@ class SampleQC:
         sex_tmp2 = f"{out_path}_tmp2"
         sex_fails = f"{out_path}.outliers"
 
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
+
         # check sex 2 methods
         plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
         plink_cmd2 = f"{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
@@ -172,7 +175,7 @@ class SampleQC:
             sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 
             # remove sex fail samples from geno
-            plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+            plink_cmd3 = f"{plink2_exec} --pfile {geno_path} --remove {sex_fails} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
             
             shell_do(plink_cmd3)
 
@@ -266,9 +269,9 @@ class SampleQC:
         
         # variant(maf=0.05, geno=0.01, indep_pairwise=[50,5,0.5])
 
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {het_tmp}.prune.in --make-bed --out {het_tmp2}"
-        plink_cmd3 = f"{plink2_exec} --bfile {het_tmp2} --het --out {het_tmp3}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
+        plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {het_tmp2}"
+        plink_cmd3 = f"{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}"
 
         cmds1 = [plink_cmd1, plink_cmd2, plink_cmd3]
 
@@ -287,14 +290,14 @@ class SampleQC:
             outlier_count = het_outliers.shape[0]
             het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
         
-            plink_cmd4 = f"{plink2_exec} --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+            plink_cmd4 = f"{plink2_exec} --pfile {geno_path} --remove {outliers_out} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
             shell_do(plink_cmd4)
 
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
 
-            if os.path.isfile(f'{out_path}.bed'):
+            if os.path.isfile(f'{out_path}.pgen'):
                 outfiles_dict = {
                     'pruned_samples': outliers_out,
                     'plink_out': out_path
@@ -387,7 +390,7 @@ class SampleQC:
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
-        king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
+        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,phenos --out {grm1}'
         # create table of related pairs
         king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
@@ -419,7 +422,7 @@ class SampleQC:
 
             # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
             if prune_related and prune_duplicated:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
                 shell_do(plink_cmd1) 
 
                 related = pd.read_csv(f'{grm2}.related', sep = '\s+')
@@ -435,7 +438,7 @@ class SampleQC:
                 process_complete = True
             
             if prune_duplicated and not prune_related:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
                 shell_do(plink_cmd1) 
 
                 grm_pruned = duplicated
@@ -561,17 +564,17 @@ class VariantQC:
         step = "geno_prune"
 
         # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno_path}.bim')
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # variant missingness
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno {geno_threshold} --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.05 --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(plink_cmd1)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
         # geno pruned count
-        geno_snp_count = count_file_lines(f'{out_path}.bim')
+        geno_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         geno_rm_count = initial_snp_count - geno_snp_count
 
         process_complete = True
@@ -631,6 +634,9 @@ class VariantQC:
 
         step = "case_control_missingness_prune"
         mis_tmp = f'{out_path}_mis_tmp'
+
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
         
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
@@ -652,14 +658,14 @@ class VariantQC:
                 exclude = mis[mis.P <= p_threshold].loc[:,'SNP']
                 exclude.to_csv(f'{mis_tmp}.exclude', sep='\t', header=False, index=False)
 
-                plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-bed --out {out_path}"
+                plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
                 shell_do(plink_cmd2)
 
                 listOfFiles = [f'{out_path}.log']
                 concat_logs(step, out_path, listOfFiles)
 
                 # mis pruned count
-                mis_snp_count = count_file_lines(f'{out_path}.bim')
+                mis_snp_count = count_file_lines(f'{out_path}.pvar') - 1
                 mis_rm_count = initial_snp_count - mis_snp_count
 
                 process_complete = True
@@ -740,6 +746,9 @@ class VariantQC:
         # missingness by haplotype
         hap_tmp = f'{out_path}_hap_tmp'
 
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
+
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
@@ -756,14 +765,14 @@ class VariantQC:
         snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
         snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
 
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-bed --out {out_path}"
+        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(plink_cmd2)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
         # hap pruned count
-        hap_snp_count = count_file_lines(f'{out_path}.bim')
+        hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         hap_rm_count = initial_snp_count - hap_snp_count
 
         outfiles_dict = {
@@ -830,6 +839,9 @@ class VariantQC:
 
         hwe_tmp = f'{out_path}_hwe_tmp'
 
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
+
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
         
@@ -840,7 +852,7 @@ class VariantQC:
             # HWE using P > 1E-4
             plink_cmd1 = f"{plink_exec} --bfile {geno_path} --hwe {hwe_threshold} --write-snplist --out {hwe_tmp}"
 
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-bed --out {out_path}"
+        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         cmds = [plink_cmd1, plink_cmd2]
         for cmd in cmds:
@@ -850,7 +862,7 @@ class VariantQC:
         concat_logs(step, out_path, listOfFiles)
 
         # hwe pruned count
-        final_snp_count = count_file_lines(f'{out_path}.bim')
+        final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         hwe_rm_count = initial_snp_count - final_snp_count
 
         outfiles_dict = {
