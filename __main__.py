@@ -18,7 +18,6 @@ if __name__=='__main__':
     parser.add_argument('--model', type=str, nargs='?', default=None, const='path', help='Path to pickle file with trained ancestry model for passed reference panel')
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
-    parser.add_argument('--train', type=str, nargs='?', default='False', const='True', help='Train a new model')
 
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.05, help='Minimum Callrate threshold for QC')
     parser.add_argument('--sex', type=str, nargs='?', default='False', const='True', help='Sex prune')
@@ -65,7 +64,6 @@ if __name__=='__main__':
     model = args.model
     container = bool(args.container == 'True')
     singularity = bool(args.singularity == 'True')
-    train = bool(args.train == 'True')
 
     callrate = args.callrate
     sex = bool(args.sex == 'True')
@@ -100,23 +98,15 @@ if __name__=='__main__':
         if not (ref_panel and ref_labels):
             raise Exception('A reference panel and reference panel labels must be provided to predict ancestry!')
         
-        if not (model or container or singularity or train):
-            raise Exception('Must either: provide a path to pkl\'d model, request containerized predictions, or train a new model!')
-        
-        if model and train:
-            raise Exception('Cannot pass a pretrain model and request to train a new model!')
-        
-        if container and train:
-            raise Exception('Cannot request containerzied predictions and request to train a new model!')
-        
         if model and container:
             raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
         
-        if container and not singularity:
-            shell_do('docker --version')
+        ##### Can check if singularity should be run #####
+        # if container and not singularity:
+        #     shell_do('docker --version')
 
     else:
-        if ref_panel or ref_labels or model or container or singularity or train:
+        if ref_panel or ref_labels or model or container or singularity:
             raise Warning('Ancestry-specific parameters passed, but ancestry was not called!')
 
 

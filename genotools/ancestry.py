@@ -18,7 +18,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class ancestry:
-    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, singularity=False, train_param_grid=None):
+    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, singularity=False):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -27,7 +27,6 @@ class ancestry:
         self.model_path = model_path
         self.containerized = containerized
         self.singulatity = singularity
-        self.train_param_grid = train_param_grid
         #NOTE: plotting may eventually go somewhere different
         self.plot_dir = f'{os.path.dirname(out_path)}/plot_ancestry'
         os.makedirs(self.plot_dir, exist_ok=True)
@@ -48,9 +47,7 @@ class ancestry:
         elif not os.path.exists(f'{ref_panel}.bed'):
             raise FileNotFoundError(f"{ref_panel} does not exist.")
         elif not os.path.exists(f'{ref_labels}'):
-            raise FileNotFoundError(f"{ref_labels} does not exist.")
-        elif not (model_path or containerized or singularity or train_param_grid):
-            raise Exception('Must provide a path to pkl\'d model, request containerized predictions, or train a new model with provided parametrs!')  
+            raise FileNotFoundError(f"{ref_labels} does not exist.")  
         elif model_path and containerized:
             raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
     
@@ -211,7 +208,7 @@ class ancestry:
         concat_logs(step, self.out_path, listOfFiles)
         
         # remove intermediate files
-        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw', 'common_snps']
+        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw']
         files = [geno_prune_path, ref_common_snps, f'{geno_prune_path}_flip', f'{self.out_path}_common_snps',
                  f'{self.out_path}_common_snps_switch']
 
@@ -442,10 +439,7 @@ class ancestry:
 
         step = "train_umap_classifier"
 
-        if self.train_param_grid:
-            param_grid = self.train_param_grid
-        else:
-            param_grid = {
+        param_grid = {
             "umap__n_neighbors": [5, 20],
             "umap__n_components": [15, 25],
             "umap__a":[0.75, 1.0, 1.5],

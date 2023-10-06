@@ -25,7 +25,6 @@ setup(
         'setuptools==65.6.3',
         'statsmodels==0.13.5',
         'streamlit==1.15.2',
-        'umap==0.1.1',
         'umap_learn==0.5.3',
         'xgboost==1.7.6'
     ]
