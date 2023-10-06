@@ -1,12 +1,29 @@
-from genotools.utils import shell_do
 import pandas as pd
 import subprocess
 import shutil
 import os
 import time
+from genotools.utils import shell_do
+from genotools.dependencies import check_plink, check_plink2
 
+plink_exec = check_plink()
+plink2_exec = check_plink2()
 
 def split_chroms(input, output, chrom, filetype='pgen'):
+    """
+    Splits genotype data by chromosome using PLINK2.
+
+    Parameters:
+    -----------
+    input : str
+        Path to the input genotype file (either pgen or bed format).
+    output : str
+        Prefix for the output file.
+    chrom : int
+        Chromosome number. Note: 23 refers to the X chromosome.
+    filetype : str, optional
+        The format of the genotype file. Either 'pgen' (default) or 'bed'.
+    """
 
     # Base command for both pgen and bed
     cmd_base = "plink2 --max-alleles 2 --set-missing-var-ids @:#$1:$2 --allow-extra-chr --chr {} --make-bed --out {}_chr{}"
@@ -23,10 +40,9 @@ def split_chroms(input, output, chrom, filetype='pgen'):
     else:
         cmd = cmd_base.format(chrom, output, chrom)
     
-    cmd = load_plink_str + cmd
     
     shell_do(cmd)
-    
+
 
 def add_chr(geno_in, geno_out):
     """
@@ -51,6 +67,33 @@ def add_chr(geno_in, geno_out):
 
 
 def harmonize(geno_in, geno_out, ref_path, harmonizer_path):
+
+    """
+    Harmonizes genotype data using genotype harmonizer: https://github.com/molgenis/systemsgenetics/wiki/Genotype-Harmonizer.
+
+    Parameters:
+    -----------
+    geno_in : str
+        Path to the input genotype file (PLINK BED format).
+    geno_out : str
+        Path for the harmonized output genotype file.
+    ref_path : str
+        Path to the reference data (in VCF format).
+    harmonizer_path : str
+        Path to the harmonizer tool (JAR file).
+
+    Notes:
+    ------
+    This function first adds chromosome info to the input genotype data and saves it to a temp file.
+    It then runs the harmonizer tool to harmonize the input genotype data against the reference.
+    Post harmonization, chromosome info is added again and the output is saved.
+    Temporary files created during the process are removed at the end.
+
+    The function assumes 'add_chr' is a predefined function used to append chromosome information.
+
+    The overall run time of the function is printed at the end.
+    """
+
     start_time = time.time()
 
     tmp1 = f'{geno_in}_tmp1'
@@ -84,17 +127,49 @@ java -Xmx16g -jar {harmonizer_path} \
     print(f"Overall run time: {time.time() - start_time}")
 
 
-def chunk_genotypes(geno_in, geno_out, chunk_size, chrom):
+def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
+    """
+    Splits genotype data into chunks based on base pair positions and exports them as VCF files.
+
+    Parameters:
+    -----------
+    geno_in : str
+        Path to the input genotype file in PLINK BED format.
+    geno_out : str
+        Prefix for the output VCF files.
+    chunk_size : int
+        Size of each chunk in base pair units.
+    chrom : int
+        Chromosome number to be considered for chunking.
+    overlap : int, optional
+        Number of base pairs to overlap between consecutive chunks. Default is 5,000,000.
+
+    Returns:
+    --------
+    chunk_output : dict
+        Dictionary mapping chunk start and end positions to the corresponding output VCF filenames.
+
+    Notes:
+    ------
+    The function reads base pair positions from the provided genotype data, then divides the data 
+    into chunks of a specified size with an optional overlap. Each chunk is exported as a VCF file 
+    using PLINK2, sorted with bcftools, and indexed using tabix. 
+
+    The function assumes necessary tools like PLINK2, bcftools, and tabix are available in the 
+    environment where it's executed.
+    """
+
     # Read the bim file
     bim = pd.read_csv(f'{geno_in}.bim', sep='\s+', header=None, names=['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], dtype={'BP': int})
-    chr_start = bim.BP.min()
     chr_end = bim.BP.max()
 
     cmds = []
-    chunk_output = {}  # Dictionary to store the output filenames indexed by (chunk_start, chunk_end)
-    for i in range(chr_start, chr_end + 1, chunk_size):
+    chunk_output = {} 
+
+    for i in range(1, chr_end + 1, chunk_size):
         chunk_start = i
         chunk_end = min(i + chunk_size - 1, chr_end)
+
         recode_vcf_cmd = f"plink2 --bfile {geno_in} --chr {chrom} --from-bp {chunk_start} --to-bp {chunk_end} --export vcf-4.2 --output-chr chrM --set-missing-var-ids @:#\$1:\$2 --out {geno_out}_{chunk_start}_{chunk_end}"
         bcftools_sort_cmd = f'bcftools sort {geno_out}_{chunk_start}_{chunk_end}.vcf -Oz -o {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
         index_vcf_cmd = f'tabix -f -p vcf {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
@@ -105,8 +180,7 @@ def chunk_genotypes(geno_in, geno_out, chunk_size, chrom):
         chunk_output[(chunk_start, chunk_end)] = f'{geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
     
     for cmd in cmds:
-        # shell_do(cmd)
-        !{cmd}
+        shell_do(cmd)
     
     return chunk_output
 
