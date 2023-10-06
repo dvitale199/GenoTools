@@ -221,7 +221,7 @@ def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_e
     print(f"Overall run time: {time.time() - start_time}")
 
 
-def run_minimac4(geno_in, geno_out, ref, window, start, end, minRatio, cpus, out_format='GT,DS,HDS,GP,SD'):
+def run_minimac4(geno_in, geno_out, ref, window, start, end, minRatio, cpus, out_format='GT,DS,HDS,GP,SD', minimac_path=None):
     """
     Runs minimac4 for genotype imputation.
     
@@ -242,18 +242,33 @@ def run_minimac4(geno_in, geno_out, ref, window, start, end, minRatio, cpus, out
     - None
     """
     start_time = time.time()
-    impute_cmd = (
-        f"minimac4 "
-        f"--haps {haps} "
-        f"--prefix {out} "
-        f"--refHaps {refHaps} "
-        f"--window {window} "
-        f"--start {start} --end {end} "
-        f"--minRatio {minRatio} "
-        f"--format {out_format} "
-        f"--cpus {cpus} "
-        f"--allTypedSites --meta"
-        f"--noPhoneHome ")
+
+    if minimac_path:
+        impute_cmd = (
+            f"{minimac_path} "
+            f"--haps {haps} "
+            f"--prefix {out} "
+            f"--refHaps {refHaps} "
+            f"--window {window} "
+            f"--start {start} --end {end} "
+            f"--minRatio {minRatio} "
+            f"--format {out_format} "
+            f"--cpus {cpus} "
+            f"--allTypedSites --meta"
+            f"--noPhoneHome ")
+    else:
+        impute_cmd = (
+            f"minimac4 "
+            f"--haps {haps} "
+            f"--prefix {out} "
+            f"--refHaps {refHaps} "
+            f"--window {window} "
+            f"--start {start} --end {end} "
+            f"--minRatio {minRatio} "
+            f"--format {out_format} "
+            f"--cpus {cpus} "
+            f"--allTypedSites --meta"
+            f"--noPhoneHome ")
 
     os.system(impute_cmd)
     print(f"Overall run time: {time.time() - start_time}")

@@ -48,8 +48,33 @@ print()
 # eventually run this in parallel- either launch sbatch job for each chunk or use multiprocessing
 print('phasing + imputing genotypes')
 for chunk_start, chunk_end in chunk_output.keys():
+
     eagle_input = chunk_output[(chunk_start, chunk_end)]
-    run_eagle(eagle_input, eagle_geno_out, eagle_ref, eagle_map, chrom, chunk_start, chunk_end, overlap=5000000, eagle_path=eagle_path)
-#     run_minimac4(geno_in=eagle_geno_out, geno_out=f'{eagle_geno_out}_imputed', ref=impute_ref, window=500000, start=chunk_start, end=chunk_end, min_ratio=0.00001, cpus=16, out_format='GT,DS,HDS,GP,SD')
+
+    run_eagle(
+        eagle_input, 
+        eagle_geno_out, 
+        eagle_ref, 
+        eagle_map, 
+        chrom, 
+        chunk_start, 
+        chunk_end, 
+        overlap=5000000, 
+        eagle_path=eagle_path
+        )
+
+    run_minimac4(
+        geno_in=eagle_geno_out, 
+        geno_out=f'{eagle_geno_out}_imputed', 
+        ref=impute_ref, 
+        window=500000, 
+        start=chunk_start, 
+        end=chunk_end, 
+        min_ratio=0.00001, 
+        cpus=16, 
+        out_format='GT,DS,HDS,GP,SD', 
+        minimac_path=minimac_path
+        )
+        
 print('phasing + imputation complete')
 print()
