@@ -538,7 +538,7 @@ class SampleQC:
 
 class VariantQC:
 
-    def __init__(self, geno_path, out_path):
+    def __init__(self, geno_path=None, out_path=None):
         self.geno_path = geno_path
         self.out_path = out_path
 

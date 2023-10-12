@@ -5,13 +5,82 @@ import os
 import tempfile
 
 from genotools.utils import shell_do
-    
+from genotools.qc import SampleQC, VariantQC
+from genotools.ancestry import Ancestry
+
+def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, args):
+    # to know which class to call
+    samp_steps = ['callrate','sex','related','het']
+    var_steps = ['case_control','haplotype','hwe','geno']
+
+    # if full output requested, go to out path
+    if args['full_output']:
+        step_paths = [out_path]
+
+    # otherwise tmpdir
+    else:
+        out_dir = os.path.dirname(out_path)
+        tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir=out_dir)
+        step_paths = [f'{tmp_dir.name}/out']
+
+    # loop through steps
+    for step in steps:
+        # use geno_path for first step, out_path for last step
+        step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
+        step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
+        print(f'Running: {step} with input {step_input} and output: {step_output}')
+
+        # keep track of paths
+        step_paths.append(step_output)
+
+        # ancestry setup and call
+        if step == 'ancestry':
+            ancestry.geno_path = step_input
+            ancestry.out_path = step_output
+            ancestry.ref_panel = args['ref_panel']
+            ancestry.ref_labels = args['ref_labels']
+            ancestry.model_path = args['model']
+            ancestry.containerized = args['container']
+            ancestry.singularity = args['singularity']
+            steps_dict[step]()
+            #### HERE WE CAN LOOP TO CALL EXECUTE PIPELINE FOR REMAINING STEPS ON ANCESTRY SPECIFIC FILES
+
+        # samp qc setup and call
+        if step in samp_steps:
+            samp_qc.geno_path = step_input
+            samp_qc.out_path = step_output
+
+            # related has more than one parameter
+            if step == 'related':
+                steps_dict[step](related_cutoff=args['related_cutoff'], duplicate_cutoff=args['duplicate_cutoff'],
+                                 prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
+            
+            else:
+                steps_dict[step](args[step])
+        
+        # var qc setup and call
+        if step in var_steps:
+            var_qc.geno_path = step_input
+            var_qc.out_path = step_output
+
+            # hwe has more than one parameter
+            if step == 'hwe':
+                steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
+            
+            else:
+                steps_dict[step](args[step])
+
 
 if __name__=='__main__':
+    # definte arg parse
     parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data in Plink .bim/.bam/.fam format)')
+
+    # file i/o arguments
     parser.add_argument('--geno_path', type=str, nargs='?', default=None, const=None, help='Genotype: (string file path). Path to PLINK format genotype file, everything before the *.bed/bim/fam [default: nope].', required=True)
     parser.add_argument('--out_path', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
+    parser.add_argument('--full_output', type=str, nargs='?', default='True', const='True', help='Output everything')
 
+    # ancerstry arguments
     parser.add_argument('--ancestry', type=str, nargs='?', default='False', const='True', help='Split by ancestry')
     parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
     parser.add_argument('--ref_labels', type=str, nargs='?', default=None, const=None, help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
@@ -19,136 +88,73 @@ if __name__=='__main__':
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
 
+    # sample-level qc arguments
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.05, help='Minimum Callrate threshold for QC')
     parser.add_argument('--sex', nargs='*', help='Sex prune with cutoffs')
     parser.add_argument('--related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--related_cutoff', type=float, nargs='?', default=0.0884, const=0.0884, help='Relatedness cutoff')
     parser.add_argument('--duplicate_cutoff', type=float, nargs='?', default=0.354, const=0.354, help='Relatedness cutoff')
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
-    parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='False', help='Relatedness prune')
+    parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='True', help='Relatedness prune')
     parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
 
+    # variant-level qc arguments
     parser.add_argument('--geno', type=float, nargs='?', default=None, const=0.05, help='Minimum Missingness threshold for QC')
     parser.add_argument('--case_control', type=float, nargs='?', default=None, const=1e-4, help='Case control prune')
     parser.add_argument('--haplotype', type=float, nargs='?', default=None, const=1e-4, help='Haplotype prune')
     parser.add_argument('--hwe', type=float, nargs='?', default=None, const=1e-4, help='HWE pruning')
+    parser.add_argument('--filter_controls', type=str, nargs='?', default='False', const='True', help='Control filter for HWE prune')
 
-
-    # default_list
-
+    # parse args and turn into dict
     args = parser.parse_args()
-    print(args)
-    passed_steps_dict = vars(args)
+    args_dict = vars(args)
+    print(args_dict)
 
-    # order this list based on passed steps
-    ordered_steps_list = ['ancestry', 'callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno']
+    # initialize classes
+    samp_qc = SampleQC()
+    var_qc = VariantQC()
+    ancestry = Ancestry()
+
+    # ordered steps with their methods to be called
+    ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
+                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'case_control':var_qc.run_case_control_prune,
+                    'haplotype':var_qc.run_haplotype_prune,'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune}
+    
+    # get correct order of steps to run
     run_steps_list = []
-
-    for key in passed_steps_dict:
-        print(key)
-        if (passed_steps_dict[key] != None) and (passed_steps_dict[key] != 'False') and (key in ordered_steps_list):
+    for key in args_dict:
+        if (args_dict[key] != None) and (args_dict[key] != 'False') and (key in ordered_steps.keys()):
             run_steps_list.append(key)
 
+    # check run steps and output step
     print(run_steps_list)
     print(f'Output steps: {run_steps_list[-1]}')
 
+    # some up-front editing of pipeline arguments (booleans and lists)
+    args_dict['full_output'] = bool(args_dict['full_output'] == 'True')
+    args_dict['ancestry'] = bool(args_dict['ancestry'] == 'True')
+    args_dict['container'] = bool(args_dict['container'] == 'True')
+    args_dict['singularity'] = bool(args_dict['singularity'] == 'True')
+    args_dict['related'] = bool(args_dict['related'] == 'True')
+    args_dict['prune_related'] = bool(args_dict['prune_related'] == 'True')
+    args_dict['prune_duplicated'] = bool(args_dict['prune_duplicated'] == 'True')
+    args_dict['filter_controls'] =  bool(args_dict['filter_controls'] == 'True')
 
-    geno_path = args.geno_path
-    out_path = args.out_path
-
-    ancestry = bool(args.ancestry == 'True')
-    ref_panel = args.ref_panel
-    ref_labels = args.ref_labels
-    model = args.model
-    container = bool(args.container == 'True')
-    singularity = bool(args.singularity == 'True')
-
-    callrate = args.callrate
-    sex = args.sex
-    related = bool(args.related == 'True')
-    related_cutoff = args.related_cutoff
-    duplicate_cutoff = args.duplicate_cutoff
-    prune_related = bool(args.prune_related == 'True')
-    prune_duplicated = bool(args.prune_duplicated == 'True')
-    het = args.het
-
-    geno = args.geno
-    case_control = args.case_control
-    haplotype = args.haplotype
-    hwe = args.hwe
-
-    # I/O workflow
-    if not geno_path:
-        raise Exception('A path to genotype files for processing must be provided!')
-
-    if not out_path:
-        raise Exception('A path for output must be provided!')
-
-    out_dir = os.path.dirname(out_path)
-    # tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir={out_dir})
-    # tmp_dir.name # to feed to modules as out_path 
-
-
-    # ancestry workflow
-    if ancestry:
-        if not (ref_panel and ref_labels):
-            raise Exception('A reference panel and reference panel labels must be provided to predict ancestry!')
-        
-        if model and container:
-            raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
-        
-        ##### Can check if singularity should be run #####
-        # if container and not singularity:
-        #     shell_do('docker --version')
-
-    else:
-        if ref_panel or ref_labels or model or container or singularity:
-            raise Warning('Ancestry-specific parameters passed, but ancestry was not called!')
-
-
-    # sample-level qc workflow
-    if callrate:
-        print('CALL CALLRATE PRUNE')
-
-    if sex is not None:
-        if len(sex) == 0:
-            print('CALL SEX PRUNE WITH DEFAULTS')
-        
-        elif (len(sex) > 0) and (len(sex) != 2):
-            raise Exception('Need to pass two cutoff values when customizing sex prune!')
+    if args_dict['sex'] is not None:
+        if len(args_dict['sex']) == 0:
+            args_dict['sex'] = [0.25, 0.75]
 
         else:
-            sex = [float(i) for i in sex]
-            print(sex)
-            print('CALL SEX PRUNE')
-    
-    if related:
-        print('CALL RELATED PRUNE')
+            args_dict['sex'] = [float(i) for i in args_dict['sex']]
 
-    if het is not None:
-        if len(het) == 0:
-            print('CALL HET PRUNE WITH DEFAULTS')
-        
-        elif (len(het) > 0) and (len(het) != 2):
-            raise Exception('Need to pass two cutoff values when customizing het prune!')
+    if args_dict['het'] is not None:
+        if len(args_dict['het']) == 0:
+            args_dict['het'] = [-0.25, 0.25]
 
         else:
-            het = [float(i) for i in het]
-            print(het)
-            print('CALL HET PRUNE')
+            args_dict['het'] = [float(i) for i in args_dict['sex']]
 
-
-    # variant-level qc workflow
-    if geno:
-        print('CALL GENO')
-
-    if case_control:
-        print('CALL CASE CONTROL')
-
-    if haplotype:
-        print('CALL HAPLOTYPE')
-
-    if hwe:
-        print('CALL HWE')
+    # run pipeline
+    execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out_path'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, args=args_dict)
             
     # tmp_dir.cleanup() # to delete directory
