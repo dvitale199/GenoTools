@@ -17,8 +17,8 @@ from genotools.dependencies import check_plink, check_plink2
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-class ancestry:
-    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, singularity=False):
+class Ancestry:
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -27,29 +27,6 @@ class ancestry:
         self.model_path = model_path
         self.containerized = containerized
         self.singulatity = singularity
-        #NOTE: plotting may eventually go somewhere different
-        self.plot_dir = f'{os.path.dirname(out_path)}/plot_ancestry'
-        os.makedirs(self.plot_dir, exist_ok=True)
-
-        # setting train variable to false if there is a model path or containerized predictions
-        if self.model_path or self.containerized:
-            self.train = False
-        else:
-            self.train = True
-
-        # Check that paths are set
-        if not all([geno_path, ref_panel, ref_labels, out_path]):
-            raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
-
-        # Check path validity
-        if not os.path.exists(f'{geno_path}.pgen'):
-            raise FileNotFoundError(f"{geno_path} does not exist.")
-        elif not os.path.exists(f'{ref_panel}.bed'):
-            raise FileNotFoundError(f"{ref_panel} does not exist.")
-        elif not os.path.exists(f'{ref_labels}'):
-            raise FileNotFoundError(f"{ref_labels} does not exist.")  
-        elif model_path and containerized:
-            raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
     
 
     def get_raw_files(self):
@@ -816,6 +793,35 @@ class ancestry:
         """
 
         step = "predict_ancestry"
+
+        #NOTE: deal with plotting later
+        # self.plot_dir = f'{os.path.dirname(self.out_path)}/plot_ancestry'
+        # os.makedirs(self.plot_dir, exist_ok=True)
+
+        # setting train variable to false if there is a model path or containerized predictions
+        ## Note sure if its considered bad style to set self variables outside __init__
+        if self.model_path or self.containerized:
+            self.train = False
+        else:
+            self.train = True
+
+        # Check that paths are set
+        if not all([self.geno_path, self.ref_panel, self.ref_labels, self.out_path]):
+            raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
+
+        # Check path validity
+        if not os.path.exists(f'{self.geno_path}.pgen'):
+            raise FileNotFoundError(f"{self.geno_path} does not exist.")
+        elif not os.path.exists(f'{self.ref_panel}.bed'):
+            raise FileNotFoundError(f"{self.ref_panel} does not exist.")
+        elif not os.path.exists(f'{self.ref_labels}'):
+            raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
+        
+        # Check testing param validaity
+        elif self.model_path and self.containerized:
+            raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
+        
+        #NOTE: need to add in a check for docker, if not throw an error and say request singularity
 
         raw = self.get_raw_files()
 
