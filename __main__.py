@@ -20,15 +20,13 @@ if __name__=='__main__':
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
 
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.05, help='Minimum Callrate threshold for QC')
-    parser.add_argument('--sex', type=str, nargs='?', default='False', const='True', help='Sex prune')
-    parser.add_argument('--sex_cutoff', nargs='*', help='Sex prune cutoffs')
+    parser.add_argument('--sex', nargs='*', help='Sex prune with cutoffs')
     parser.add_argument('--related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--related_cutoff', type=float, nargs='?', default=0.0884, const=0.0884, help='Relatedness cutoff')
     parser.add_argument('--duplicate_cutoff', type=float, nargs='?', default=0.354, const=0.354, help='Relatedness cutoff')
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='False', help='Relatedness prune')
-    parser.add_argument('--het', type=str, nargs='?', default='False', const='True', help='Het prune')
-    parser.add_argument('--het_cutoff', nargs='*', help='Het prune cutoffs')
+    parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
 
     parser.add_argument('--geno', type=float, nargs='?', default=None, const=0.05, help='Minimum Missingness threshold for QC')
     parser.add_argument('--case_control', type=float, nargs='?', default=None, const=1e-4, help='Case control prune')
@@ -66,15 +64,13 @@ if __name__=='__main__':
     singularity = bool(args.singularity == 'True')
 
     callrate = args.callrate
-    sex = bool(args.sex == 'True')
-    sex_cutoff = args.sex_cutoff
+    sex = args.sex
     related = bool(args.related == 'True')
     related_cutoff = args.related_cutoff
     duplicate_cutoff = args.duplicate_cutoff
     prune_related = bool(args.prune_related == 'True')
     prune_duplicated = bool(args.prune_duplicated == 'True')
-    het = bool(args.het == 'True')
-    het_cutoff = args.het_cutoff
+    het = args.het
 
     geno = args.geno
     case_control = args.case_control
@@ -114,32 +110,32 @@ if __name__=='__main__':
     if callrate:
         print('CALL CALLRATE PRUNE')
 
-    if sex:
-        if sex_cutoff:
-            if len(sex_cutoff) != 2:
-                raise Exception('Only two values can be passed when specifying sex cutoffs!')
-            
-            sex_cutoff = [float(i) for i in sex_cutoff]
+    if sex is not None:
+        if len(sex) == 0:
+            print('CALL SEX PRUNE WITH DEFAULTS')
+        
+        elif (len(sex) > 0) and (len(sex) != 2):
+            raise Exception('Need to pass two cutoff values when customizing sex prune!')
 
         else:
-            sex_cutoff = [0.25,0.75]
-
-        print('CALL SEX PRUNE')
-
+            sex = [float(i) for i in sex]
+            print(sex)
+            print('CALL SEX PRUNE')
+    
     if related:
         print('CALL RELATED PRUNE')
 
-    if het:
-        if het_cutoff:
-            if len(het_cutoff) != 2:
-                raise Exception('Only two values can be passed when specifying sex cutoffs!')
-            
-            het_cutoff = [float(i) for i in het_cutoff]
+    if het is not None:
+        if len(het) == 0:
+            print('CALL HET PRUNE WITH DEFAULTS')
+        
+        elif (len(het) > 0) and (len(het) != 2):
+            raise Exception('Need to pass two cutoff values when customizing het prune!')
 
         else:
-            het_cutoff = [-0.25,0.25]
-
-        print('CALL HET PRUNE')
+            het = [float(i) for i in het]
+            print(het)
+            print('CALL HET PRUNE')
 
 
     # variant-level qc workflow
