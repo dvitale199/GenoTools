@@ -185,7 +185,7 @@ def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
     return chunk_output
 
 
-def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_end, overlap=5000000):
+def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_end, overlap=5000000, eagle_path=None):
     """
     Generate and run the eagle command based on the provided parameters.
 
@@ -206,7 +206,13 @@ def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_e
 
     bp_end = chunk_end + overlap
 
-    eagle_cmd = (f'eagle --vcfRef {ref_path} '
+    if eagle_path:
+        eagle_cmd = (f'{eagle_path} --vcfRef {ref_path} '
+                 f'--vcfTarget {geno_in}  --geneticMapFile {map_path} '
+                 f'--outPrefix {geno_out} --chrom chr{chrom} --bpStart {bp_start} --bpEnd {bp_end} '
+                 '--allowRefAltSwap --Kpbwt=100000 --numThreads=16  --vcfOutFormat z')
+    else:
+        eagle_cmd = (f'eagle --vcfRef {ref_path} '
                  f'--vcfTarget {geno_in}  --geneticMapFile {map_path} '
                  f'--outPrefix {geno_out} --chrom chr{chrom} --bpStart {bp_start} --bpEnd {bp_end} '
                  '--allowRefAltSwap --Kpbwt=100000 --numThreads=16  --vcfOutFormat z')
@@ -215,62 +221,74 @@ def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_e
     
 
     # Run the bcftools index command
-    index_cmd = 'bcftools index {geno_out}'
+    index_cmd = f'bcftools index {geno_out}.vcf.gz'
     os.system(index_cmd)
     
     print(f"Overall run time: {time.time() - start_time}")
 
 
-def run_minimac4(geno_in, geno_out, ref, window, start, end, minRatio, cpus, out_format='GT,DS,HDS,GP,SD', minimac_path=None):
-    """
-    Runs minimac4 for genotype imputation.
-    
-    Parameters:
-    - refHaps: Path to reference haplotypes
-    - haps: Path to the target haplotypes
-    - window: Size of the imputation window
-    - start: Start position
-    - end: End position
-    - prefix: Output prefix for the imputed files
-    - minRatio: Minimum ratio
-    - cpus: Number of CPUs to use
-    - format: Output format for the imputed genotypes
-    - allTypedSites: Flag for including all typed sites
-    - meta: Flag for meta info
-    
-    Returns:
-    - None
-    """
+def run_minimac4(geno_in, geno_out, ref, window, region, min_ratio, cpus, out_format='GT,DS,HDS,GP,SD', minimac_path=None):
+
     start_time = time.time()
 
     if minimac_path:
-        impute_cmd = (
-            f"{minimac_path} "
-            f"--haps {haps} "
-            f"--prefix {out} "
-            f"--refHaps {refHaps} "
-            f"--window {window} "
-            f"--start {start} --end {end} "
-            f"--minRatio {minRatio} "
-            f"--format {out_format} "
-            f"--cpus {cpus} "
-            f"--allTypedSites --meta"
-            f"--noPhoneHome ")
+        minimac = minimac_path
+        
     else:
-        impute_cmd = (
-            f"minimac4 "
-            f"--haps {haps} "
-            f"--prefix {out} "
-            f"--refHaps {refHaps} "
-            f"--window {window} "
-            f"--start {start} --end {end} "
-            f"--minRatio {minRatio} "
-            f"--format {out_format} "
-            f"--cpus {cpus} "
-            f"--allTypedSites --meta"
-            f"--noPhoneHome ")
+        minimac = 'minimac4'
+
+    impute_cmd = (
+        f"{minimac} "
+        f"{ref} "
+        f"{geno_in} "
+        f"--output {geno_out}.sav "
+        f"--overlap {window} "
+        f"--region {region} "
+        f"--min-ratio {min_ratio} "
+        f"--format {out_format} "
+        f"--threads {cpus} "
+        f"--all-typed-sites --empirical-output {geno_out}.empirical.sav ")
 
     os.system(impute_cmd)
     print(f"Overall run time: {time.time() - start_time}")
 
+def run_minimac4(geno_in, geno_out, ref, overlap, region, min_ratio, threads, out_format='bcf', info_format='GT,DS,HDS,GP,SD', minimac_path=None):
+    """
+    Runs the Minimac4 program for genotype imputation.
+
+    Parameters:
+    - geno_in (str): Path to the input genotype file.
+    - geno_out (str): Prefix for the output file names.
+    - ref (str): Path to the reference panel.
+    - overlap (bool): Whether to consider overlapping markers.
+    - region (str): Specifies the region for imputation.
+    - min_ratio (float): Minimum ratio to consider.
+    - threads (int): Number of threads for parallel processing.
+    - out_format (str, optional): Desired output format, defaults to 'bcf'.
+    - info_format (str, optional): Information format for the output, defaults to various info types.
+    - minimac_path (str, optional): Custom path to the Minimac4 executable. If not provided, assumes 'minimac4' is in PATH.
+
+    Outputs:
+    - Prints the overall runtime of the imputation.
+    """
     
+    start_time = time.time()
+
+    minimac = minimac_path if minimac_path else 'minimac4'
+
+    impute_cmd = (
+        f"{minimac} "
+        f"{ref} "
+        f"{geno_in} "
+        f"--output {geno_out}.sav "
+        f"--overlap {overlap} "
+        f"--region {region} "
+        f"--min-ratio {min_ratio} "
+        f"--format {info_format} "
+        f"--output-format {out_format}"
+        f"--threads {threads} "
+        f"--all-typed-sites --empirical-output {geno_out}_empirical.txt "
+    )
+
+    os.system(impute_cmd)
+    print(f"Overall run time: {time.time() - start_time}")
