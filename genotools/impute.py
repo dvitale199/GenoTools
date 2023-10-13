@@ -66,7 +66,7 @@ def add_chr(geno_in, geno_out):
     shutil.copy(f'{geno_in}.fam', f'{geno_out}.fam')
 
 
-def harmonize(geno_in, geno_out, ref_path, harmonizer_path):
+def harmonize(geno_in, geno_out, ref_path, harmonizer_path, memory):
 
     """
     Harmonizes genotype data using genotype harmonizer: https://github.com/molgenis/systemsgenetics/wiki/Genotype-Harmonizer.
@@ -103,7 +103,7 @@ def harmonize(geno_in, geno_out, ref_path, harmonizer_path):
 
     # Run commands
     cmd = f"""\
-java -Xmx16g -jar {harmonizer_path} \
+java -Xmx{memory}g -jar {harmonizer_path} \
 --keep \
 --input {tmp1} \
 --ref {ref_path} \
@@ -185,7 +185,7 @@ def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
     return chunk_output
 
 
-def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_end, overlap=5000000, eagle_path=None):
+def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_end, overlap=5000000, threads=16, eagle_path=None):
     """
     Generate and run the eagle command based on the provided parameters.
 
@@ -210,12 +210,12 @@ def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_e
         eagle_cmd = (f'{eagle_path} --vcfRef {ref_path} '
                  f'--vcfTarget {geno_in}  --geneticMapFile {map_path} '
                  f'--outPrefix {geno_out} --chrom chr{chrom} --bpStart {bp_start} --bpEnd {bp_end} '
-                 '--allowRefAltSwap --Kpbwt=100000 --numThreads=16  --vcfOutFormat z')
+                 f'--allowRefAltSwap --Kpbwt=100000 --numThreads={threads}  --vcfOutFormat z')
     else:
         eagle_cmd = (f'eagle --vcfRef {ref_path} '
                  f'--vcfTarget {geno_in}  --geneticMapFile {map_path} '
                  f'--outPrefix {geno_out} --chrom chr{chrom} --bpStart {bp_start} --bpEnd {bp_end} '
-                 '--allowRefAltSwap --Kpbwt=100000 --numThreads=16  --vcfOutFormat z')
+                 f'--allowRefAltSwap --Kpbwt=100000 --numThreads={threads} --vcfOutFormat z')
     
     os.system(eagle_cmd)
     
@@ -227,7 +227,7 @@ def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_e
     print(f"Overall run time: {time.time() - start_time}")
 
 
-def run_minimac4(geno_in, geno_out, ref, window, region, min_ratio, cpus, out_format='GT,DS,HDS,GP,SD', minimac_path=None):
+def run_minimac4(geno_in, geno_out, ref, window, region, min_ratio, threads, out_format='GT,DS,HDS,GP,SD', minimac_path=None):
 
     start_time = time.time()
 
@@ -246,7 +246,7 @@ def run_minimac4(geno_in, geno_out, ref, window, region, min_ratio, cpus, out_fo
         f"--region {region} "
         f"--min-ratio {min_ratio} "
         f"--format {out_format} "
-        f"--threads {cpus} "
+        f"--threads {threads} "
         f"--all-typed-sites --empirical-output {geno_out}.empirical.sav ")
 
     os.system(impute_cmd)
@@ -292,3 +292,32 @@ def run_minimac4(geno_in, geno_out, ref, overlap, region, min_ratio, threads, ou
 
     os.system(impute_cmd)
     print(f"Overall run time: {time.time() - start_time}")
+
+
+def run_phasing_and_imputation(geno_in, phase_out, impute_out, phase_ref, impute_ref, eagle_map, chrom, chunk_start, chunk_end, threads, eagle_path=None, minimac_path=None):
+
+    run_eagle(
+        geno_in,
+        phase_out,
+        phase_ref,
+        eagle_map,
+        chrom,
+        chunk_start,
+        chunk_end,
+        overlap=5000000,
+        threads=threads,
+        eagle_path=eagle_path
+    )
+    
+    run_minimac4(
+        geno_in=f'{phase_out}.vcf.gz',
+        geno_out=f'{impute_out}_imputed',
+        ref=impute_ref,
+        window=500000,
+        region=f'chr{chrom}:{chunk_start}-{chunk_end}',
+        min_ratio=0.00001,
+        threads=threads,
+        info_format='GT,DS,HDS,GP,SD',
+        out_format='bcf',
+        minimac_path=minimac_path
+    )
