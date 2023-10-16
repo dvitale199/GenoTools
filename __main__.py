@@ -23,6 +23,13 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir=out_dir)
         step_paths = [f'{tmp_dir.name}/out']
 
+    # if first step is ancestry, make new steps list to call within-ancestry
+    if steps[0] == 'ancestry':
+        steps_ancestry = steps[1:]
+        steps = [steps[0]]
+
+    out_dict = dict()
+
     # loop through steps
     for step in steps:
         # use geno_path for first step, out_path for last step
@@ -42,8 +49,13 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             ancestry.model_path = args['model']
             ancestry.containerized = args['container']
             ancestry.singularity = args['singularity']
-            steps_dict[step]()
-            #### HERE WE CAN LOOP TO CALL EXECUTE PIPELINE FOR REMAINING STEPS ON ANCESTRY SPECIFIC FILES
+            ancestry.subset = args['subset']
+            out_dict[step] = steps_dict[step]()
+
+            # call ancestry specific steps within each group
+            if len(steps_ancestry) > 0:
+                for geno, label in zip(out_dict[step]['output']['split_paths'], out_dict[step]['data']['labels_list']):
+                    out_dict[label] = execute_pipeline(steps_ancestry, steps_dict, geno, f'{out_path}_{label}', samp_qc, var_qc, ancestry, args)
 
         # samp qc setup and call
         if step in samp_steps:
@@ -52,11 +64,11 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
             # related has more than one parameter
             if step == 'related':
-                steps_dict[step](related_cutoff=args['related_cutoff'], duplicate_cutoff=args['duplicate_cutoff'],
+                out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicate_cutoff=args['duplicate_cutoff'],
                                  prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
             
             else:
-                steps_dict[step](args[step])
+                out_dict[step] = steps_dict[step](args[step])
         
         # var qc setup and call
         if step in var_steps:
@@ -65,10 +77,14 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
             # hwe has more than one parameter
             if step == 'hwe':
-                steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
+                out_dict[step] = steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
             
             else:
-                steps_dict[step](args[step])
+                out_dict[step] = steps_dict[step](args[step])
+    
+    out_dict['paths'] = step_paths
+
+    return out_dict
 
 
 if __name__=='__main__':
@@ -87,6 +103,7 @@ if __name__=='__main__':
     parser.add_argument('--model', type=str, nargs='?', default=None, const='path', help='Path to pickle file with trained ancestry model for passed reference panel')
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
+    parser.add_argument('--subset', nargs='*', help='Subset to continue analysis for')
 
     # sample-level qc arguments
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.05, help='Minimum Callrate threshold for QC')

@@ -10,6 +10,7 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 import pickle as pkl
 import json
+import warnings
 
 from genotools.utils import shell_do, get_common_snps, concat_logs
 from genotools.dependencies import check_plink, check_plink2
@@ -18,7 +19,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Ancestry:
-    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False):
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -26,7 +27,8 @@ class Ancestry:
         self.out_path = out_path
         self.model_path = model_path
         self.containerized = containerized
-        self.singulatity = singularity
+        self.singularity = singularity
+        self.subset = subset
     
 
     def get_raw_files(self):
@@ -602,7 +604,7 @@ class Ancestry:
         pd.Series(y_test).to_csv(f'{container_dir}/y_test.txt', sep='\t', index=False, header=False)
         projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
 
-        if self.singulatity:
+        if self.singularity:
             shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
             shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
             os.remove(f'{container_dir}/get_predictions.sif')
@@ -739,7 +741,7 @@ class Ancestry:
         return out_dict
     
 
-    def split_cohort_ancestry(self, labels_path, subset=False):
+    def split_cohort_ancestry(self, labels_path):
         """
         Split a cohort based on predicted ancestries.
 
@@ -758,8 +760,8 @@ class Ancestry:
         outfiles = list()
 
         # subset is a list of ancestries to continue analysis for passed by the user
-        if subset:
-            split_labels = subset
+        if self.subset:
+            split_labels = self.subset
         else:
             split_labels = pred_labels.label.unique()
 
@@ -782,6 +784,8 @@ class Ancestry:
             'labels': labels_list,
             'paths': outfiles
         }
+
+        return output_dict
 
 
     def run_ancestry(self):
@@ -819,7 +823,7 @@ class Ancestry:
         
         # Check testing param validaity
         elif self.model_path and self.containerized:
-            raise Warning('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
+            warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
         
         #NOTE: need to add in a check for docker, if not throw an error and say request singularity
 
@@ -926,6 +930,8 @@ class Ancestry:
         #         z_range=z_range
         #     )
 
+        ancestry_split = self.split_cohort_ancestry(labels_path=pred['output']['labels_outpath'])
+
 
         data_dict = {
             'predict_data': pred['data'],
@@ -936,7 +942,8 @@ class Ancestry:
             'total_umap': umap_transforms['total_umap'],
             'ref_umap': umap_transforms['ref_umap'],
             'new_samples_umap': umap_transforms['new_samples_umap'],
-            'label_encoder': train_split['label_encoder']
+            'label_encoder': train_split['label_encoder'],
+            'labels_list': ancestry_split['labels']
         }
 
         metrics_dict = {
@@ -945,7 +952,8 @@ class Ancestry:
         }
 
         outfiles_dict = {
-            'predicted_labels': pred['output']
+            'predicted_labels': pred['output'],
+            'split_paths': ancestry_split['paths']
         }
         
         out_dict = {
