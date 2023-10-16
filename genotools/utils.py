@@ -98,7 +98,9 @@ def replace_all(text, dict):
     return text
 
 
-def process_log(out_dir, concat_log):
+def process_log(out_path, concat_log):
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+
     # exclude lines containing this information from log file
     exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
     'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit',
@@ -120,13 +122,13 @@ def process_log(out_dir, concat_log):
     stop = 1
     
     # list ancestry only for the following steps
-    ancestry_steps = ['related', 'het', 'variant', 'pca']
+    ancestry_steps = ['split_cohort_ancestry']
     # exclude/replace from text
     fillers = ['and', '.']
     replace = {'loaded from': 'loaded', '(see': '', ');': ';'}
 
     # write final processed log
-    with open(f"{out_dir}/cleaned_genotools.log", "w") as f:
+    with open(f"{out_path}_cleaned_logs.log", "w") as f:
         while start < len(step_indices)-1:
             # list step and process names
             step_line = concat_log[step_indices[start]]
@@ -172,11 +174,12 @@ def process_log(out_dir, concat_log):
 
 def concat_logs(step, out_path, listOfFiles):
     # stores concat log in processing directory
-    out_dir = os.path.dirname(os.path.abspath(out_path))
+    # out_dir = os.path.dirname(os.path.abspath(out_path))
 
     # combine log files into 1 file
     # when transition to Classes: clear log on every new run
-    with open(f'{out_dir}/all_plink_logs.log', "a+") as new_file:
+    # with open(f'{out_dir}/all_plink_logs.log', "a+") as new_file:
+    with open(f'{out_path}_all_logs.log', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
                 new_file.write(f'Step: {name}\n')
@@ -190,8 +193,8 @@ def concat_logs(step, out_path, listOfFiles):
     for files in listOfFiles:
         os.remove(files)
 
-    with open(f'{out_dir}/all_plink_logs.log', 'r') as file:
-        process_log(out_dir, file.readlines())
+    with open(f'{out_path}_all_logs.log', 'r') as file:
+        process_log(out_path, file.readlines())
 
 
 def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
