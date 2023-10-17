@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from genotools.utils import shell_do
 from genotools.dependencies import check_plink, check_plink2
 
@@ -123,43 +124,20 @@ java -Xmx{memory}g -jar {harmonizer_path} \
         os.remove(f'{tmp1}{suffix}')
         os.remove(f'{tmp2}{suffix}')
 
-
     print(f"Overall run time: {time.time() - start_time}")
 
 
+def threaded_execute(cmds):
+    print("Threaded_execute called")
+    def run_cmd(cmd):
+        subprocess.run(cmd, shell=True, check=True)
+
+    with ThreadPoolExecutor() as executor:
+        executor.map(run_cmd, cmds)
+
+
 def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
-    """
-    Splits genotype data into chunks based on base pair positions and exports them as VCF files.
 
-    Parameters:
-    -----------
-    geno_in : str
-        Path to the input genotype file in PLINK BED format.
-    geno_out : str
-        Prefix for the output VCF files.
-    chunk_size : int
-        Size of each chunk in base pair units.
-    chrom : int
-        Chromosome number to be considered for chunking.
-    overlap : int, optional
-        Number of base pairs to overlap between consecutive chunks. Default is 5,000,000.
-
-    Returns:
-    --------
-    chunk_output : dict
-        Dictionary mapping chunk start and end positions to the corresponding output VCF filenames.
-
-    Notes:
-    ------
-    The function reads base pair positions from the provided genotype data, then divides the data 
-    into chunks of a specified size with an optional overlap. Each chunk is exported as a VCF file 
-    using PLINK2, sorted with bcftools, and indexed using tabix. 
-
-    The function assumes necessary tools like PLINK2, bcftools, and tabix are available in the 
-    environment where it's executed.
-    """
-
-    # Read the bim file
     bim = pd.read_csv(f'{geno_in}.bim', sep='\s+', header=None, names=['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], dtype={'BP': int})
     chr_end = bim.BP.max()
 
@@ -173,16 +151,81 @@ def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
         recode_vcf_cmd = f"plink2 --bfile {geno_in} --chr {chrom} --from-bp {chunk_start} --to-bp {chunk_end} --export vcf-4.2 --output-chr chrM --set-missing-var-ids @:#\$1:\$2 --out {geno_out}_{chunk_start}_{chunk_end}"
         bcftools_sort_cmd = f'bcftools sort {geno_out}_{chunk_start}_{chunk_end}.vcf -Oz -o {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
         index_vcf_cmd = f'tabix -f -p vcf {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
-        
-        cmds.extend([recode_vcf_cmd, bcftools_sort_cmd, index_vcf_cmd])
 
+        full_cmd = f'{recode_vcf_cmd} && {bcftools_sort_cmd} && {index_vcf_cmd}'
+        
         # Add the output filename to the chunk_output dictionary
         chunk_output[(chunk_start, chunk_end)] = f'{geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
-    
-    for cmd in cmds:
-        shell_do(cmd)
+        
+        cmds.append(full_cmd)
+
+    # Run all commands in parallel
+    print("Commands to run:", cmds)
+    try:
+        threaded_execute(cmds)
+    except Exception as e:
+        print("An exception occurred:", e)
     
     return chunk_output
+
+
+
+# def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
+#     """
+#     Splits genotype data into chunks based on base pair positions and exports them as VCF files.
+
+#     Parameters:
+#     -----------
+#     geno_in : str
+#         Path to the input genotype file in PLINK BED format.
+#     geno_out : str
+#         Prefix for the output VCF files.
+#     chunk_size : int
+#         Size of each chunk in base pair units.
+#     chrom : int
+#         Chromosome number to be considered for chunking.
+#     overlap : int, optional
+#         Number of base pairs to overlap between consecutive chunks. Default is 5,000,000.
+
+#     Returns:
+#     --------
+#     chunk_output : dict
+#         Dictionary mapping chunk start and end positions to the corresponding output VCF filenames.
+
+#     Notes:
+#     ------
+#     The function reads base pair positions from the provided genotype data, then divides the data 
+#     into chunks of a specified size with an optional overlap. Each chunk is exported as a VCF file 
+#     using PLINK2, sorted with bcftools, and indexed using tabix. 
+
+#     The function assumes necessary tools like PLINK2, bcftools, and tabix are available in the 
+#     environment where it's executed.
+#     """
+
+#     # Read the bim file
+#     bim = pd.read_csv(f'{geno_in}.bim', sep='\s+', header=None, names=['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'], dtype={'BP': int})
+#     chr_end = bim.BP.max()
+
+#     cmds = []
+#     chunk_output = {} 
+
+#     for i in range(1, chr_end + 1, chunk_size):
+#         chunk_start = i
+#         chunk_end = min(i + chunk_size - 1, chr_end)
+
+#         recode_vcf_cmd = f"plink2 --bfile {geno_in} --chr {chrom} --from-bp {chunk_start} --to-bp {chunk_end} --export vcf-4.2 --output-chr chrM --set-missing-var-ids @:#\$1:\$2 --out {geno_out}_{chunk_start}_{chunk_end}"
+#         bcftools_sort_cmd = f'bcftools sort {geno_out}_{chunk_start}_{chunk_end}.vcf -Oz -o {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
+#         index_vcf_cmd = f'tabix -f -p vcf {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
+        
+#         cmds.extend([recode_vcf_cmd, bcftools_sort_cmd, index_vcf_cmd])
+
+#         # Add the output filename to the chunk_output dictionary
+#         chunk_output[(chunk_start, chunk_end)] = f'{geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
+    
+#     for cmd in cmds:
+#         shell_do(cmd)
+    
+#     return chunk_output
 
 
 def run_eagle(geno_in, geno_out, ref_path, map_path, chrom, chunk_start, chunk_end, overlap=5000000, threads=16, eagle_path=None):

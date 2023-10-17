@@ -37,7 +37,7 @@ def main(args):
 
     # run harmonizer
     print('running harmonizer')
-    harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
+    # harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
     print('harmonizer complete')
     print()
 
@@ -47,35 +47,34 @@ def main(args):
     print()
 
 
-    eagle_input = chunk_outs[(chunk_start, chunk_end)]
-    eagle_output = f'{eagle_geno_out}_{chunk_start}_{chunk_end}'
-    impute_output = f'{impute_out}_{chunk_start}_{chunk_end}'
-    
-    # Initialize ProcessPoolExecutor
-    with ProcessPoolExecutor() as executor:
-        # Create a list of futures
-        futures = []
-        for chunk_start, chunk_end in chunk_outs.keys():
-            future = executor.submit(
-                run_phasing_and_imputation,
-                geno_in=eagle_input,
-                phase_out=eagle_output,
-                impute_output=impute_out,
-                phase_ref=eagle_ref,
-                impute_ref=impute_ref,
-                eagle_map=eagle_map,
-                chrom=chrom,
-                chunk_start=chunk_start,
-                chunk_end=chunk_end,
-                threads=threads,
-                eagle_path=eagle_path,
-                minimac_path=minimac_path
-            )
-            futures.append(future)
+    # # Initialize ProcessPoolExecutor
+    # with ProcessPoolExecutor() as executor:
+    #     # Create a list of futures
+    #     futures = []
+    #     for chunk_start, chunk_end in chunk_outs.keys():
+    #         eagle_input = chunk_outs[(chunk_start, chunk_end)]
+    #         eagle_output = f'{eagle_geno_out}_{chunk_start}_{chunk_end}'
+    #         impute_output = f'{impute_out}_{chunk_start}_{chunk_end}'
+    #         future = executor.submit(
+    #             run_phasing_and_imputation,
+    #             geno_in=eagle_input,
+    #             phase_out=eagle_output,
+    #             impute_out=impute_output,
+    #             phase_ref=eagle_ref,
+    #             impute_ref=impute_ref,
+    #             eagle_map=eagle_map,
+    #             chrom=chrom,
+    #             chunk_start=chunk_start,
+    #             chunk_end=chunk_end,
+    #             threads=threads,
+    #             eagle_path=eagle_path,
+    #             minimac_path=minimac_path
+    #         )
+    #         futures.append(future)
 
-        # Wait for all futures to complete and collect the results
-        for future in futures:
-            future.result()  # This will raise an exception if the function encountered any errors
+    #     # Wait for all futures to complete and collect the results
+    #     for future in futures:
+    #         future.result()  # This will raise an exception if the function encountered any errors
 
 
 if __name__ == '__main__':
