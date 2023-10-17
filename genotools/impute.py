@@ -152,7 +152,7 @@ def chunk_genotypes(geno_in, geno_out, chrom, chunk_size=20000000):
         bcftools_sort_cmd = f'bcftools sort {geno_out}_{chunk_start}_{chunk_end}.vcf -Oz -o {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
         index_vcf_cmd = f'tabix -f -p vcf {geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
 
-        full_cmd = f'{recode_vcf_cmd} && {bcftools_sort_cmd} && {index_vcf_cmd}'
+        full_cmd = f'{recode_vcf_cmd} && {bcftools_sort_cmd} && {index_vcf_cmd} && rm {geno_out}_{chunk_start}_{chunk_end}.vcf'
         
         # Add the output filename to the chunk_output dictionary
         chunk_output[(chunk_start, chunk_end)] = f'{geno_out}_{chunk_start}_{chunk_end}.vcf.gz'
