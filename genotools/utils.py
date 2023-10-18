@@ -171,7 +171,7 @@ def concat_logs(step, out_path, listOfFiles):
         os.remove(files)
 
     with open(f'{out_path}_all_logs.log', 'r') as file:
-        process_log(out_path, file.readlines(), ancestry_ran)
+        process_log(out_path, file.readlines())
 
 
 def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
