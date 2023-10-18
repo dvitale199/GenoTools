@@ -171,6 +171,12 @@ if __name__=='__main__':
         else:
             args_dict['het'] = [float(i) for i in args_dict['sex']]
 
+    # clear log files if repeated out path
+    if os.path.exists(f"{args_dict['out_path']}_all_logs.log"):
+        os.remove(f"{args_dict['out_path']}_all_logs.log")
+    if os.path.exists(f"{args_dict['out_path']}_cleaned_logs.log"):
+        os.remove(f"{args_dict['out_path']}_cleaned_logs.log")
+
     # run pipeline
     execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out_path'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, args=args_dict)
             
