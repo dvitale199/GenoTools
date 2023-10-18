@@ -9,6 +9,9 @@ def main(args):
     label = args.label
     memory = args.memory
     threads = args.threads
+    project_path = args.project_path
+    ref_path = arg.ref_path
+    minimac_path = arg.minimac_path
     
     # leave as-is for testing
     project_path = '/data/GP2/projects/gp2_imputation'
@@ -84,6 +87,11 @@ if __name__ == '__main__':
     parser.add_argument('--label', required=True, help='Population label')
     parser.add_argument('--memory', required=True, help='Memory to allocate to each job')
     parser.add_argument('--threads', required=True, help='Number of threads to use')
-    
+    parser.add_argument('--project_path', required=True, help='String file path to working directory')
+    parser.add_argument('---ref_path', required=True, help='')
+    parser.add_argument('---minimac_path', required=True, help='String file path to genotype imputation software minimac')
+    parser.add_argument('---harmonizer_path', required=True, help='String file path to ')
+    parser.add_argument('---eagle_path', required=True, help='')
+    parser.add_argument('---ref_path', required=True, help='')
     args = parser.parse_args()
     main(args)
