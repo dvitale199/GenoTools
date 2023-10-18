@@ -103,11 +103,11 @@ def process_log(out_path, concat_log):
 
     # exclude lines containing this information from log file
     exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
-    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit',
-    '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', 'Step:', '--make-bed to','+']
+    'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit', 'from',
+    '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', '--make-bed to','+']
 
     # save all indices in log file where these instances occur
-    step_indices = [i for i, s in enumerate(concat_log) if 'Step:' in s]
+    step_indices = [i for i, s in enumerate(concat_log) if 'Log:' in s]
     out_indices = [i for i, s in enumerate(concat_log) if '--out' in s]
     ancestry_ran = [True if 'split_cohort_ancestry' in line else False for line in concat_log]
 
@@ -124,12 +124,10 @@ def process_log(out_path, concat_log):
     with open(f"{out_path}_cleaned_logs.log", "w") as f:
         while start < len(step_indices)-1:
             # list step and process names
-            step_line = concat_log[step_indices[start]]
             out_line =  concat_log[out_indices[start]]
             out_name = out_line.split()[1].replace(out_dir, "")
 
             # write final labels for concise step name & ancestry of focus
-            f.write(step_line)
             if any(ancestry_ran):
                 # find ancestry acronym in bfile input line
                 if out_name.split("_")[-1].isupper():
@@ -159,7 +157,7 @@ def concat_logs(step, out_path, listOfFiles):
     with open(f'{out_path}_all_logs.log', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
-                new_file.write(f'Step: {name}\n')
+                new_file.write(f'Log: {name}\n')
                 new_file.write(f'Process: {step}\n')
                 for line in file:
                     new_file.write(line)
