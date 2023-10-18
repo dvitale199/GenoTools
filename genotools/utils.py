@@ -101,6 +101,9 @@ def replace_all(text, dict):
 def process_log(out_path, concat_log):
     out_dir = os.path.dirname(os.path.abspath(out_path))
 
+    # ancestry labels
+    ancestries = ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC']
+
     # exclude lines containing this information from log file
     exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
     'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit', 'from',
@@ -129,10 +132,10 @@ def process_log(out_path, concat_log):
 
             # write final labels for concise step name & ancestry of focus
             if any(ancestry_ran):
-                # find ancestry acronym in bfile input line
-                if out_name.split("_")[-1].isupper():
-                    ancestry_check = out_name.split("_")[-1]
-                    f.write(f'Ancestry: {ancestry_check}\n')
+                # find ancestry acronym in output line
+                ancestry_tokens = [s for s in out_name.split("_") if s in ancestries]
+                if len(ancestry_tokens) >= 1:
+                    f.write(f'Ancestry: {ancestry_tokens[-1]}\n')
             
             # rewrite concatenated log section by section with exclusion criteria
             for i in range(step_indices[start], step_indices[stop]):
