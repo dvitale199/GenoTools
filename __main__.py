@@ -4,11 +4,12 @@ import argparse
 import os
 import tempfile
 
-from genotools.utils import shell_do
+from genotools.utils import shell_do, upfront_check
 from genotools.qc import SampleQC, VariantQC
 from genotools.ancestry import Ancestry
+from genotools.gwas import Assoc
 
-def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, args):
+def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, assoc, args):
     # to know which class to call
     samp_steps = ['callrate','sex','related','het']
     var_steps = ['case_control','haplotype','hwe','geno']
@@ -81,6 +82,18 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             
             else:
                 out_dict[step] = steps_dict[step](args[step])
+            
+        # assoc setup and call
+        if step == 'assoc':
+            assoc.geno_path = step_input
+            assoc.out_path = step_output
+            assoc.pca = args['pca']
+            assoc.build = args['build']
+            assoc.gwas = args['gwas']
+            assoc.covar_path = args['covars']
+            assoc.covar_names = args['covar_names']
+            out_dict[step] = steps_dict[step]()
+
     
     out_dict['paths'] = step_paths
 
@@ -122,6 +135,14 @@ if __name__=='__main__':
     parser.add_argument('--hwe', type=float, nargs='?', default=None, const=1e-4, help='HWE pruning')
     parser.add_argument('--filter_controls', type=str, nargs='?', default='False', const='True', help='Control filter for HWE prune')
 
+    # GWAS and PCA argument
+    parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')
+    parser.add_argument('--build', type=str, nargs='?', default='hg38', const='hg38', help='Build for PCA')
+    parser.add_argument('--gwas', type=str, nargs='?', default='False', const='True', help='Run GWAS')
+    parser.add_argument('--covars', type=str, nargs='?', default=None, const=None, help='Path to external covars')
+    parser.add_argument('--covar_names', type=str, nargs='?', default=None, const=None, help='Covar names to use from external file')
+
+
     # parse args and turn into dict
     args = parser.parse_args()
     args_dict = vars(args)
@@ -131,17 +152,23 @@ if __name__=='__main__':
     samp_qc = SampleQC()
     var_qc = VariantQC()
     ancestry = Ancestry()
+    assoc = Assoc()
 
     # ordered steps with their methods to be called
     ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
                     'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'case_control':var_qc.run_case_control_prune,
-                    'haplotype':var_qc.run_haplotype_prune,'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune}
+                    'haplotype':var_qc.run_haplotype_prune,'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
+                    'assoc':assoc.run_association}
     
     # get correct order of steps to run
     run_steps_list = []
     for key in args_dict:
-        if (args_dict[key] != None) and (args_dict[key] != 'False') and (key in ordered_steps.keys()):
-            run_steps_list.append(key)
+        if (args_dict[key] != None) and (args_dict[key] != 'False'):
+            if key in ordered_steps.keys():
+                run_steps_list.append(key)
+            if ((key == 'pca') or (key == 'gwas')) and ('assoc' not in run_steps_list):
+                run_steps_list.append('assoc')
+
 
     # check run steps and output step
     print(run_steps_list)
@@ -156,6 +183,7 @@ if __name__=='__main__':
     args_dict['prune_related'] = bool(args_dict['prune_related'] == 'True')
     args_dict['prune_duplicated'] = bool(args_dict['prune_duplicated'] == 'True')
     args_dict['filter_controls'] =  bool(args_dict['filter_controls'] == 'True')
+    args_dict['gwas'] = bool(args_dict['gwas'] == 'True')
 
     if args_dict['sex'] is not None:
         if len(args_dict['sex']) == 0:
@@ -177,7 +205,10 @@ if __name__=='__main__':
     if os.path.exists(f"{args_dict['out_path']}_cleaned_logs.log"):
         os.remove(f"{args_dict['out_path']}_cleaned_logs.log")
 
+    # run upfront check
+    upfront_check(args_dict['geno_path'])
+
     # run pipeline
-    execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out_path'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, args=args_dict)
+    execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out_path'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict)
             
     # tmp_dir.cleanup() # to delete directory
