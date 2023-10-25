@@ -98,7 +98,6 @@ class SampleQC:
         return out_dict
 
 
-
     def run_sex_prune(self, check_sex=[0.25,0.75]):
 
         """
@@ -542,69 +541,6 @@ class VariantQC:
         self.geno_path = geno_path
         self.out_path = out_path
 
-    def run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5):
-
-        """
-        Prunes SNPs based on Linkage Disequilibrium
-
-        Parameters:
-        - window_size (int, optional): Size of sliding window over the genome in variant count.
-        - step_size (int, optional): Step of sliding window over the genome.
-        - r2_threshold (float, optional): r^2 threshold to include a variant.
-
-        Returns:
-        - dict: A structured dictionary containing:
-            * 'pass': Boolean indicating the successful completion of the process.
-            * 'step': The label for this procedure ('ld_prune').
-            * 'metrics': Metrics associated with the pruning, such as 'ld_removed_count'.
-            * 'output': Dictionary containing paths to the generated output files.
-        """
-        geno_path = self.geno_path
-        out_path = self.out_path
-
-        step = "ld_prune"
-
-        # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
-
-        # temp file
-        ld_temp = f'{out_path}_ld_temp'
-
-        # get list of SNPs to be extracted
-        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --out {ld_temp}"
-        # and extract
-        plink_cmd2 = f"{plink2_exec} --pfile {ld_temp} --extract {ld_temp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
-
-        cmds = [plink_cmd1, plink_cmd2]
-        for cmd in cmds:
-            shell_do(cmd)
-
-        listOfFiles = [f'{ld_temp}.log', f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
-
-        # ld pruned count
-        ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        ld_rm_count = initial_snp_count - ld_snp_count
-
-        process_complete = True
-
-        outfiles_dict = {
-            'plink_out': out_path
-        }
-
-        metrics_dict = {
-            'ld_removed_count': ld_rm_count
-        }
-
-        out_dict = {
-            'pass': process_complete,
-            'step': step,
-            'metrics': metrics_dict,
-            'output': outfiles_dict
-        }
-
-        return out_dict
-
     def run_geno_prune(self, geno_threshold=0.05):
 
         """
@@ -956,6 +892,69 @@ class VariantQC:
 
         os.remove(f'{hwe_tmp}.hh')
         os.remove(f'{hwe_tmp}.snplist')
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+    def run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5):
+
+        """
+        Prunes SNPs based on Linkage Disequilibrium
+
+        Parameters:
+        - window_size (int, optional): Size of sliding window over the genome in variant count.
+        - step_size (int, optional): Step of sliding window over the genome.
+        - r2_threshold (float, optional): r^2 threshold to include a variant.
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('ld_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'ld_removed_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = "ld_prune"
+
+        # temp file
+        ld_temp = f'{out_path}_ld_temp'
+
+        # get initial snp count
+        initial_snp_count = count_file_lines(f'{geno_path}.bim')
+
+        # get list of SNPs to be extracted
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --out {ld_temp}"
+        # and extract
+        plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {ld_temp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
+
+        cmds = [plink_cmd1, plink_cmd2]
+        for cmd in cmds:
+            shell_do(cmd)
+
+        listOfFiles = [f'{ld_temp}.log', f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+
+        # ld pruned count
+        ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        ld_rm_count = initial_snp_count - ld_snp_count
+
+        process_complete = True
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'ld_removed_count': ld_rm_count
+        }
 
         out_dict = {
             'pass': process_complete,
