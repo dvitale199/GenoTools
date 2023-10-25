@@ -1,9 +1,11 @@
 import subprocess
 import sys
+import shutil
 import argparse
 import os
 import tempfile
 import pandas as pd
+import json
 
 from genotools.utils import shell_do, upfront_check
 from genotools.qc import SampleQC, VariantQC
@@ -28,6 +30,15 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         steps_ancestry = steps[1:]
         steps = [steps[0]]
 
+        # move common snps file to tmp dir if full output is not requested
+        if not args['full_output']:
+            common_snps_file = f'{os.path.dirname(out_path)}/ref_common_snps.common_snps'
+
+            if os.path.isfile(common_snps_file):
+                shutil.copy(common_snps_file, f'{tmp_dir.name}/ref_common_snps.common_snps')
+            else:
+                raise FileNotFoundError(f'{common_snps_file} does not exist.')
+
     out_dict = dict()
 
     # loop through steps
@@ -37,20 +48,12 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
         print(f'Running: {step} with input {step_input} and output: {step_output}')
 
-        # keep track of paths
-        step_paths.append(step_output)
-
-        # remove old files when appropriate
-        if (not args['full_output']) and (len(step_paths) > 2):
-            remove_step_index = step_paths.index(step_output) - 2
-            remove_path = step_paths[remove_step_index]
-            if os.path.isfile(f'{remove_path}.pgen'):
-                os.remove(f'{remove_path}.pgen')
-                os.remove(f'{remove_path}.psam')
-                os.remove(f'{remove_path}.pvar')
-
-        # ancestry setup and call
+    #     # ancestry setup and call
         if step == 'ancestry':
+            # output goes to out_path if no steps requested after ancestry, otherwise put in at out_path_ancestry (for tmps)
+            step_output = f'{step_paths[-1]}_{step}' if len(steps_ancestry) > 0 else out_path
+            step_paths.append(step_output)
+
             ancestry.geno_path = step_input
             ancestry.out_path = step_output
             ancestry.ref_panel = args['ref_panel']
@@ -58,13 +61,17 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             ancestry.model_path = args['model']
             ancestry.containerized = args['container']
             ancestry.singularity = args['singularity']
-            ancestry.subset = args['subset']
+            ancestry.subset = args['subset_ancestry']
             out_dict[step] = steps_dict[step]()
 
             # call ancestry specific steps within each group
             if len(steps_ancestry) > 0:
                 for geno, label in zip(out_dict[step]['output']['split_paths'], out_dict[step]['data']['labels_list']):
-                    out_dict[label] = execute_pipeline(steps_ancestry, steps_dict, geno, f'{out_path}_{label}', samp_qc, var_qc, ancestry, args)
+                    out_dict[label] = execute_pipeline(steps_ancestry, steps_dict, geno, f'{out_path}_{label}', samp_qc, var_qc, ancestry, assoc, args, tmp_dir)
+
+        # keep track of paths
+        else:
+            step_paths.append(step_output)
 
         # samp qc setup and call
         if step in samp_steps:
@@ -101,14 +108,15 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             assoc.covar_path = args['covars']
             assoc.covar_names = args['covar_names']
             out_dict[step] = steps_dict[step]()
-
-    # edge case (when len(steps) = 2, remove outputs of first step after loop)
-    if (not args['full_output']) and (len(steps) == 2):
-        remove_path = step_paths[1]
-        if os.path.isfile(f'{remove_path}.pgen'):
-            os.remove(f'{remove_path}.pgen')
-            os.remove(f'{remove_path}.psam')
-            os.remove(f'{remove_path}.pvar')
+        
+        # remove old files when appropriate 
+        if (not args['full_output']):
+            remove_step_index = step_paths.index(step_output) - 1
+            remove_path = step_paths[remove_step_index]
+            if os.path.isfile(f'{remove_path}.pgen'):
+                os.remove(f'{remove_path}.pgen')
+                os.remove(f'{remove_path}.psam')
+                os.remove(f'{remove_path}.pvar')
 
     out_dict['paths'] = step_paths
 
@@ -130,7 +138,7 @@ def build_metrics_pruned_df(metrics_df, pruned_df, dictionary, ancestry='all'):
                     pruned = pd.read_csv(samplefile, sep='\t')
                     if pruned.shape[0] > 0:
                         pruned.loc[:,'step'] = step
-                        pruned_df = pd.concat([pruned_df, pruned[['FID','IID','step']]], ignore_index=True)
+                        pruned_df = pd.concat([pruned_df, pruned[['#FID','IID','step']]], ignore_index=True)
             else:
                 level = 'variant'
 
@@ -158,7 +166,7 @@ if __name__=='__main__':
     parser.add_argument('--model', type=str, nargs='?', default=None, const='path', help='Path to pickle file with trained ancestry model for passed reference panel')
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
-    parser.add_argument('--subset', nargs='*', help='Subset to continue analysis for')
+    parser.add_argument('--subset_ancestry', nargs='*', help='Subset to continue analysis for')
 
     # sample-level qc arguments
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.02, help='Minimum Callrate threshold for QC')
@@ -251,7 +259,7 @@ if __name__=='__main__':
     # get correct order of steps to run
     run_steps_list = []
     for key in args_dict:
-        if (args_dict[key] != None) and (args_dict[key] != 'False'):
+        if (args_dict[key] != None) and args_dict[key]:
             if key in ordered_steps.keys():
                 run_steps_list.append(key)
             if ((key == 'pca') or (key == 'gwas')) and ('assoc' not in run_steps_list):
@@ -276,33 +284,37 @@ if __name__=='__main__':
     if 'ancestry' in out_dict.keys():
         ancestry_counts_df = pd.DataFrame(out_dict['ancestry']['metrics']['predicted_counts']).reset_index()
         ancestry_counts_df.columns = ['label', 'count']
-        clean_out_dict['ancestry_counts'] = ancestry_counts_df
+        clean_out_dict['ancestry_counts'] = ancestry_counts_df.to_dict()
 
         le = out_dict['ancestry']['data']['label_encoder']
         confusion_matrix = out_dict['ancestry']['data']['confusion_matrix']
         confusion_matrix = pd.DataFrame(confusion_matrix)
         confusion_matrix.columns = le.inverse_transform([i for i in range(10)])
         confusion_matrix.index = le.inverse_transform([i for i in range(10)])
-        clean_out_dict['confusion_matrix'] = confusion_matrix
+        clean_out_dict['confusion_matrix'] = confusion_matrix.to_dict()
 
-        clean_out_dict['ref_pcs'] = out_dict['ancestry']['data']['ref_pcs']
-        clean_out_dict['projected_pcs'] = out_dict['ancestry']['data']['projected_pcs']
-        clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap']
-        clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap']
-        clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap']
-        clean_out_dict['pred_ancestry_labels'] = out_dict['ancestry']['data']['predict_data']['ids']
+        clean_out_dict['ref_pcs'] = out_dict['ancestry']['data']['ref_pcs'].to_dict()
+        clean_out_dict['projected_pcs'] = out_dict['ancestry']['data']['projected_pcs'].to_dict()
+        clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap'].to_dict()
+        clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap'].to_dict()
+        clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap'].to_dict()
+        clean_out_dict['pred_ancestry_labels'] = out_dict['ancestry']['data']['predict_data']['ids'].to_dict()
     
-    for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC']:
-        if ancestry in out_dict.keys():
-            metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict[ancestry], ancestry=ancestry)
+        for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC']:
+            if ancestry in out_dict.keys():
+                metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict[ancestry], ancestry=ancestry)
 
-    metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict)
+    else:
+        metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict)
 
-    clean_out_dict['QC'] = metrics_df
-    clean_out_dict['pruned_samples'] = pruned_df
+    # for weird error with the first sample in pruned file showing up twice when run in tmp file
+    pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
+
+    clean_out_dict['QC'] = metrics_df.to_dict()
+    clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
-    with open(f'{args["out_path"]}.json', 'w') as f:
-        f.dump(out_dict)
+    with open(f'{args_dict["out_path"]}.json', 'w') as f:
+        json.dump(clean_out_dict, f)
 
     tmp_dir.cleanup() # to delete directory

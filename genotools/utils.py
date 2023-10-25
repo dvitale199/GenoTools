@@ -49,14 +49,12 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
 
 
 def upfront_check(geno_path, args):
-    fam = pd.read_csv(f'{geno_path}.fam', header=None, sep = '\s+', 
-                      names = ['FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype'])
-    bim = pd.read_csv(f'{geno_path}.bim', header = None, sep = '\s+', low_memory = False,
-                      names = ['CHR', 'SNP_ID', 'Genetic_Distance', 'Position', 'A1', 'A2'])
+    sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
+    var = pd.read_csv(f'{geno_path}.pvar', sep = '\s+', low_memory = False)
 
-    sex_counts = fam['Sex'].value_counts().to_dict()
-    pheno_counts = fam['Phenotype'].value_counts().to_dict()
-    chr_counts = bim['CHR'].value_counts().to_dict()
+    sex_counts = sam['SEX'].value_counts().to_dict()
+    pheno_counts = sam['PHENO1'].value_counts().to_dict()
+    chr_counts = var['#CHROM'].value_counts().to_dict()
 
     # print breakdown of data 
     print("Your data has the following breakdown:")
@@ -102,7 +100,7 @@ def upfront_check(geno_path, args):
             args['case_control'] = None
         
         # skip het prune if less than 50 samples are present
-        if (args['het'] is not None) and (fam.shape[0] < 50):
+        if (args['het'] is not None) and (var.shape[0] < 50):
             warnings.warn('You tried calling het prune with less than 50 samples. Skipping...')
             args['het'] = None
 
