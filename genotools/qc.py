@@ -43,7 +43,7 @@ class SampleQC:
             raise ValueError("Both geno_path and out_path must be set before calling this method.")
 
         # Check path validity
-        if not os.path.exists(f'{geno_path}.bed'):
+        if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
         
         # Check type of mind
@@ -58,7 +58,7 @@ class SampleQC:
         
         outliers_out = f'{out_path}.outliers'
         
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --mind {mind} --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --mind {mind} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         shell_do(plink_cmd1)
 
@@ -70,7 +70,10 @@ class SampleQC:
             irem.to_csv(outliers_out, sep='\t', header=True, index=False)
 
             outlier_count = sum(1 for line in open(f'{outliers_out}'))
-            
+
+            # remove mindrem.id file
+            os.remove(f'{out_path}.mindrem.id')
+
         else:
             outlier_count = 0
             
@@ -115,12 +118,35 @@ class SampleQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check check_sex is two values
+        if len(check_sex) != 2:
+            raise ValueError("check_sex should contain two values.")        
+        
+        # Check type of check_sex
+        if (not isinstance(check_sex[0], float)) or (not isinstance(check_sex[1], float)) or (not isinstance(check_sex, list)):
+            raise TypeError("check_sex values should be a list of two floats.")
+        
+        # Check check_sex is within bounds
+        if (check_sex[0] < 0 or check_sex[0] > 1) or (check_sex[1] < 0 or check_sex[1] > 1):
+            raise ValueError("check_sex values should be between 0 and 1.")
+
         step = "sex_prune"
 
         # create filenames
         sex_tmp1 = f"{out_path}_tmp1"
         sex_tmp2 = f"{out_path}_tmp2"
         sex_fails = f"{out_path}.outliers"
+
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
 
         # check sex 2 methods
         plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
@@ -149,7 +175,7 @@ class SampleQC:
             sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 
             # remove sex fail samples from geno
-            plink_cmd3 = f"{plink2_exec} --bfile {geno_path} --remove {sex_fails} --make-bed --out {out_path}"
+            plink_cmd3 = f"{plink2_exec} --pfile {geno_path} --remove {sex_fails} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
             
             shell_do(plink_cmd3)
 
@@ -157,6 +183,12 @@ class SampleQC:
             concat_logs(step, out_path, listOfFiles)
             
             process_complete = True
+
+            # remove intermediate files
+            os.remove(f'{sex_tmp1}.hh')
+            os.remove(f'{sex_tmp1}.sexcheck')
+            os.remove(f'{sex_tmp2}.hh')
+            os.remove(f'{sex_tmp2}.sexcheck')
 
             # log outputs
             outfiles_dict = {
@@ -212,6 +244,22 @@ class SampleQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check het_filter is two values
+        if len(het_filter) != 2:
+            raise ValueError("check_sex should contain two values.")        
+        
+        # Check type of het_filter
+        if (not isinstance(het_filter[0], float)) or (not isinstance(het_filter[1], float)) or (not isinstance(het_filter, list)):
+            raise TypeError("check_sex values should be of type int or float.")
+
         step = "het_prune"
 
         het_tmp = f"{out_path}_tmp"
@@ -221,9 +269,9 @@ class SampleQC:
         
         # variant(maf=0.05, geno=0.01, indep_pairwise=[50,5,0.5])
 
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {het_tmp}.prune.in --make-bed --out {het_tmp2}"
-        plink_cmd3 = f"{plink2_exec} --bfile {het_tmp2} --het --out {het_tmp3}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
+        plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {het_tmp2}"
+        plink_cmd3 = f"{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}"
 
         cmds1 = [plink_cmd1, plink_cmd2, plink_cmd3]
 
@@ -242,14 +290,14 @@ class SampleQC:
             outlier_count = het_outliers.shape[0]
             het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
         
-            plink_cmd4 = f"{plink2_exec} --bfile {geno_path} --remove {outliers_out} --make-bed --out {out_path}"
+            plink_cmd4 = f"{plink2_exec} --pfile {geno_path} --remove {outliers_out} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
             shell_do(plink_cmd4)
 
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
 
-            if os.path.isfile(f'{out_path}.bed'):
+            if os.path.isfile(f'{out_path}.pgen'):
                 outfiles_dict = {
                     'pruned_samples': outliers_out,
                     'plink_out': out_path
@@ -260,6 +308,14 @@ class SampleQC:
                 }
 
                 process_complete = True
+
+                # remove intermediate files
+                os.remove(f'{het_tmp}.prune.in')
+                os.remove(f'{het_tmp}.prune.out')
+                os.remove(f'{het_tmp2}.bed')
+                os.remove(f'{het_tmp2}.bim')
+                os.remove(f'{het_tmp2}.fam')
+                os.remove(f'{het_tmp3}.het')
             
             else:
                 print(f'Heterozygosity pruning failed!')
@@ -274,14 +330,7 @@ class SampleQC:
                     'outlier_count': 0
                 }
 
-                process_complete = False
-
-            out_dict = {
-                'pass': process_complete,
-                'step': step,
-                'metrics': metrics_dict,
-                'output': outfiles_dict
-            }          
+                process_complete = False       
         
         else:
             print(f'Heterozygosity pruning failed!')
@@ -332,33 +381,50 @@ class SampleQC:
 
         step = "related_prune"
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of related and duplicated cutoff
+        if not (isinstance(related_cutoff, float) and isinstance(duplicated_cutoff, float)):
+            raise TypeError("related_cutoff and duplicated_cutoff should be of type int or float.")
+        
+        # Check valid range for geno_threshold
+        if related_cutoff < 0 or related_cutoff > 1 or duplicated_cutoff < 0 or duplicated_cutoff > 1:
+            raise ValueError("related_cutoff and duplicated_cutoff should be between 0 and 1.")
+
         grm1 = f"{out_path}_total_grm"
         grm2 = f"{out_path}_related_grm"
         grm3 = f"{out_path}_duplicated_grm"
 
-        related_out = f"{out_path}_pairs.related"
+        related_pairs = f"{out_path}_pairs"
+        related_out = f"{related_pairs}.related"
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
-        king_cmd1 = f'{plink2_exec} --bfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen --out {grm1}'
+        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,phenos --out {grm1}'
         # create table of related pairs
-        king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {out_path}_pairs'
+        king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
-        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {related_cutoff} --out {grm2}' 
+        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {related_cutoff} --out {grm2}' 
         # see if any samples are duplicated (grm cutoff >= 0.354)
-        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {out_path}_pairs {duplicated_cutoff} --out {grm3}' 
+        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {duplicated_cutoff} --out {grm3}' 
 
         cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
         for cmd in cmds:
             shell_do(cmd)
 
-        listOfFiles = [f'{grm1}.log', f'{out_path}_pairs.log', f'{grm2}.log', f'{grm3}.log']
+        listOfFiles = [f'{grm1}.log', f'{related_pairs}.log', f'{grm2}.log', f'{grm3}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        if os.path.isfile(f'{out_path}_pairs.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
+        if os.path.isfile(f'{related_pairs}.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
             # create .related related pair sample files
-            shutil.copy(f'{out_path}_pairs.kin0',f'{out_path}_pairs.related')
+            shutil.copy(f'{related_pairs}.kin0',f'{related_pairs}.related')
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
@@ -372,7 +438,7 @@ class SampleQC:
 
             # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
             if prune_related and prune_duplicated:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-bed --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
                 shell_do(plink_cmd1) 
 
                 related = pd.read_csv(f'{grm2}.related', sep = '\s+')
@@ -388,7 +454,7 @@ class SampleQC:
                 process_complete = True
             
             if prune_duplicated and not prune_related:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-bed --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
                 shell_do(plink_cmd1) 
 
                 grm_pruned = duplicated
@@ -415,15 +481,23 @@ class SampleQC:
                 process_complete = False
 
 
-            if os.path.isfile('{out_path}.log'):
+            if os.path.isfile(f'{out_path}.log'):
                 listOfFiles = [f'{out_path}.log']
                 concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
             os.remove(f'{grm1}.pgen')
-            os.remove(f'{grm1}.pvar')
             os.remove(f'{grm1}.psam')
-            os.remove(f'{out_path}_pairs.kin0')
+            os.remove(f'{grm1}.pvar')
+            os.remove(f'{grm2}.king.cutoff.in.id')
+            os.remove(f'{grm2}.king.cutoff.out.id')
+            os.remove(f'{grm2}.related')
+            os.remove(f'{grm3}.duplicated')
+            os.remove(f'{grm3}.king.cutoff.in.id')
+            os.remove(f'{grm3}.king.cutoff.out.id')
+            os.remove(f'{related_pairs}.king.bin')
+            os.remove(f'{related_pairs}.king.id')
+            os.remove(f'{related_pairs}.kin0')            
 
             outfiles_dict = {
                 'pruned_samples': related_pruned_out,
@@ -464,7 +538,7 @@ class SampleQC:
 
 class VariantQC:
 
-    def __init__(self, geno_path, out_path):
+    def __init__(self, geno_path=None, out_path=None):
         self.geno_path = geno_path
         self.out_path = out_path
 
@@ -487,20 +561,36 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of geno_treshold
+        if not isinstance(geno_threshold, float):
+            raise TypeError("geno_threshold should be of type int or float.")
+        
+        # Check valid range for geno_threshold
+        if geno_threshold < 0 or geno_threshold > 1:
+            raise ValueError("geno_threshold should be between 0 and 1.")
+
         step = "geno_prune"
 
         # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno_path}.bim')
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # variant missingness
-        plink_cmd1 = f"{plink2_exec} --bfile {geno_path} --geno {geno_threshold} --make-bed --out {out_path}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.05 --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(plink_cmd1)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
         # geno pruned count
-        geno_snp_count = count_file_lines(f'{out_path}.bim')
+        geno_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         geno_rm_count = initial_snp_count - geno_snp_count
 
         process_complete = True
@@ -542,8 +632,27 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of p_threshold
+        if not isinstance(p_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check valid range for p_threshold
+        if p_threshold < 0 or p_threshold > 1:
+            raise ValueError("p_threshold should be between 0 and 1.")
+
         step = "case_control_missingness_prune"
         mis_tmp = f'{out_path}_mis_tmp'
+
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
         
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
@@ -565,17 +674,21 @@ class VariantQC:
                 exclude = mis[mis.P <= p_threshold].loc[:,'SNP']
                 exclude.to_csv(f'{mis_tmp}.exclude', sep='\t', header=False, index=False)
 
-                plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-bed --out {out_path}"
+                plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {mis_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
                 shell_do(plink_cmd2)
 
                 listOfFiles = [f'{out_path}.log']
                 concat_logs(step, out_path, listOfFiles)
 
                 # mis pruned count
-                mis_snp_count = count_file_lines(f'{out_path}.bim')
+                mis_snp_count = count_file_lines(f'{out_path}.pvar') - 1
                 mis_rm_count = initial_snp_count - mis_snp_count
 
                 process_complete = True
+
+                os.remove(f'{mis_tmp}.exclude')
+                os.remove(f'{mis_tmp}.hh')
+                os.remove(f'{mis_tmp}.missing')
 
             else:
                 print(f'Case/Control Missingness pruning failed!')
@@ -627,11 +740,30 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of p_threshold
+        if not isinstance(p_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check valid range for p_threshold
+        if p_threshold < 0 or p_threshold > 1:
+            raise ValueError("p_threshold should be between 0 and 1.")
+
         step = "haplotype_prune"
 
         # make tmp names
         # missingness by haplotype
         hap_tmp = f'{out_path}_hap_tmp'
+
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
 
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
@@ -649,14 +781,14 @@ class VariantQC:
         snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
         snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
 
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-bed --out {out_path}"
+        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         shell_do(plink_cmd2)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
         # hap pruned count
-        hap_snp_count = count_file_lines(f'{out_path}.bim')
+        hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         hap_rm_count = initial_snp_count - hap_snp_count
 
         outfiles_dict = {
@@ -668,6 +800,10 @@ class VariantQC:
         }
 
         process_complete = True
+
+        os.remove(f'{hap_tmp}.exclude')
+        os.remove(f'{hap_tmp}.hh')
+        os.remove(f'{hap_tmp}.missing.hap')
 
         out_dict = {
             'pass': process_complete,
@@ -699,9 +835,28 @@ class VariantQC:
         geno_path = self.geno_path
         out_path = self.out_path
 
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+        
+        # Check type of hwe_threshold
+        if not isinstance(hwe_threshold, float):
+            raise TypeError("p_threshold should be of type int or float.")
+        
+        # Check type of filter_controls
+        if not isinstance(filter_controls, bool):
+            raise TypeError("filter_controls should be of type boolean.")
+
         step = "hwe_prune"
 
         hwe_tmp = f'{out_path}_hwe_tmp'
+
+        # convert to bfiles
+        bfiles_to_pfiles(pfile_path=geno_path)
 
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
@@ -713,7 +868,7 @@ class VariantQC:
             # HWE using P > 1E-4
             plink_cmd1 = f"{plink_exec} --bfile {geno_path} --hwe {hwe_threshold} --write-snplist --out {hwe_tmp}"
 
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-bed --out {out_path}"
+        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --extract {hwe_tmp}.snplist --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         cmds = [plink_cmd1, plink_cmd2]
         for cmd in cmds:
@@ -723,7 +878,7 @@ class VariantQC:
         concat_logs(step, out_path, listOfFiles)
 
         # hwe pruned count
-        final_snp_count = count_file_lines(f'{out_path}.bim')
+        final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
         hwe_rm_count = initial_snp_count - final_snp_count
 
         outfiles_dict = {
@@ -735,6 +890,9 @@ class VariantQC:
         }
 
         process_complete = True
+
+        os.remove(f'{hwe_tmp}.hh')
+        os.remove(f'{hwe_tmp}.snplist')
 
         out_dict = {
             'pass': process_complete,

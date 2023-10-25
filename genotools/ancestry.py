@@ -10,15 +10,16 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 import pickle as pkl
 import json
+import warnings
 
-from genotools.utils import shell_do, get_common_snps
+from genotools.utils import shell_do, get_common_snps, concat_logs
 from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-class ancestry:
-    def __init__(self, geno_path, ref_panel, ref_labels, out_path, model_path=None, containerized=False, singularity=False, train_param_grid=None):
+class Ancestry:
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -26,17 +27,8 @@ class ancestry:
         self.out_path = out_path
         self.model_path = model_path
         self.containerized = containerized
-        self.singulatity = singularity
-        self.train_param_grid = train_param_grid
-        #NOTE: plotting may eventually go somewhere different
-        self.plot_dir = f'{os.path.dirname(out_path)}/plot_ancestry'
-        os.makedirs(self.plot_dir, exist_ok=True)
-
-        # setting train variable to false if there is a model path or containerized predictions
-        if self.model_path or self.containerized:
-            self.train = False
-        else:
-            self.train = True
+        self.singularity = singularity
+        self.subset = subset
     
 
     def get_raw_files(self):
@@ -72,16 +64,28 @@ class ancestry:
             out_paths = {**out_paths, **common_snps_files}
         # otherwise extract common snps from training
         else:
-            extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
-            shell_do(extract_cmd)
+            if not os.path.exists(f'{common_snps_file}'):
+                raise FileNotFoundError(f"{common_snps_file} does not exist.")
+            else:
+                extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+                shell_do(extract_cmd)
 
-            # add to out_paths (same as common_snps_files)
-            out_paths['common_snps'] = common_snps_file
-            out_paths['bed'] = ref_common_snps
+                listOfFiles = [f'{ref_common_snps}.log']
+                concat_logs(step, self.out_path, listOfFiles)
+    
+                # add to out_paths (same as common_snps_files)
+                out_paths['common_snps'] = common_snps_file
+                out_paths['bed'] = ref_common_snps
+                
+        if not os.path.exists(f'{ref_common_snps}.bed'):
+            raise FileNotFoundError(f"{ref_common_snps} PLINK binaries (bed/bim/fam) do not exist.")
 
         # get raw version of common snps - reference panel
         raw_ref_cmd = f'{plink2_exec} --bfile {ref_common_snps} --recode A --out {ref_common_snps}'
         shell_do(raw_ref_cmd)
+
+        if not os.path.exists(f'{ref_common_snps}.raw'):
+            raise FileNotFoundError(f"{ref_common_snps}.raw does not exist.")
 
         # read in raw common snps
         ref_raw = pd.read_csv(f'{ref_common_snps}.raw', sep='\s+')
@@ -177,6 +181,21 @@ class ancestry:
         raw_geno = pd.concat([geno_ids, geno_snps], axis=1)
         raw_geno.columns = col_names
         raw_geno['label'] = 'new'
+
+        # concat logs
+        listOfFiles = [f'{geno_prune_path}.log', f'{geno_prune_path}_flip.log', f'{ref_common_snps}.log', f'{geno_common_snps}.log']
+        concat_logs(step, self.out_path, listOfFiles)
+        
+        # remove intermediate files
+        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw']
+        files = [geno_prune_path, ref_common_snps, f'{geno_prune_path}_flip', f'{self.out_path}_common_snps',
+                 f'{self.out_path}_common_snps_switch']
+
+        for file in files:
+            for ext in extensions:
+                file_ext = f'{file}.{ext}'
+                if os.path.exists(file_ext):
+                    os.remove(file_ext)
 
         out_dict = {
             'raw_ref': labeled_ref_raw,
@@ -399,10 +418,7 @@ class ancestry:
 
         step = "train_umap_classifier"
 
-        if self.train_param_grid:
-            param_grid = self.train_param_grid
-        else:
-            param_grid = {
+        param_grid = {
             "umap__n_neighbors": [5, 20],
             "umap__n_components": [15, 25],
             "umap__a":[0.75, 1.0, 1.5],
@@ -588,7 +604,7 @@ class ancestry:
         pd.Series(y_test).to_csv(f'{container_dir}/y_test.txt', sep='\t', index=False, header=False)
         projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
 
-        if self.singulatity:
+        if self.singularity:
             shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
             shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
             os.remove(f'{container_dir}/get_predictions.sif')
@@ -623,7 +639,7 @@ class ancestry:
         trained_clf_out_dict = {
             'confusion_matrix': pipe_clf_c_matrix,
             'test_accuracy': test_acc,
-            'umap_parameters': params
+            'params': params
         }
 
         le = label_encoder
@@ -725,7 +741,7 @@ class ancestry:
         return out_dict
     
 
-    def split_cohort_ancestry(self, labels_path, subset=False):
+    def split_cohort_ancestry(self, labels_path):
         """
         Split a cohort based on predicted ancestries.
 
@@ -744,11 +760,12 @@ class ancestry:
         outfiles = list()
 
         # subset is a list of ancestries to continue analysis for passed by the user
-        if subset:
-            split_labels = subset
+        if self.subset:
+            split_labels = self.subset
         else:
             split_labels = pred_labels.label.unique()
 
+        listOfFiles = []
         for label in split_labels:
             labels_list.append(label)
             outname = f'{self.out_path}_{label}'
@@ -756,14 +773,19 @@ class ancestry:
             ancestry_group_outpath = f'{outname}.samples'
             pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-            plink_cmd = f'{plink2_exec} --bfile {self.geno_path} --keep {ancestry_group_outpath} --make-bed --out {outname}'
-
+            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
             shell_do(plink_cmd)
+
+            listOfFiles.append(f'{outname}.log')
+            
+        concat_logs(step, self.out_path, listOfFiles)
 
         output_dict = {
             'labels': labels_list,
             'paths': outfiles
         }
+
+        return output_dict
 
 
     def run_ancestry(self):
@@ -775,6 +797,35 @@ class ancestry:
         """
 
         step = "predict_ancestry"
+
+        #NOTE: deal with plotting later
+        # self.plot_dir = f'{os.path.dirname(self.out_path)}/plot_ancestry'
+        # os.makedirs(self.plot_dir, exist_ok=True)
+
+        # setting train variable to false if there is a model path or containerized predictions
+        ## Note sure if its considered bad style to set self variables outside __init__
+        if self.model_path or self.containerized:
+            self.train = False
+        else:
+            self.train = True
+
+        # Check that paths are set
+        if not all([self.geno_path, self.ref_panel, self.ref_labels, self.out_path]):
+            raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
+
+        # Check path validity
+        if not os.path.exists(f'{self.geno_path}.pgen'):
+            raise FileNotFoundError(f"{self.geno_path} does not exist.")
+        elif not os.path.exists(f'{self.ref_panel}.bed'):
+            raise FileNotFoundError(f"{self.ref_panel} does not exist.")
+        elif not os.path.exists(f'{self.ref_labels}'):
+            raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
+        
+        # Check testing param validaity
+        elif self.model_path and self.containerized:
+            warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
+        
+        #NOTE: need to add in a check for docker, if not throw an error and say request singularity
 
         raw = self.get_raw_files()
 
@@ -825,7 +876,7 @@ class ancestry:
             ref_pca=calc_pcs['labeled_ref_pca'],
             X_new=pred['data']['X_new'],
             y_pred=pred['data']['ids'],
-            params=trained_clf['umap_parameters']
+            params=trained_clf['params']
         )
 
         #NOTE: Just copying over here for the sake of having everything, figure out plotting later
@@ -879,6 +930,8 @@ class ancestry:
         #         z_range=z_range
         #     )
 
+        ancestry_split = self.split_cohort_ancestry(labels_path=pred['output']['labels_outpath'])
+
 
         data_dict = {
             'predict_data': pred['data'],
@@ -889,7 +942,8 @@ class ancestry:
             'total_umap': umap_transforms['total_umap'],
             'ref_umap': umap_transforms['ref_umap'],
             'new_samples_umap': umap_transforms['new_samples_umap'],
-            'label_encoder': train_split['label_encoder']
+            'label_encoder': train_split['label_encoder'],
+            'labels_list': ancestry_split['labels']
         }
 
         metrics_dict = {
@@ -898,7 +952,8 @@ class ancestry:
         }
 
         outfiles_dict = {
-            'predicted_labels': pred['output']
+            'predicted_labels': pred['output'],
+            'split_paths': ancestry_split['paths']
         }
         
         out_dict = {
