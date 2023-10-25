@@ -2,6 +2,7 @@ import pandas as pd
 import argparse
 import shutil
 import os
+import zarr
 
 # local imports
 from QC.qc import callrate_prune, het_prune, sex_prune, related_prune, variant_prune, plink_pca
@@ -170,14 +171,31 @@ ref_umap = ancestry['data']['ref_umap']
 new_samples_umap = ancestry['data']['new_samples_umap']
 pred_ancestry_labels = ancestry['data']['predict_data']['ids']
 
-metrics_df.to_hdf(metrics_outfile, key='QC', mode='w')
-pruned_samples_df.to_hdf(metrics_outfile, key='pruned_samples')
-ancestry_counts_df.to_hdf(metrics_outfile, key='ancestry_counts')
-pred_ancestry_labels.to_hdf(metrics_outfile, key='ancestry_labels')
-conf_mat_df.to_hdf(metrics_outfile, key='confusion_matrix', index=True)
-ref_pcs.to_hdf(metrics_outfile, key='ref_pcs')
-projected_pcs.to_hdf(metrics_outfile, key='projected_pcs')
-total_umap.to_hdf(metrics_outfile, key='total_umap')
-ref_umap.to_hdf(metrics_outfile, key='ref_umap')
-new_samples_umap.to_hdf(metrics_outfile, key='new_samples_umap')
+
+
+# Create a Zarr store (in this case a directory-based store)
+root = zarr.open_group('path_to_your_zarr_directory', mode='w')
+
+# Write dataframes to the Zarr store
+metrics_df.to_zarr(root.create_group('QC'), mode='w')
+pruned_samples_df.to_zarr(root.create_group('pruned_samples'), mode='w')
+ancestry_counts_df.to_zarr(root.create_group('ancestry_counts'), mode='w')
+pred_ancestry_labels.to_zarr(root.create_group('ancestry_labels'), mode='w')
+conf_mat_df.to_zarr(root.create_group('confusion_matrix'), mode='w')
+ref_pcs.to_zarr(root.create_group('ref_pcs'), mode='w')
+projected_pcs.to_zarr(root.create_group('projected_pcs'), mode='w')
+total_umap.to_zarr(root.create_group('total_umap'), mode='w')
+ref_umap.to_zarr(root.create_group('ref_umap'), mode='w')
+new_samples_umap.to_zarr(root.create_group('new_samples_umap'), mode='w')
+
+# metrics_df.to_hdf(metrics_outfile, key='QC', mode='w')
+# pruned_samples_df.to_hdf(metrics_outfile, key='pruned_samples')
+# ancestry_counts_df.to_hdf(metrics_outfile, key='ancestry_counts')
+# pred_ancestry_labels.to_hdf(metrics_outfile, key='ancestry_labels')
+# conf_mat_df.to_hdf(metrics_outfile, key='confusion_matrix', index=True)
+# ref_pcs.to_hdf(metrics_outfile, key='ref_pcs')
+# projected_pcs.to_hdf(metrics_outfile, key='projected_pcs')
+# total_umap.to_hdf(metrics_outfile, key='total_umap')
+# ref_umap.to_hdf(metrics_outfile, key='ref_umap')
+# new_samples_umap.to_hdf(metrics_outfile, key='new_samples_umap')
 
