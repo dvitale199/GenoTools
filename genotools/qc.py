@@ -902,8 +902,7 @@ class VariantQC:
         }
 
         return out_dict
-
-
+    
     def run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5):
 
         """
