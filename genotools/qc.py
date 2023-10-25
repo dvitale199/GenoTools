@@ -20,8 +20,8 @@ class SampleQC:
         """
         Execute call rate pruning on genotype data using PLINK.
 
-        This function performs call rate pruning based on a user-specified threshold for 
-        the missing genotype rate. If an individual's missing genotype rate surpasses the 
+        This function performs call rate pruning based on a user-specified threshold for
+        the missing genotype rate. If an individual's missing genotype rate surpasses the
         given threshold, the individual will be excluded from the dataset.
 
         Parameters:
@@ -34,7 +34,7 @@ class SampleQC:
             * 'metrics': Metrics associated with the pruning, such as the 'outlier_count'.
             * 'output': Dictionary containing paths to the generated output files like 'pruned_samples' and 'plink_out'.
         """
-        
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -45,26 +45,26 @@ class SampleQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of mind
         if not isinstance(mind, (int, float)):
             raise TypeError("mind should be of type int or float.")
-        
+
         # Check valid range for mind
         if mind < 0 or mind > 1:
             raise ValueError("mind should be between 0 and 1.")
 
         step = "callrate_prune"
-        
+
         outliers_out = f'{out_path}.outliers'
-        
+
         plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --mind {mind} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
         shell_do(plink_cmd1)
 
         listOfFiles = [f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
-        
+
         if os.path.isfile(f'{out_path}.mindrem.id'):
             irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+', header=None, names=['FID','IID'])
             irem.to_csv(outliers_out, sep='\t', header=True, index=False)
@@ -76,9 +76,9 @@ class SampleQC:
 
         else:
             outlier_count = 0
-            
+
         process_complete = True
-        
+
         outfiles_dict = {
             'pruned_samples': f'{outliers_out}',
             'plink_out': f'{out_path}',
@@ -103,10 +103,10 @@ class SampleQC:
 
         """
         Execute sex-based pruning on genotype data using PLINK.
-        
+
         Parameters:
         - check_sex (list of float, optional): Two values indicating the lower and upper bounds for sex discrepancy checks. Default values are [0.25, 0.75].
-        
+
         Returns:
         - dict: A structured dictionary containing:
             * 'pass': Boolean indicating the successful completion of the process.
@@ -114,7 +114,7 @@ class SampleQC:
             * 'metrics': Metrics associated with the pruning, such as 'outlier_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
-        
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -125,15 +125,15 @@ class SampleQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check check_sex is two values
         if len(check_sex) != 2:
-            raise ValueError("check_sex should contain two values.")        
-        
+            raise ValueError("check_sex should contain two values.")
+
         # Check type of check_sex
         if (not isinstance(check_sex[0], float)) or (not isinstance(check_sex[1], float)) or (not isinstance(check_sex, list)):
             raise TypeError("check_sex values should be a list of two floats.")
-        
+
         # Check check_sex is within bounds
         if (check_sex[0] < 0 or check_sex[0] > 1) or (check_sex[1] < 0 or check_sex[1] > 1):
             raise ValueError("check_sex values should be between 0 and 1.")
@@ -176,12 +176,12 @@ class SampleQC:
 
             # remove sex fail samples from geno
             plink_cmd3 = f"{plink2_exec} --pfile {geno_path} --remove {sex_fails} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
-            
+
             shell_do(plink_cmd3)
 
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
-            
+
             process_complete = True
 
             # remove intermediate files
@@ -199,7 +199,7 @@ class SampleQC:
             metrics_dict = {
                 'outlier_count': sex_fail_count
             }
-        
+
         else:
             print('Sex Prune Failed!')
             print(f'Check {sex_tmp1}.log and {sex_tmp2}.log for more information')
@@ -223,16 +223,16 @@ class SampleQC:
         }
 
         return out_dict
-    
+
 
     def run_het_prune(self, het_filter=[-0.25,0.25]):
 
         """
         Execute heterozygosity-based pruning on genotype data using PLINK.
-        
+
         Parameters:
         - het_filter (list of float, optional): Two values indicating the bounds for heterozygosity outlier checks. Default values are [-0.25, 0.25].
-        
+
         Returns:
         - dict: A structured dictionary containing:
             * 'pass': Boolean indicating the successful completion of the process.
@@ -251,11 +251,11 @@ class SampleQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check het_filter is two values
         if len(het_filter) != 2:
-            raise ValueError("check_sex should contain two values.")        
-        
+            raise ValueError("check_sex should contain two values.")
+
         # Check type of het_filter
         if (not isinstance(het_filter[0], float)) or (not isinstance(het_filter[1], float)) or (not isinstance(het_filter, list)):
             raise TypeError("check_sex values should be of type int or float.")
@@ -266,7 +266,7 @@ class SampleQC:
         het_tmp2 = f"{out_path}_tmp2"
         het_tmp3 = f"{out_path}_tmp3"
         outliers_out = f"{out_path}.outliers"
-        
+
         # variant(maf=0.05, geno=0.01, indep_pairwise=[50,5,0.5])
 
         plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
@@ -280,7 +280,7 @@ class SampleQC:
 
         listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
         concat_logs(step, out_path, listOfFiles)
-        
+
         # check if het_tmp3 is created. if not, skip this.
         # NOTE: there may be legitimate reasons for this, for example, if only one sample in genotype file (sometimes happens in ancestry split method)
         hetpath = f'{het_tmp3}.het'
@@ -289,7 +289,7 @@ class SampleQC:
             het_outliers = het[((het.F <= het_filter[0]) | (het.F >= het_filter[1]))]
             outlier_count = het_outliers.shape[0]
             het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
-        
+
             plink_cmd4 = f"{plink2_exec} --pfile {geno_path} --remove {outliers_out} --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
 
             shell_do(plink_cmd4)
@@ -316,7 +316,7 @@ class SampleQC:
                 os.remove(f'{het_tmp2}.bim')
                 os.remove(f'{het_tmp2}.fam')
                 os.remove(f'{het_tmp3}.het')
-            
+
             else:
                 print(f'Heterozygosity pruning failed!')
                 print(f'Check {out_path}.log for more information')
@@ -330,12 +330,12 @@ class SampleQC:
                     'outlier_count': 0
                 }
 
-                process_complete = False       
-        
+                process_complete = False
+
         else:
             print(f'Heterozygosity pruning failed!')
             print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
-            
+
             outfiles_dict = {
                 'pruned_samples': 'Heterozygosity Pruning Failed!',
                 'plink_out': [het_tmp, het_tmp2, het_tmp3]
@@ -344,9 +344,9 @@ class SampleQC:
             metrics_dict = {
                 'outlier_count': 0
             }
-        
+
             process_complete = False
-        
+
         out_dict = {
             'pass': process_complete,
             'step': step,
@@ -361,13 +361,13 @@ class SampleQC:
 
         """
         Execute pruning based on relatedness and duplication checks on genotype data using PLINK and KING.
-        
+
         Parameters:
         - related_cutoff (float, optional): Threshold for relatedness check. Default value is 0.0884.
         - duplicated_cutoff (float, optional): Threshold for duplication check. Default value is 0.354.
         - prune_related (bool, optional): Whether to prune related samples. Default is True.
         - prune_duplicated (bool, optional): Whether to prune duplicated samples. Default is True.
-        
+
         Returns:
         - dict: A structured dictionary containing:
             * 'pass': Boolean indicating the successful completion of the process.
@@ -388,11 +388,11 @@ class SampleQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of related and duplicated cutoff
         if not (isinstance(related_cutoff, float) and isinstance(duplicated_cutoff, float)):
             raise TypeError("related_cutoff and duplicated_cutoff should be of type int or float.")
-        
+
         # Check valid range for geno_threshold
         if related_cutoff < 0 or related_cutoff > 1 or duplicated_cutoff < 0 or duplicated_cutoff > 1:
             raise ValueError("related_cutoff and duplicated_cutoff should be between 0 and 1.")
@@ -410,9 +410,9 @@ class SampleQC:
         # create table of related pairs
         king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
-        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {related_cutoff} --out {grm2}' 
+        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {related_cutoff} --out {grm2}'
         # see if any samples are duplicated (grm cutoff >= 0.354)
-        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {duplicated_cutoff} --out {grm3}' 
+        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {duplicated_cutoff} --out {grm3}'
 
         cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
         for cmd in cmds:
@@ -439,7 +439,7 @@ class SampleQC:
             # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
             if prune_related and prune_duplicated:
                 plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
-                shell_do(plink_cmd1) 
+                shell_do(plink_cmd1)
 
                 related = pd.read_csv(f'{grm2}.related', sep = '\s+')
                 grm_pruned = pd.concat([related, duplicated], ignore_index=True)
@@ -452,13 +452,13 @@ class SampleQC:
                 grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
                 grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
                 process_complete = True
-            
+
             if prune_duplicated and not prune_related:
                 plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}'
-                shell_do(plink_cmd1) 
+                shell_do(plink_cmd1)
 
                 grm_pruned = duplicated
-                
+
                 if '#FID' in grm_pruned:
                     grm_pruned.rename(columns={"#FID": "FID", "#IID": "IID"}, inplace = True)
                 else:
@@ -467,7 +467,7 @@ class SampleQC:
                 grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
                 grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
                 process_complete = True
-                
+
             if not prune_related and not prune_duplicated:
                 plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
                 shell_do(plink_cmd1)
@@ -475,7 +475,7 @@ class SampleQC:
                 process_complete = True
                 related_pruned_out = None
                 process_complete = True
-                
+
             if not prune_duplicated and prune_related:
                 print('This option is invalid. Cannot prune related without also pruning duplicated')
                 process_complete = False
@@ -497,7 +497,7 @@ class SampleQC:
             os.remove(f'{grm3}.king.cutoff.out.id')
             os.remove(f'{related_pairs}.king.bin')
             os.remove(f'{related_pairs}.king.id')
-            os.remove(f'{related_pairs}.kin0')            
+            os.remove(f'{related_pairs}.kin0')
 
             outfiles_dict = {
                 'pruned_samples': related_pruned_out,
@@ -517,7 +517,7 @@ class SampleQC:
 
             outfiles_dict = {
                 'pruned_samples': 'Related Pruning Failed',
-                'related_samples': 0, 
+                'related_samples': 0,
                 'plink_out': [grm1, grm2, grm3]
             }
 
@@ -534,7 +534,7 @@ class SampleQC:
         }
 
         return out_dict
-    
+
 
 class VariantQC:
 
@@ -571,14 +571,14 @@ class VariantQC:
         ld_temp = f'{out_path}_ld_temp'
 
         # get list of SNPs to be extracted
-        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --make-pgen psam-cols=fid,parents,sex,phenos --out {ld_temp}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --out {ld_temp}"
         # and extract
         plink_cmd2 = f"{plink2_exec} --pfile {ld_temp} --extract {ld_temp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
-        
+
         cmds = [plink_cmd1, plink_cmd2]
         for cmd in cmds:
             shell_do(cmd)
-        
+
         listOfFiles = [f'{ld_temp}.log', f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
@@ -595,7 +595,7 @@ class VariantQC:
         metrics_dict = {
             'ld_removed_count': ld_rm_count
         }
-        
+
         out_dict = {
             'pass': process_complete,
             'step': step,
@@ -631,11 +631,11 @@ class VariantQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of geno_treshold
         if not isinstance(geno_threshold, float):
             raise TypeError("geno_threshold should be of type int or float.")
-        
+
         # Check valid range for geno_threshold
         if geno_threshold < 0 or geno_threshold > 1:
             raise ValueError("geno_threshold should be between 0 and 1.")
@@ -665,7 +665,7 @@ class VariantQC:
         metrics_dict = {
             'geno_removed_count': geno_rm_count
         }
-        
+
         out_dict = {
             'pass': process_complete,
             'step': step,
@@ -674,7 +674,7 @@ class VariantQC:
         }
 
         return out_dict
-        
+
 
     def run_case_control_prune(self, p_threshold=1e-4):
 
@@ -691,7 +691,7 @@ class VariantQC:
             * 'metrics': Metrics associated with the pruning, such as 'mis_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
-        
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -702,11 +702,11 @@ class VariantQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of p_threshold
         if not isinstance(p_threshold, float):
             raise TypeError("p_threshold should be of type int or float.")
-        
+
         # Check valid range for p_threshold
         if p_threshold < 0 or p_threshold > 1:
             raise ValueError("p_threshold should be between 0 and 1.")
@@ -716,7 +716,7 @@ class VariantQC:
 
         # convert to bfiles
         bfiles_to_pfiles(pfile_path=geno_path)
-        
+
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
@@ -763,7 +763,7 @@ class VariantQC:
         else:
             print(f'Case/control pruning failed! May be missing Controls!')
             print(f'Check number of Cases/Controls')
-            
+
             process_complete = False
 
         outfiles_dict = {
@@ -785,7 +785,7 @@ class VariantQC:
 
 
     def run_haplotype_prune(self, p_threshold=1e-4):
-        
+
         """
         Prunes SNPs based on missing haplotype data.
 
@@ -799,7 +799,7 @@ class VariantQC:
             * 'metrics': Metrics associated with the pruning, such as 'haplotype_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
-            
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -810,11 +810,11 @@ class VariantQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of p_threshold
         if not isinstance(p_threshold, float):
             raise TypeError("p_threshold should be of type int or float.")
-        
+
         # Check valid range for p_threshold
         if p_threshold < 0 or p_threshold > 1:
             raise ValueError("p_threshold should be between 0 and 1.")
@@ -879,7 +879,7 @@ class VariantQC:
 
 
     def run_hwe_prune(self, hwe_threshold=1e-4, filter_controls=False):
-        
+
         """
         Prunes SNPs based on Hardy-Weinberg equilibrium (HWE) p-values.
 
@@ -894,7 +894,7 @@ class VariantQC:
             * 'metrics': Metrics associated with the pruning, such as 'hwe_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
-        
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -905,11 +905,11 @@ class VariantQC:
         # Check path validity
         if not os.path.exists(f'{geno_path}.pgen'):
             raise FileNotFoundError(f"{geno_path} does not exist.")
-        
+
         # Check type of hwe_threshold
         if not isinstance(hwe_threshold, float):
             raise TypeError("p_threshold should be of type int or float.")
-        
+
         # Check type of filter_controls
         if not isinstance(filter_controls, bool):
             raise TypeError("filter_controls should be of type boolean.")
@@ -923,7 +923,7 @@ class VariantQC:
 
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
-        
+
         if filter_controls:
             # HWE from controls only using P > 1E-4
             plink_cmd1 = f"{plink_exec} --bfile {geno_path} --filter-controls --hwe {hwe_threshold} --write-snplist --out {hwe_tmp}"
@@ -935,7 +935,7 @@ class VariantQC:
 
         cmds = [plink_cmd1, plink_cmd2]
         for cmd in cmds:
-            shell_do(cmd) 
+            shell_do(cmd)
 
         listOfFiles = [f'{hwe_tmp}.log', f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
