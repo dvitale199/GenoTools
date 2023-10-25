@@ -66,10 +66,10 @@ class SampleQC:
         concat_logs(step, out_path, listOfFiles)
         
         if os.path.isfile(f'{out_path}.mindrem.id'):
-            irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+', header=None, names=['FID','IID'])
+            irem = pd.read_csv(f'{out_path}.mindrem.id', sep='\s+')
             irem.to_csv(outliers_out, sep='\t', header=True, index=False)
 
-            outlier_count = sum(1 for line in open(f'{outliers_out}'))
+            outlier_count = sum(1 for line in open(f'{outliers_out}')) - 1
 
             # remove mindrem.id file
             os.remove(f'{out_path}.mindrem.id')

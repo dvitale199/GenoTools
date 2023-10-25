@@ -48,15 +48,13 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         shell_do(convert_cmd)
 
 
-def upfront_check(geno_path):
-    fam = pd.read_csv(f'{geno_path}.fam', header=None, sep = '\s+', 
-                      names = ['FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype'])
-    bim = pd.read_csv(f'{geno_path}.bim', header = None, sep = '\s+', low_memory = False,
-                      names = ['CHR', 'SNP_ID', 'Genetic_Distance', 'Position', 'A1', 'A2'])
+def upfront_check(geno_path, args):
+    sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
+    var = pd.read_csv(f'{geno_path}.pvar', sep = '\s+', low_memory = False)
 
-    sex_counts = fam['Sex'].value_counts().to_dict()
-    pheno_counts = fam['Phenotype'].value_counts().to_dict()
-    chr_counts = bim['CHR'].value_counts().to_dict()
+    sex_counts = sam['SEX'].value_counts().to_dict()
+    pheno_counts = sam['PHENO1'].value_counts().to_dict()
+    chr_counts = var['#CHROM'].value_counts().to_dict()
 
     # print breakdown of data 
     print("Your data has the following breakdown:")
@@ -77,18 +75,36 @@ def upfront_check(geno_path):
             print(f'{pheno_counts[pheno]} Controls \n')
         if pheno == 0 or pheno == -9:
             print(f'{pheno_counts[pheno]} Missing \n')
-            # if pheno_counts[pheno] > 50:  # may want to createe a threshold for how many missing phenos allowed
-            #     warnings.warn("You are missing too many phenotypes (over 50).")
 
-    # check for items necessary to the pipeline
-    if len(fam) < 50:
-        warnings.warn("You do not have enough total participants in your data (less than 50).")
-    elif 1 not in pheno_counts.keys() and 2 not in pheno_counts.keys():
-        warnings.warn("You are missing at least 1 phenotype class in your data.")
-    elif "23" not in chr_counts and "X" not in chr_counts:
-        warnings.warn("No sign of sex chromosome in your bim file.")
-    elif 1 in sex_counts.keys() or 2 in sex_counts.keys():
-        print("You are all set to continue in the pipeline!")
+    if args['skip_fails']:
+        return args
+
+    else:
+        # skip sex check when no sex in fam or no X chromosome
+        if args['sex'] is not None:
+            if (1 not in sex_counts.keys()) and (2 not in sex_counts.keys()):
+                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...')
+                args['sex'] = None
+            elif ('23' not in chr_counts.keys()) and ('X' not in chr_counts.keys()):
+                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...')
+                args['sex'] = None
+
+        # change hwe prune to be run without controls filtered when no controls present
+        if (args['hwe'] is not None) and (args['filter_controls'] == True) and (1 not in pheno_counts.keys()):
+            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...')
+            args['filter_controls'] = False
+        
+        # skip case control when called without cases or controls present
+        if (args['case_control'] is not None) and ((1 not in pheno_counts.keys()) or (2 not in pheno_counts.keys())):
+            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...')
+            args['case_control'] = None
+        
+        # skip het prune if less than 50 samples are present
+        if (args['het'] is not None) and (var.shape[0] < 50):
+            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...')
+            args['het'] = None
+
+        return args
 
 
 def replace_all(text, dict):
