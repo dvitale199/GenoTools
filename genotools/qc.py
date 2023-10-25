@@ -904,7 +904,7 @@ class VariantQC:
         return out_dict
 
 
-    def run_ld_prune(geno, out_path, window_size=50, step_size=5, r2_threshold=0.5):
+    def run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5):
 
         """
         Prunes SNPs based on Linkage Disequilibrium
@@ -921,17 +921,19 @@ class VariantQC:
             * 'metrics': Metrics associated with the pruning, such as 'geno_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
+        geno_path = self.geno_path
+        out_path = self.out_path
 
         step = "ld_prune"
 
         # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno}.pvar') - 1
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # temp file
         ld_temp = f'{out_path}_ld_temp'
 
         # get list of SNPs to be extracted
-        plink_cmd1 = f"{plink2_exec} --pfile {geno} --indep-pairwise {window_size} {step_size} {r2_threshold} --make-pgen psam-cols=fid,parents,sex,phenos --out {ld_temp}"
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --make-pgen psam-cols=fid,parents,sex,phenos --out {ld_temp}"
         # and extract
         plink_cmd2 = f"{plink2_exec} --pfile {ld_temp} --extract {ld_temp}.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {out_path}"
         
