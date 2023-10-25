@@ -916,8 +916,8 @@ class VariantQC:
         Returns:
         - dict: A structured dictionary containing:
             * 'pass': Boolean indicating the successful completion of the process.
-            * 'step': The label for this procedure ('ld_prune').
-            * 'metrics': Metrics associated with the pruning, such as 'geno_removed_count'.
+            * 'step': The label for this procedue ('ld_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'ld_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
         geno_path = self.geno_path
