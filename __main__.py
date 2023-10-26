@@ -80,7 +80,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
             # related has more than one parameter
             if step == 'related':
-                out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicate_cutoff=args['duplicate_cutoff'],
+                out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicated_cutoff=args['duplicated_cutoff'],
                                  prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
             
             else:
@@ -173,7 +173,7 @@ if __name__=='__main__':
     parser.add_argument('--sex', nargs='*', help='Sex prune with cutoffs')
     parser.add_argument('--related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--related_cutoff', type=float, nargs='?', default=0.0884, const=0.0884, help='Relatedness cutoff')
-    parser.add_argument('--duplicate_cutoff', type=float, nargs='?', default=0.354, const=0.354, help='Relatedness cutoff')
+    parser.add_argument('--duplicated_cutoff', type=float, nargs='?', default=0.354, const=0.354, help='Relatedness cutoff')
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='True', help='Relatedness prune')
     parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
