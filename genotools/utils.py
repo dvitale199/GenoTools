@@ -172,7 +172,7 @@ def process_log(out_path, concat_log):
 
 
 def concat_logs(step, out_path, listOfFiles):
-    if '/out' in out_path:
+    if '_tmp/out' in out_path:
         # find parent directory for files in temporary directory
         out_dir = os.path.dirname(os.path.dirname(out_path))
     else:
