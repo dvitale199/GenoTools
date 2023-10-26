@@ -919,8 +919,29 @@ class VariantQC:
             * 'metrics': Metrics associated with the pruning, such as 'ld_removed_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
+
         geno_path = self.geno_path
         out_path = self.out_path
+
+        # Check that paths are set
+        if geno_path is None or out_path is None:
+            raise ValueError("Both geno_path and out_path must be set before calling this method.")
+
+        # Check path validity
+        if not os.path.exists(f'{geno_path}.pgen'):
+            raise FileNotFoundError(f"{geno_path} does not exist.")
+
+        # Check type of window_size
+        if not isinstance(window_size, int):
+            raise TypeError("window_size should be of type int.")
+
+        # Check type of step_size
+        if not isinstance(step_size, int):
+            raise TypeError("step_size should be of type int.")
+
+        # Check type of r2_threshold
+        if not isinstance(r2_threshold, float):
+            raise ValueError("r2_threshold should be of type float.")
 
         step = "ld_prune"
 
@@ -928,7 +949,7 @@ class VariantQC:
         ld_temp = f'{out_path}_ld_temp'
 
         # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno_path}.bim')
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # get list of SNPs to be extracted
         plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --indep-pairwise {window_size} {step_size} {r2_threshold} --out {ld_temp}"
@@ -947,6 +968,9 @@ class VariantQC:
         ld_rm_count = initial_snp_count - ld_snp_count
 
         process_complete = True
+
+        os.remove(f'{ld_temp}.prune.in')
+        os.remove(f'{ld_temp}.prune.out')
 
         outfiles_dict = {
             'plink_out': out_path
