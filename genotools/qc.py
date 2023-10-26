@@ -183,7 +183,6 @@ class SampleQC:
 
             process_complete = True
 
-            # remove intermediate files
             os.remove(f'{sex_tmp1}.hh')
             os.remove(f'{sex_tmp1}.sexcheck')
             os.remove(f'{sex_tmp2}.hh')
@@ -213,6 +212,10 @@ class SampleQC:
             metrics_dict = {
                 'outlier_count': 0
             }
+        
+        os.remove(f'{geno_path}.bed')
+        os.remove(f'{geno_path}.bim')
+        os.remove(f'{geno_path}.fam')
 
         out_dict = {
             'pass': process_complete,
@@ -311,9 +314,9 @@ class SampleQC:
                 # remove intermediate files
                 os.remove(f'{het_tmp}.prune.in')
                 os.remove(f'{het_tmp}.prune.out')
-                os.remove(f'{het_tmp2}.bed')
-                os.remove(f'{het_tmp2}.bim')
-                os.remove(f'{het_tmp2}.fam')
+                os.remove(f'{het_tmp2}.pgen')
+                os.remove(f'{het_tmp2}.pvar')
+                os.remove(f'{het_tmp2}.psam')
                 os.remove(f'{het_tmp3}.het')
 
             else:
@@ -702,6 +705,10 @@ class VariantQC:
 
             process_complete = False
 
+        os.remove(f'{geno_path}.bed')
+        os.remove(f'{geno_path}.bim')
+        os.remove(f'{geno_path}.fam')
+
         outfiles_dict = {
             'plink_out': out_path
         }
@@ -803,6 +810,9 @@ class VariantQC:
         os.remove(f'{hap_tmp}.exclude')
         os.remove(f'{hap_tmp}.hh')
         os.remove(f'{hap_tmp}.missing.hap')
+        os.remove(f'{geno_path}.bed')
+        os.remove(f'{geno_path}.bim')
+        os.remove(f'{geno_path}.fam')
 
         out_dict = {
             'pass': process_complete,
@@ -892,6 +902,9 @@ class VariantQC:
 
         os.remove(f'{hwe_tmp}.hh')
         os.remove(f'{hwe_tmp}.snplist')
+        os.remove(f'{geno_path}.bed')
+        os.remove(f'{geno_path}.bim')
+        os.remove(f'{geno_path}.fam')
 
         out_dict = {
             'pass': process_complete,

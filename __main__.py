@@ -15,7 +15,7 @@ from genotools.gwas import Assoc
 def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, assoc, args, tmp_dir):
     # to know which class to call
     samp_steps = ['callrate','sex','related','het']
-    var_steps = ['case_control','haplotype','hwe','geno']
+    var_steps = ['case_control','haplotype','hwe','geno','ld']
 
     # if full output requested, go to out path
     if args['full_output']:
@@ -91,9 +91,12 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             var_qc.geno_path = step_input
             var_qc.out_path = step_output
 
-            # hwe has more than one parameter
+            # hwe and ld have extra parameters
             if step == 'hwe':
                 out_dict[step] = steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
+
+            elif step == 'ld':
+                out_dict[step] = steps_dict[step](window_size=args['ld'][0], step_size=args['ld'][1], r2_threshold=args['ld'][2])
             
             else:
                 out_dict[step] = steps_dict[step](args[step])
@@ -185,6 +188,7 @@ if __name__=='__main__':
     parser.add_argument('--haplotype', type=float, nargs='?', default=None, const=1e-4, help='Haplotype prune')
     parser.add_argument('--hwe', type=float, nargs='?', default=None, const=1e-4, help='HWE pruning')
     parser.add_argument('--filter_controls', type=str, nargs='?', default='False', const='True', help='Control filter for HWE prune')
+    parser.add_argument('--ld', nargs='*', help='LD prune with window size, step size, r2 threshold')
     parser.add_argument('--all_variant', type=str, nargs='?', default='False', const='True', help='Run all variant-level QC')
 
     # GWAS and PCA argument
@@ -210,7 +214,7 @@ if __name__=='__main__':
     ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
                     'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'case_control':var_qc.run_case_control_prune,
                     'haplotype':var_qc.run_haplotype_prune,'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
-                    'assoc':assoc.run_association}
+                    'ld':var_qc.run_ld_prune,'assoc':assoc.run_association}
 
     # some up-front editing of pipeline arguments (booleans and lists)
     for step in args_dict:
@@ -230,6 +234,13 @@ if __name__=='__main__':
 
         else:
             args_dict['het'] = [float(i) for i in args_dict['sex']]
+        
+    if args_dict['ld'] is not None:
+        if len(args_dict['ld']) == 0:
+            args_dict['ld'] = [50, 5, 0.5]
+
+        else:
+            args_dict['ld'] = [int(args_dict['ld'][0]), int(args_dict['ld'][1]), float(args_dict['ld'][2])]
 
     # if all sample or all variant called, replace necessary items with defaults
     if args_dict['all_sample']:
