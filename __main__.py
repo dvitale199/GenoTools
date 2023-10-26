@@ -252,6 +252,12 @@ if __name__=='__main__':
         os.remove(f"{args_dict['out_path']}_all_logs.log")
     if os.path.exists(f"{args_dict['out_path']}_cleaned_logs.log"):
         os.remove(f"{args_dict['out_path']}_cleaned_logs.log")
+
+    # create empty log files in output directory
+    with open(f"{args_dict['out_path']}_all_logs.log", "w") as fp: 
+        pass
+    with open(f"{args_dict['out_path']}_cleaned_logs.log", "w") as fp: 
+        pass
     
     # run data breakdows
     args_dict = upfront_check(args_dict['geno_path'], args_dict)
