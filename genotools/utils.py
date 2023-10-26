@@ -172,8 +172,20 @@ def process_log(out_path, concat_log):
 
 
 def concat_logs(step, out_path, listOfFiles):
+    if '/out' in out_path:
+        # find parent directory for files in temporary directory
+        out_dir = os.path.dirname(os.path.dirname(out_path))
+    else:
+        # parent directory for out_path outputs
+        out_dir = os.path.dirname(out_path)
+
+    # find log path only if file was previously created in proper directory
+    for file in os.listdir(out_dir):
+        if file.endswith("_all_logs.log"):
+            log_path = os.path.join(out_dir, file)
+
     # combine log files into 1 file
-    with open(f'{out_path}_all_logs.log', "a+") as new_file:
+    with open(log_path, "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
                 new_file.write(f'Log: {name}\n')
@@ -187,7 +199,9 @@ def concat_logs(step, out_path, listOfFiles):
     for files in listOfFiles:
         os.remove(files)
 
-    with open(f'{out_path}_all_logs.log', 'r') as file:
+    # calls for processing
+    with open(log_path, 'r') as file:
+        out_path = log_path.replace('_all_logs.log', '')
         process_log(out_path, file.readlines())
 
 
