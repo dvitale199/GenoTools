@@ -19,23 +19,18 @@ class Assoc:
         self.gwas = gwas
         self.covar_path = covar_path
         self.covar_names = covar_names
-
     
-    def run_plink_pca(self):
-        # what step are we running?
-        step = 'plink_pca'
-        print()
-        print(f'RUNNING: {step}')
-        print()
 
-        hg19_ex_regions = """
+    def write_exclusion_file(self):
+        if self.build == 'hg19':
+            exclusion_regions = """
         5 44000000 51500000 r1
         6 25000000 33500000 r2
         8 8000000 12000000 r3
         11 45000000 57000000 r4
         """
-
-        hg38_ex_regions = """
+        elif self.build == 'hg38':
+            exclusion_regions = """
         1   47534328    51534328    r1
         2   133742429   137242430   r2
         2   182135273   189135274   r3
@@ -52,81 +47,97 @@ class Assoc:
         12  109062195   111562196   r14
         20  33412194    35912078    r15
         """
+        else:
+            raise ValueError("Invalid build specified.")
+        
+        exclusion_file = f'{self.out_path}_{self.build}.txt'
+        with open(exclusion_file, 'w') as f:
+            f.write(exclusion_regions)
+        
+        return exclusion_file
+    
+    
+    def run_pca_pruning(self, maf=0.01, geno=0.01, hwe=5e-6, indep_pairwise=[1000, 10, 0.02]):
+        
+        step = 'plink_pruning'
 
-        # if build == 'hg19' write hg19_ex_regions exclusion regions to file named by out_path
-        if self.build == 'hg19':
-            exclusion_file = f'{self.out_path}_hg19.txt'
-            with open(exclusion_file, 'w') as f:
-                f.write(hg19_ex_regions)
-        if self.build == 'hg38':
-            exclusion_file = f'{self.out_path}_hg38.txt'
-            with open(exclusion_file, 'w') as f:
-                f.write(hg38_ex_regions)
-            
+        exclusion_file = self.create_exclusion_file(self.build, self.out_path)
 
         # Filter data
-        filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
+        filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
         shell_do(filter_cmd)
         
         # Prune SNPs
-        prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {self.out_path}_pruned"
+        prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise {indep_pairwise[0]} {indep_pairwise[1]} {indep_pairwise[2]} --autosome --out {self.out_path}_pruned"
         shell_do(prune_cmd)
-
-        listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
-        concat_logs(step, self.out_path, listOfFiles)
 
         # Check if prune.in file exists
         if os.path.isfile(f'{self.out_path}_pruned.prune.in'):
             # Extract pruned SNPs
             extract_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --extract {self.out_path}_pruned.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}"
             shell_do(extract_cmd)
-            
-            # Calculate/generate PCs
-            pca_cmd = f"{plink2_exec} --pfile {self.out_path} --pca {self.pca} --out {self.out_path}"
-            shell_do(pca_cmd)
 
-            # Remove intermediate files
-            os.remove(f"{self.out_path}_pruned.prune.in")
-            os.remove(f"{self.out_path}_pruned.prune.out")
-
-            listOfFiles = [f'{self.out_path}.log']
+            listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
             concat_logs(step, self.out_path, listOfFiles)
 
             process_complete = True
-
-            outfiles_dict = {
-                'pcs': f'{self.out_path}.eigenvec',
-                'evals': f'{self.out_path}.eigenval'
-            }
-        
-        # Otherwise throw an error (less than 50 samples = bad LD)
         else:
-            print()
-            print('PCA calculation failed!')
             print(f'Check {self.out_path}_pruned.log for more information.')
             print('Likely there are <50 samples for this ancestry leading to bad LD calculations.')
             print()
 
             process_complete = False
 
-            outfiles_dict = {
-                'pcs': None,
-                'evals': None
-            }
-
         # Remove intermediate files
         try:
             os.remove(f"{self.out_path}_tmp.pgen")
             os.remove(f"{self.out_path}_tmp.pvar")
             os.remove(f"{self.out_path}_tmp.psam")
-
-            # Remove exclusion file
+            os.remove(f"{self.out_path}_pruned.prune.in")
+            os.remove(f"{self.out_path}_pruned.prune.out")
             os.remove(exclusion_file)
-
         except OSError:
             pass
-        
-        
+
+
+        out_dict={
+            'pass':process_complete,
+            'step': step,
+            'output': f'{self.out_path}.psam'
+            }
+
+        return out_dict
+
+
+    def run_plink_pca(self):
+
+        step = 'plink_pca'
+ 
+        # Calculate/generate PCs
+        pca_cmd = f"{plink2_exec} --pfile {self.out_path} --pca {self.pca} --out {self.out_path}"
+        shell_do(pca_cmd)
+
+        listOfFiles = [f'{self.out_path}.log']
+        concat_logs(step, self.out_path, listOfFiles)
+
+        if os.path.isfile(f'{self.out_path}.eigenvec'):
+            process_complete = True
+
+            outfiles_dict = {
+                'eigenvec': f'{self.out_path}.eigenvec',
+                'eigenval': f'{self.out_path}.eigenval'
+            }
+        else:
+            print(f'PCA failed!')
+            print(f'Check {self.out_path}.log for more information')
+
+            process_complete = False
+
+            outfiles_dict = {
+                'eigenvec': None,
+                'eigenval': None
+            }
+
         out_dict = {
             'pass':process_complete,
             'step': step,
@@ -137,51 +148,45 @@ class Assoc:
 
 
     def calculate_inflation(self, pval_array, normalize=False, ncases=None, ncontrols=None):
-        # what step are we running?
-        step = 'lambda_calculation'
-        print()
-        print(f'RUNNING: {step}')
-        print()
 
-        # need cases and controls if normalizing
-        if normalize and (not ncases or not ncontrols):
-            print(f'Inflation Calculation failed!')
-            print(f'If normalizing, please add ncases and ncontrols')
+            step = 'lambda_calculation'
 
-            process_complete = False
-            inflation = 0
-        else:
-            # calculate inflation
-            num = ncx2.ppf(1-pval_array, 1, nc=0)
-            denom = ncx2.ppf(0.5, 1, nc=0)
-            inflation = np.nanmedian(num) / denom
+            # need cases and controls if normalizing
+            if normalize and (not ncases or not ncontrols):
+                print(f'Inflation Calculation failed!')
+                print(f'If normalizing, please add ncases and ncontrols')
 
-            # normalize when necessary
-            if normalize:
-                inflation1000 = 1 + (inflation - 1) * (1/ncases + 1/ncontrols) / (1/1000 + 1/1000)
-                inflation = inflation1000
+                process_complete = False
+                inflation = 0
+            else:
+                # calculate inflation
+                num = ncx2.ppf(1-pval_array, 1, nc=0)
+                denom = ncx2.ppf(0.5, 1, nc=0)
+                inflation = np.nanmedian(num) / denom
 
-            process_complete = True
+                # normalize when necessary
+                if normalize:
+                    inflation1000 = 1 + (inflation - 1) * (1/ncases + 1/ncontrols) / (1/1000 + 1/1000)
+                    inflation = inflation1000
 
-        metrics_dict = {
-            'inflation': inflation
-        }
+                process_complete = True
 
-        out_dict = {
-            'pass': process_complete,
-            'step': step,
-            'metrics': metrics_dict
-        }
+            metrics_dict = {
+                'inflation': inflation
+            }
 
-        return out_dict
+            out_dict = {
+                'pass': process_complete,
+                'step': step,
+                'metrics': metrics_dict
+            }
+
+            return out_dict
 
 
     def run_gwas(self, covars=True):
-        # what step are we running?
+
         step = 'GWAS'
-        print()
-        print(f'RUNNING: {step}')
-        print()
 
         # make pheno file from .psam
         psam = pd.read_csv(f'{self.geno_path}.psam', sep='\s+')
@@ -197,17 +202,39 @@ class Assoc:
                 # if no covar path then default is PCA
                 covar_names = self.covar_names
 
-            # adjust input to be PLINK2 pgen
-            gwas_cmd = f'{plink2_exec} --pfile {self.geno_path} \
-                        --glm hide-covar firth-fallback no-x-sex cols=+a1freq,+a1freqcc,+a1count,+totallele,+a1countcc,+totallelecc,+err \
-                        --pheno-name PHENO1 \
-                        --pheno {self.geno_path}_pheno.txt \
-                        --covar {self.covar_path} \
-                        --covar-variance-standardize \
-                        --covar-name {covar_names} \
-                        --out {self.out_path}'
+            glm_options = (
+                'hide-covar '
+                'firth-fallback '
+                'no-x-sex '
+                'cols=+a1freq,'
+                '+a1freqcc,'
+                '+a1count,'
+                '+totallele,'
+                '+a1countcc,'
+                '+totallelecc,'
+                '+err'
+                )
+            
+            gwas_cmd = (
+                f"{plink2_exec} --pfile {self.geno_path} "
+                f"--glm {glm_options} "
+                f"--pheno-name PHENO1 "
+                f"--pheno {self.geno_path}_pheno.pheno "
+                f"--covar {self.covar_path} "
+                f"--covar-variance-standardize "
+                f"--covar-name {covar_names} "
+                f"--out {self.out_path}"
+                )
         
         else:
+            gwas_cmd = (
+                f"{plink2_exec} --pfile {self.geno_path} "
+                f"--glm {glm_options} "
+                f"--pheno-name PHENO1 "
+                f"--pheno {self.geno_path}_pheno.pheno "
+                f"--out {self.out_path}"
+                )
+
             gwas_cmd = f'{plink2_exec} --pfile {self.geno_path} \
                         --glm allow-no-covars firth-fallback no-x-sex cols=+a1freq,+a1freqcc,+a1count,+totallele,+a1countcc,+totallelecc,+err \
                         --pheno-name PHENO1 \
@@ -244,7 +271,7 @@ class Assoc:
     
 
     def run_prs(self):
-        print('Lets add PRS functionality')
+        print('COMING SOON')
 
 
     def run_association(self):
