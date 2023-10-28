@@ -61,15 +61,15 @@ class Assoc:
         
         step = 'plink_pruning'
 
-        exclusion_file = self.create_exclusion_file(self.build, self.out_path)
+        exclusion_file = self.write_exclusion_file()
 
         # Filter data
         filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
-        shell_do(filter_cmd)
+        # shell_do(filter_cmd)
         
         # Prune SNPs
         prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise {indep_pairwise[0]} {indep_pairwise[1]} {indep_pairwise[2]} --autosome --out {self.out_path}_pruned"
-        shell_do(prune_cmd)
+        # shell_do(prune_cmd)
 
         # Check if prune.in file exists
         if os.path.isfile(f'{self.out_path}_pruned.prune.in'):
@@ -78,6 +78,7 @@ class Assoc:
             shell_do(extract_cmd)
 
             listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
+            print(self.out_path)
             concat_logs(step, self.out_path, listOfFiles)
 
             process_complete = True
@@ -103,7 +104,7 @@ class Assoc:
         out_dict={
             'pass':process_complete,
             'step': step,
-            'output': f'{self.out_path}.psam'
+            'output': f'{self.out_path}'
             }
 
         return out_dict
@@ -114,7 +115,8 @@ class Assoc:
         step = 'plink_pca'
  
         # Calculate/generate PCs
-        pca_cmd = f"{plink2_exec} --pfile {self.out_path} --pca {self.pca} --out {self.out_path}"
+        pca_pruned = self.run_pca_pruning()
+        pca_cmd = f"{plink2_exec} --pfile {pca_pruned['output']} --pca {self.pca} --out {self.out_path}"
         shell_do(pca_cmd)
 
         listOfFiles = [f'{self.out_path}.log']
@@ -268,6 +270,8 @@ class Assoc:
             'step': step,
             'output': outfiles_dict
         }
+
+        return out_dict
     
 
     def run_prs(self):
