@@ -335,3 +335,5 @@ class Assoc:
             # otherwise run GWAS with no covars
             else:
                 gwas = self.run_gwas(covars=False)
+        
+        return gwas
