@@ -11,12 +11,13 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Assoc:
-    def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, covar_path=None, covar_names=None):
+    def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None):
         self.geno_path = geno_path
         self.out_path = out_path
         self.pca = pca
         self.build = build
         self.gwas = gwas
+        self.pheno_name = pheno_name
         self.covar_path = covar_path
         self.covar_names = covar_names
     
@@ -50,7 +51,7 @@ class Assoc:
         else:
             raise ValueError("Invalid build specified.")
         
-        exclusion_file = f'{self.out_path}_{self.build}.txt'
+        exclusion_file = f'{self.out_path}_{self.build}.exclusion'
         with open(exclusion_file, 'w') as f:
             f.write(exclusion_regions)
         
@@ -65,11 +66,11 @@ class Assoc:
 
         # Filter data
         filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
-        # shell_do(filter_cmd)
+        shell_do(filter_cmd)
         
         # Prune SNPs
         prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise {indep_pairwise[0]} {indep_pairwise[1]} {indep_pairwise[2]} --autosome --out {self.out_path}_pruned"
-        # shell_do(prune_cmd)
+        shell_do(prune_cmd)
 
         # Check if prune.in file exists
         if os.path.isfile(f'{self.out_path}_pruned.prune.in'):
@@ -78,8 +79,7 @@ class Assoc:
             shell_do(extract_cmd)
 
             listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
-            print(self.out_path)
-            concat_logs(step, self.out_path, listOfFiles)
+            # concat_logs(step, self.out_path, listOfFiles)
 
             process_complete = True
         else:
@@ -120,7 +120,7 @@ class Assoc:
         shell_do(pca_cmd)
 
         listOfFiles = [f'{self.out_path}.log']
-        concat_logs(step, self.out_path, listOfFiles)
+        # concat_logs(step, self.out_path, listOfFiles)
 
         if os.path.isfile(f'{self.out_path}.eigenvec'):
             process_complete = True
@@ -192,36 +192,44 @@ class Assoc:
 
         # make pheno file from .psam
         psam = pd.read_csv(f'{self.geno_path}.psam', sep='\s+')
-        psam[['#FID', 'IID', 'PHENO1']].to_csv(f'{self.geno_path}_pheno.txt', index=False)
 
+        # check if psam has #FID and IID
+        if '#FID' in psam.columns:
+            psam[['#FID', 'IID', 'PHENO1']].to_csv(f'{self.geno_path}.pheno', index=False)
+        else:
+            psam[['#IID', 'PHENO1']].to_csv(f'{self.geno_path}.pheno', index=False)
+
+        glm_options = (
+            'hide-covar '
+            'firth-fallback '
+            'no-x-sex '
+            'cols=+a1freq,'
+            '+a1freqcc,'
+            '+a1count,'
+            '+totallele,'
+            '+a1countcc,'
+            '+totallelecc,'
+            '+err'
+            )
+        
         if covars:
             # covar names are column names of covariate file minus #FID and IID unless specified
             if self.covar_path and not self.covar_names:
                 covar_cols = pd.read_csv(f'{self.covar_path}', sep='\s+', header=0, nrows=0).columns.tolist()
-                # account for 1st two cols being #FID and IID
-                covar_names = ','.join(covar_cols[2:])
+                if '#FID' in covar_cols:
+                    # account for 1st two cols being #FID and IID
+                    covar_names = ','.join(covar_cols[2:])
+                else:
+                    covar_names = ','.join(covar_cols[1:])
             else:
                 # if no covar path then default is PCA
                 covar_names = self.covar_names
-
-            glm_options = (
-                'hide-covar '
-                'firth-fallback '
-                'no-x-sex '
-                'cols=+a1freq,'
-                '+a1freqcc,'
-                '+a1count,'
-                '+totallele,'
-                '+a1countcc,'
-                '+totallelecc,'
-                '+err'
-                )
             
             gwas_cmd = (
                 f"{plink2_exec} --pfile {self.geno_path} "
                 f"--glm {glm_options} "
-                f"--pheno-name PHENO1 "
-                f"--pheno {self.geno_path}_pheno.pheno "
+                f"--pheno-name {self.pheno_name} "
+                f"--pheno {self.geno_path}.pheno "
                 f"--covar {self.covar_path} "
                 f"--covar-variance-standardize "
                 f"--covar-name {covar_names} "
@@ -232,42 +240,62 @@ class Assoc:
             gwas_cmd = (
                 f"{plink2_exec} --pfile {self.geno_path} "
                 f"--glm {glm_options} "
-                f"--pheno-name PHENO1 "
-                f"--pheno {self.geno_path}_pheno.pheno "
+                f"--pheno-name {self.pheno_name} "
+                f"--pheno {self.geno_path}.pheno "
                 f"--out {self.out_path}"
                 )
-
-            gwas_cmd = f'{plink2_exec} --pfile {self.geno_path} \
-                        --glm allow-no-covars firth-fallback no-x-sex cols=+a1freq,+a1freqcc,+a1count,+totallele,+a1countcc,+totallelecc,+err \
-                        --pheno-name PHENO1 \
-                        --pheno {self.geno_path}_pheno.txt \
-                        --out {self.out_path}'
             
+        shell_do(gwas_cmd)
+
         if os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
+
+            # calculate inflation
+            gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.logistic.hybrid', sep='\s+', dtype={'#CHROM': str})
+            psam = pd.read_csv(f'{self.geno_path}.psam', sep='\s+', dtype={'PHENO1':str})
+            ncontrols = psam.PHENO1.value_counts()[0]
+            ncases = psam.PHENO1.value_counts()[1]
+
+            # add pruning step here (pre lambdas)
+            gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
+
+            # calculate inflation
+            lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
+            lambda1000_dict = self.calculate_inflation(gwas_df_add.P, normalize=True, ncases=ncases, ncontrols=ncontrols)
+
+            metrics_dict = {
+                'lambda': lambda_dict['metrics']['inflation'],
+                'lambda1000': lambda1000_dict['metrics']['inflation'],
+                'cases': ncases,
+                'controls': ncontrols
+                }
+            
             process_complete = True
 
             outfiles_dict = {
                 'gwas_output': f'{self.out_path}.PHENO1.glm.logistic.hybrid'
             }
-        
+
         else:
-            print(f'Heterozygosity pruning failed!')
+            print(f'Association failed!')
             print(f'Check {self.out_path}.log for more information')
 
             process_complete = False
 
+            metrics_dict = {
+                'lambda': None,
+                'lambda1000': None,
+                'cases': None,
+                'controls': None
+                }
+            
             outfiles_dict = {
                 'gwas_output': None
             }
 
-        # will need to calculate inflation using outputs of GWAS
-        shell_do(gwas_cmd)
-
-        process_complete = True
-
         out_dict = {
             'pass': process_complete,
             'step': step,
+            'metrics': metrics_dict,
             'output': outfiles_dict
         }
 
