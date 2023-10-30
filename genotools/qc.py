@@ -170,6 +170,7 @@ class SampleQC:
             # combine and output
             sex_fail_df = pd.concat([sex_fail1, sex_fail2], ignore_index=True)
             sex_fail_ids = sex_fail_df.loc[:,['FID','IID']].drop_duplicates(subset=['FID','IID'])
+            sex_fail_ids = sex_fail_ids.rename({'FID':'#FID'}, axis=1)
             sex_fail_count = sex_fail_ids.shape[0]
             sex_fail_ids.to_csv(sex_fails, sep='\t', header=True, index=False)
 

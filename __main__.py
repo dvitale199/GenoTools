@@ -6,6 +6,7 @@ import os
 import tempfile
 import pandas as pd
 import json
+import warnings
 
 from genotools.utils import shell_do, upfront_check
 from genotools.qc import SampleQC, VariantQC
@@ -69,9 +70,17 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
                 for geno, label in zip(out_dict[step]['output']['split_paths'], out_dict[step]['data']['labels_list']):
                     out_dict[label] = execute_pipeline(steps_ancestry, steps_dict, geno, f'{out_path}_{label}', samp_qc, var_qc, ancestry, assoc, args, tmp_dir)
 
-        # keep track of paths
         else:
-            step_paths.append(step_output)
+            # if warn is True and step input doesn't exist print error and reset step input
+            if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')) and (len(step_paths) > 1):
+                warnings.warn(f'{step_input}.pgen was not created. Continuing to next step...')
+                step_input = f'{step_paths[-2]}' if step != steps[1] else geno_path
+                step_output = f'{step_paths[-2]}_{step}' if step != steps[-1] else out_path
+                step_paths.append(step_output)
+            
+            # otherwise keep track of paths
+            else:
+                step_paths.append(step_output)
 
         # samp qc setup and call
         if step in samp_steps:
@@ -128,7 +137,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
 def build_metrics_pruned_df(metrics_df, pruned_df, dictionary, ancestry='all'):
     #TODO: Add association output
-    for step in ['callrate', 'sex', 'realted', 'het', 'case_control', 'haplotype', 'hwe', 'geno']:
+    for step in ['callrate', 'sex', 'realted', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
             pf = dictionary[step]['pass']
@@ -161,6 +170,7 @@ if __name__=='__main__':
     parser.add_argument('--out_path', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
     parser.add_argument('--full_output', type=str, nargs='?', default='True', const='True', help='Output everything')
     parser.add_argument('--skip_fails', type=str, nargs='?', default='False', const='True', help='Skip up front check for fails')
+    parser.add_argument('--warn', type=str, nargs='?', default='False', const='True', help='Warn of error and continue running pipeline')
 
     # ancerstry arguments
     parser.add_argument('--ancestry', type=str, nargs='?', default='False', const='True', help='Split by ancestry')
@@ -255,6 +265,7 @@ if __name__=='__main__':
         args_dict['haplotype'] = 1e-4
         args_dict['hwe'] = 1e-4
         args_dict['filter_controls'] = True
+        args_dict['ld'] = None
 
     print(args_dict)
 
