@@ -39,9 +39,9 @@ Executes call rate pruning on genotype data using PLINK. Removes individuals bas
 
 ## run_sex_prune
 
-\`\`\`python
+```python
 run_sex_prune(self, check_sex=[0.25,0.75])
-\`\`\`
+```
 
 ### Description
 
@@ -63,9 +63,9 @@ Executes sex-based pruning on genotype data using PLINK.
 
 ## run_het_prune
 
-\`\`\`python
+```python
 run_het_prune(self, het_threshold=0.1)
-\`\`\`
+```
 
 ### Description
 
@@ -87,9 +87,9 @@ Executes heterozygosity-based pruning on genotype data using PLINK.
 
 ## run_related_prune
 
-\`\`\`python
+```python
 run_related_prune(self, pi_hat=0.125)
-\`\`\`
+```
 
 ### Description
 
@@ -112,7 +112,7 @@ Executes relatedness pruning on genotype data using PLINK.
 
 ## Introduction
 
-This guide details the methods available in the `VariantQC` class for quality control on variant data.
+This guide details the methods available in the `VariantQC` class
 
 ## Table of Contents
 - [run_geno_prune](#run_geno_prune)
@@ -125,9 +125,9 @@ This guide details the methods available in the `VariantQC` class for quality co
 
 ## run_geno_prune
 
-\`\`\`python
+```python
 run_geno_prune(self, geno_threshold=0.05)
-\`\`\`
+```
 
 ### Description
 
@@ -149,9 +149,9 @@ Prunes SNPs based on missing genotype data.
 
 ## run_case_control_prune
 
-\`\`\`python
+```python
 run_case_control_prune(self, p_threshold=1e-4)
-\`\`\`
+```
 
 ### Description
 
@@ -171,9 +171,9 @@ Prunes SNPs based on missing genotype data, stratified by case-control status.
 
 ## run_haplotype_prune
 
-\`\`\`python
+```python
 run_haplotype_prune(self, p_threshold=1e-4)
-\`\`\`
+```
 
 ### Description
 
@@ -193,9 +193,9 @@ Prunes SNPs based on missing haplotype data.
 
 ## run_hwe_prune
 
-\`\`\`python
+```python
 run_hwe_prune(self, hwe_threshold=1e-4, filter_controls=False)
-\`\`\`
+```
 
 ### Description
 
@@ -216,9 +216,9 @@ Prunes SNPs based on Hardy-Weinberg equilibrium (HWE) p-values.
 
 ## run_ld_prune
 
-\`\`\`python
+```python
 run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5)
-\`\`\`
+```
 
 ### Description
 
@@ -239,18 +239,6 @@ Prunes SNPs based on Linkage Disequilibrium.
     * 'output': Dictionary containing paths to the generated output files.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 # Assoc Class Functions Guide
 
 ## Introduction
@@ -258,7 +246,6 @@ Prunes SNPs based on Linkage Disequilibrium.
 This guide details the methods available in the `Assoc` class for running various genomic analyses.
 
 ## Table of Contents
-- [Constructor](#constructor)
 - [write_exclusion_file](#write_exclusion_file)
 - [run_pca_pruning](#run_pca_pruning)
 - [run_plink_pca](#run_plink_pca)
@@ -271,9 +258,9 @@ This guide details the methods available in the `Assoc` class for running variou
 
 ## Constructor
 
-\`\`\`python
-def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None)
-\`\`\`
+```python
+__init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None)
+```
 
 ### Parameters
 
@@ -290,9 +277,9 @@ def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=Tru
 
 ## write_exclusion_file
 
-\`\`\`python
-def write_exclusion_file(self)
-\`\`\`
+```python
+write_exclusion_file(self)
+```
 
 ### Description
 
@@ -306,9 +293,9 @@ Writes genomic regions to be excluded based on the genome build (`hg19` or `hg38
 
 ## run_pca_pruning
 
-\`\`\`python
-def run_pca_pruning(self, maf=0.01, geno=0.01, hwe=5e-6, indep_pairwise=[1000, 10, 0.02])
-\`\`\`
+```python
+run_pca_pruning(self, maf=0.01, geno=0.01, hwe=5e-6, indep_pairwise=[1000, 10, 0.02])
+```
 
 ### Parameters
 
@@ -321,9 +308,9 @@ def run_pca_pruning(self, maf=0.01, geno=0.01, hwe=5e-6, indep_pairwise=[1000, 1
 
 ## run_plink_pca
 
-\`\`\`python
-def run_plink_pca(self)
-\`\`\`
+```python
+run_plink_pca(self)
+```
 
 ### Description
 
@@ -333,9 +320,9 @@ Runs PCA on pruned data.
 
 ## calculate_inflation
 
-\`\`\`python
-def calculate_inflation(self, pval_array, normalize=False, ncases=None, ncontrols=None)
-\`\`\`
+```python
+calculate_inflation(self, pval_array, normalize=False, ncases=None, ncontrols=None)
+```
 
 ### Parameters
 
@@ -360,10 +347,9 @@ def run_gwas(self, covars=True)
 
 ## run_prs
 
-\`\`\`python
+```python
 def run_prs(self)
-\`\`\`
-
+```
 ### Description
 
 Method coming soon.
@@ -372,9 +358,9 @@ Method coming soon.
 
 ## run_association
 
-\`\`\`python
+```python
 def run_association(self)
-\`\`\`
+```
 
 ### Description
 
