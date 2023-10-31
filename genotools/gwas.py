@@ -79,7 +79,7 @@ class Assoc:
             shell_do(extract_cmd)
 
             listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
-            # concat_logs(step, self.out_path, listOfFiles)
+            concat_logs(step, self.out_path, listOfFiles)
 
             process_complete = True
         else:
@@ -120,7 +120,7 @@ class Assoc:
         shell_do(pca_cmd)
 
         listOfFiles = [f'{self.out_path}.log']
-        # concat_logs(step, self.out_path, listOfFiles)
+        concat_logs(step, self.out_path, listOfFiles)
 
         if os.path.isfile(f'{self.out_path}.eigenvec'):
             process_complete = True
