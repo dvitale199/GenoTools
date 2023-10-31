@@ -2,7 +2,7 @@ from genotools.impute import *
 from genotools.impute import run_phasing_and_imputation
 import argparse
 from concurrent.futures import ProcessPoolExecutor
-
+import os
 
 def main(args):
     chrom = args.chrom
@@ -10,26 +10,32 @@ def main(args):
     memory = args.memory
     threads = args.threads
     project_path = args.project_path
-    ref_path = arg.ref_path
-    minimac_path = arg.minimac_path
-    
-    # leave as-is for testing
-    project_path = '/data/GP2/projects/gp2_imputation'
-    ref_path = f'{project_path}/refs'
-    minimac_path = '/data/vitaled2/GP2_data_processing/bin/minimac4'
-    harmonizer_path = '/data/vitaled2/GP2_data_processing/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
-    eagle_path = '/data/vitaled2/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
+    # ref_path = arg.ref_path
 
+    # leave as-is for testing
+    # project_path = '/data/jamesml/genotool_trials'
+    ref_path = f'{project_path}/refs'
+    #minimac_path = '/data/vitaled2/GP2_data_processing/bin/minimac4'
+    #load minimac module
+    harmonizer_path = '/data/jamesml/GP2_data_processing/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
+    eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
+   
+
+    
+    
     harm_dir = f'{project_path}/harmonized/{label}'
+    os.makedirs(harm_dir, exist_ok = True)
     harm_geno_in = f"{project_path}/raw_genotypes/{label}/{label}_maf_hwe_release5_chr{chrom}"
     harm_geno_out = f"{harm_dir}/{label}_chr{chrom}_harmonized"
     chunk_geno_out = f"{harm_geno_out}_chunk"
 
 
     phased_dir = f'{project_path}/phased/{label}'
+    os.makedirs(phased_dir, exist_ok = True)
     eagle_geno_out = f'{phased_dir}/{label}_chr{chrom}_phased'
 
     impute_dir = f'{project_path}/imputed/{label}'
+    os.makedirs(impute_dir, exist_ok = True)
     impute_out = f'{impute_dir}/{label}_chr{chrom}_imputed'
 
     harmonizer_ref = f'{ref_path}/vcfs/ALL.chr{chrom}.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
@@ -88,10 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('--memory', required=True, help='Memory to allocate to each job')
     parser.add_argument('--threads', required=True, help='Number of threads to use')
     parser.add_argument('--project_path', required=True, help='String file path to working directory')
-    parser.add_argument('---ref_path', required=True, help='')
-    parser.add_argument('---minimac_path', required=True, help='String file path to genotype imputation software minimac')
-    parser.add_argument('---harmonizer_path', required=True, help='String file path to ')
-    parser.add_argument('---eagle_path', required=True, help='')
-    parser.add_argument('---ref_path', required=True, help='')
+    # parser.add_argument('--ref_path', required=True, help='')
+
     args = parser.parse_args()
     main(args)
