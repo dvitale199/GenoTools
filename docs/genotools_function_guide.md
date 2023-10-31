@@ -15,9 +15,9 @@ This guide details the methods available in the `SampleQC` class for quality con
 
 ## run_callrate_prune
 
-'''python
+```python
 run_callrate_prune(self, mind=0.02)
-'''
+```
 
 ### Description
 
