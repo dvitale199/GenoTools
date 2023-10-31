@@ -179,10 +179,24 @@ def concat_logs(step, out_path, listOfFiles):
         # parent directory for out_path outputs
         out_dir = os.path.dirname(out_path)
 
-    # find log path only if file was previously created in proper directory
+    # find log path if file was previously created in proper directory
+    log_exists = False
     for file in os.listdir(out_dir):
         if file.endswith("_all_logs.log"):
+            log_exists = True
             log_path = os.path.join(out_dir, file)
+            
+            # prevent appending to existing log files in out_dir
+            f = open(log_path, "r")
+            check_written = len(f.readlines())
+            f.close()
+            
+            if check_written > 0:
+                log_path = f'{out_path}_all_logs.log'
+                
+    # if no log was made in out_dir directory
+    if not log_exists:
+        log_path = f'{out_path}_all_logs.log'
 
     # combine log files into 1 file
     with open(log_path, "a+") as new_file:
@@ -192,7 +206,6 @@ def concat_logs(step, out_path, listOfFiles):
                 new_file.write(f'Process: {step}\n')
                 for line in file:
                     new_file.write(line)
-        
                 new_file.write("\n")
 
     # remove intermediate log files 
