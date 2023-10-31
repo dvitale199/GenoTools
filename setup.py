@@ -6,7 +6,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': [
-            'genotools=GenoTools.genotools:main',
+            'genotools=genotools.__main__:handle_main',
         ]
     },
     install_requires = [
