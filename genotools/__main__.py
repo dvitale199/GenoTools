@@ -7,6 +7,7 @@ import tempfile
 import pandas as pd
 import json
 import warnings
+import pathlib
 
 from genotools.utils import shell_do, upfront_check
 from genotools.qc import SampleQC, VariantQC
@@ -24,7 +25,9 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
     # otherwise tmpdir
     else:
-        step_paths = [f'{tmp_dir.name}/out']
+        out_path_pathlib = pathlib.PurePath(out_path)
+        out_path_name = out_path_pathlib.name
+        step_paths = [f'{tmp_dir.name}/{out_path_name}']
 
     # if first step is ancestry, make new steps list to call within-ancestry
     if steps[0] == 'ancestry':
@@ -123,19 +126,27 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         
         # remove old files when appropriate 
         if (not args['full_output']):
-            remove_step_index = step_paths.index(step_output) - 1
-            remove_path = step_paths[remove_step_index]
-            if os.path.isfile(f'{remove_path}.pgen'):
-                os.remove(f'{remove_path}.pgen')
-                os.remove(f'{remove_path}.psam')
-                os.remove(f'{remove_path}.pvar')
+            # when warn is True and step fails, don't remove old file
+            if args['warn'] and (not out_dict[step]['pass']):
+                remove = False
+            else:
+                remove = True
+                remove_step_index = step_paths.index(step_output) - 1
+
+            if remove:
+                remove_path = step_paths[remove_step_index]
+                # make sure we're not removing the output
+                if os.path.isfile(f'{remove_path}.pgen') and (remove_path != out_path):
+                    os.remove(f'{remove_path}.pgen')
+                    os.remove(f'{remove_path}.psam')
+                    os.remove(f'{remove_path}.pvar')
 
     out_dict['paths'] = step_paths
 
     return out_dict
 
 
-def build_metrics_pruned_df(metrics_df, pruned_df, dictionary, ancestry='all'):
+def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry='all'):
     #TODO: Add association output
     for step in ['callrate', 'sex', 'realted', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
@@ -155,10 +166,14 @@ def build_metrics_pruned_df(metrics_df, pruned_df, dictionary, ancestry='all'):
                 level = 'variant'
 
             for metric, value in dictionary[step]['metrics'].items():
-                tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
-                metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
+                if step == 'assoc':
+                    tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry_label]})
+                    gwas_df = pd.concat([gwas_df, tmp_gwas_df], ignore_index=True)
+                else:
+                    tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
+                    metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
 
-    return metrics_df, pruned_df
+    return metrics_df, pruned_df, gwas_df
 
 
 if __name__=='__main__':
@@ -308,6 +323,7 @@ if __name__=='__main__':
     clean_out_dict = dict()
     metrics_df = pd.DataFrame()
     pruned_df = pd.DataFrame()
+    gwas_df = pd.DataFrame()
 
     if 'ancestry' in out_dict.keys():
         ancestry_counts_df = pd.DataFrame(out_dict['ancestry']['metrics']['predicted_counts']).reset_index()
@@ -330,16 +346,17 @@ if __name__=='__main__':
     
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC']:
             if ancestry in out_dict.keys():
-                metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict[ancestry], ancestry=ancestry)
+                metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict[ancestry], ancestry=ancestry)
 
     else:
-        metrics_df, pruned_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, dictionary=out_dict)
+        metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict)
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
 
     clean_out_dict['QC'] = metrics_df.to_dict()
     clean_out_dict['pruned_samples'] = pruned_df.to_dict()
+    clean_out_dict['GWAS'] = gwas_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out_path"]}.json', 'w') as f:
