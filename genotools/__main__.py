@@ -176,7 +176,7 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry
     return metrics_df, pruned_df, gwas_df
 
 
-if __name__=='__main__':
+def handle_main():
     # definte arg parse
     parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data in Plink .bim/.bam/.fam format)')
 
@@ -363,3 +363,7 @@ if __name__=='__main__':
         json.dump(clean_out_dict, f)
 
     tmp_dir.cleanup() # to delete directory
+
+
+if __name__ == "__main__":
+    handle_main()
