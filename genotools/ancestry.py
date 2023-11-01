@@ -585,7 +585,7 @@ class Ancestry:
 
     def get_containerized_predictions(self, X_test, y_test, projected, label_encoder):
         """
-        Get predictions using a containerized environment for UMAP and linear SVM classifier.
+        Get predictions using a containerized environment for UMAP and XGBoost classifier.
 
         Args:
         X_test (DataFrame): Test data.
@@ -686,7 +686,7 @@ class Ancestry:
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
         """
-        Transform data using a fitted UMAP model.
+        Transform data using a fitted UMAP components.
 
         Args:
         ref_pca (DataFrame): Reference PCA data with labels.

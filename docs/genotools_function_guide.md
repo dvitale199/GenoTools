@@ -335,9 +335,9 @@ calculate_inflation(self, pval_array, normalize=False, ncases=None, ncontrols=No
 
 ## run_gwas
 
-\`\`\`python
+```python
 def run_gwas(self, covars=True)
-\`\`\`
+```
 
 ### Parameters
 
@@ -367,3 +367,288 @@ def run_association(self)
 Wrapper function to run PCA and GWAS analysis.
 
 ---
+
+
+# Ancestry Class Functions Guide
+
+## Introduction
+
+This guide details the methods available in the `Ancestry` class for processing reference and genotype data to predict ancestry.
+
+## Table of Contents
+- [Constructor](#constructor)
+- [get_raw_files](#get_raw_files)
+- [munge_training_data](#munge_training_data)
+
+---
+
+## Constructor
+
+```python
+__init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None)
+```
+
+### Description
+
+Initializes the `Ancestry` class with paths to genotype data, reference panels, and other options.
+
+### Parameters
+
+- **geno_path**: Path to the genotype data.
+- **ref_panel**: Path to the reference panel.
+- **ref_labels**: Path to the reference labels.
+- **out_path**: Path for output data.
+- **model_path**: Path to the trained model.
+- **containerized**: Boolean indicating if the computation is containerized.
+- **singularity**: Boolean indicating if Singularity is used.
+- **subset**: Any subsets to be considered.
+
+---
+
+## get_raw_files
+
+```python
+get_raw_files(self)
+```
+
+### Description
+
+Processes reference and genotype data for prediction, including variant pruning, extracting common SNPs, obtaining raw versions of common SNPs, and preparing data with labels.
+
+### Returns
+
+- **dict**: Contains
+    * 'raw_ref': A DataFrame with labeled raw reference data.
+    * 'raw_geno': A DataFrame with labeled raw genotype data.
+    * 'out_paths': A dictionary with output file paths.
+
+---
+
+## munge_training_data
+
+```python
+munge_training_data(self, labeled_ref_raw)
+```
+
+### Description
+
+Preprocesses labeled raw data for prediction by performing train/test split, label encoding, and data formatting.
+
+### Parameters
+
+- **labeled_ref_raw**: A DataFrame with labeled raw reference data and PCA information.
+
+### Returns
+
+- **dict**: Contains
+    * 'X_train': Features of the training set.
+    * 'X_test': Features of the test set.
+    * 'y_train': Labels of the training set.
+    * 'y_test': Labels of the test set.
+    * 'train_ids': IDs of samples in the training set.
+    * 'test_ids': IDs of samples in the test set.
+    * 'label_encoder': A fitted LabelEncoder for label transformation.
+    * 'X_all': All features (including both training and test sets).
+    * 'y_all': All labels (including both training and test sets).
+    
+## calculate_pcs
+
+```python
+calculate_pcs(self, X_train, X_test, y_train, y_test, train_ids, test_ids, raw_geno, label_encoder)
+```
+
+### Description
+
+Calculates principal components (PCs) for training and testing datasets, transforms the data, and projects new samples onto the reference panel. The function also saves the PCA data to files.
+
+### Parameters
+
+- **X_train** (DataFrame): Features of the training set.
+- **X_test** (DataFrame): Features of the test set.
+- **y_train** (Series): Labels of the training set.
+- **y_test** (Series): Labels of the test set.
+- **train_ids** (DataFrame): IDs of samples in the training set.
+- **test_ids** (DataFrame): IDs of samples in the test set.
+- **raw_geno** (DataFrame): Raw genotype data.
+- **label_encoder** (LabelEncoder): A fitted LabelEncoder for label transformation.
+
+### Returns
+
+- **dict**: Contains
+    * 'X_train': Transformed features of the training set.
+    * 'X_test': Transformed features of the test set.
+    * 'labeled_train_pca': Labeled PCA data for the training set.
+    * 'labeled_ref_pca': Labeled PCA data for the reference panel.
+    * 'new_samples_projected': Projected PCA data for new samples.
+    * 'out_paths': Dictionary containing output file paths.
+
+
+## transform
+
+```python
+transform(self, data, mean, sd, pca, col_names, fit=False)
+```
+
+### Description
+
+Applies flashPCA-style scaling and PCA transformation to the input data.
+
+### Parameters
+
+- **data** (DataFrame): Input data to be transformed.
+- **mean** (Series): Mean values for flashPCA-style scaling.
+- **sd** (Series): Standard deviation values for flashPCA-style scaling.
+- **pca** (PCA): PCA model for transforming data.
+- **col_names** (list): List of column names for the transformed data.
+- **fit** (bool, optional): If True, fit-transform the data with PCA. If False, only transform. Default is False.
+
+### Returns
+
+- **DataFrame**: Transformed data with named columns.
+
+---
+
+## train_umap_classifier
+
+```python
+train_umap_classifier(self, X_train, X_test, y_train, y_test, label_encoder)
+```
+
+### Description
+
+Train a UMAP to linear XGBoost classifier pipeline.
+
+### Parameters
+
+- **X_train** (DataFrame): Training features.
+- **X_test** (DataFrame): Testing features.
+- **y_train** (Series): Training labels.
+- **y_test** (Series): Testing labels.
+- **label_encoder**: LabelEncoder object for encoding and decoding labels.
+
+### Returns
+
+- **dict**: Dictionary containing classifier, label encoder, parameters, confusion matrix, fitted grid, train accuracy, test accuracy, and model path.
+
+---
+
+## load_umap_classifier
+
+```python
+load_umap_classifier(self, X_test, y_test)
+```
+
+### Description
+
+Load a trained UMAP classifier from a pickle file and evaluate its performance on the test set.
+
+### Parameters
+
+- **X_test** (DataFrame): Testing features.
+- **y_test** (Series): Testing labels.
+
+### Returns
+
+- **dict**: Dictionary containing classifier, confusion matrix, test accuracy, and model parameters.
+
+---
+
+## predict_ancestry_from_pcs
+
+```python
+predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder)
+```
+
+### Description
+
+Predict ancestry labels for new samples based on their projected principal components.
+
+### Parameters
+
+- **projected** (DataFrame): Testing features.
+- **pipe_clf** (Series): Testing labels.
+- **label_encoder** LabelEncoder object for encoding and decoding labels.
+
+### Returns
+
+- **dict**: Dictionary containing predicted labels, output data, and metrics.
+
+---
+
+## get_containerized_predictions
+
+```python
+get_containerized_predictions(self, X_test, y_test, projected, label_encoder)
+```
+
+### Description
+
+Get predictions using a containerized environment for UMAP and XGBoost classifier.
+
+### Parameters
+
+- **X_test** (DataFrame): Testing features.
+- **y_test** (Series): Testing labels.
+- **projected** (DataFrame): Testing features.
+- **label_encoder** LabelEncoder object for encoding and decoding labels.
+
+### Returns
+
+- **tuple**: Two dictionaries containing trained classifier results and prediction results.
+
+---
+
+## umap_transform_with_fitted
+
+```python
+umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None)
+```
+
+### Description
+
+Transform data using a fitted UMAP components.
+
+### Parameters
+
+- **ref_pca** (DataFrame): Reference PCA data with labels.
+- **X_new** (DataFrame): New samples to be transformed.
+- **y_pred** (DataFrame): Predicted labels for new samples.
+- **params** (dict, optional): UMAP parameters. Defaults to None.
+
+### Returns
+
+- **dict**:  dict: Dictionary containing UMAP-transformed data.
+
+---
+
+## split_cohort_ancestry
+
+```python
+split_cohort_ancestry(self, labels_path)
+```
+
+### Description
+
+Split a cohort based on predicted ancestries.
+
+### Parameters
+- **labels_path** (str): Path to the file containing predicted labels.
+- **subset** (list, optional): List of ancestries to continue analysis for. Defaults to False.
+
+### Returns
+- **dict**: Dictionary containing labels and paths for each split ancestry.
+
+---
+
+## run_ancestry
+
+```python
+run_ancestry(self)
+```
+
+### Description
+
+Run the ancestry prediction pipeline.
+
+###  Returns
+- **dict**: Dictionary containing data, metrics, and output information.
