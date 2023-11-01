@@ -1,17 +1,46 @@
-# SampleQC Class Functions Guide
+# GenoTools Functions Guide
 
 ## Introduction
 
-This guide details the methods available in the `SampleQC` class for quality control on genotype data.
+This guide details the methods available in the `GenoTools` package for quality control, ancestry prediction, and analysis of genotype data.
 
 ## Table of Contents
 - [SampleQC](#SampleQC)
-- [run_callrate_prune](#run_callrate_prune)
-- [run_sex_prune](#run_sex_prune)
-- [run_het_prune](#run_het_prune)
-- [run_related_prune](#run_related_prune)
+    - [run_callrate_prune](#run_callrate_prune)
+    - [run_sex_prune](#run_sex_prune)
+    - [run_het_prune](#run_het_prune)
+    - [run_related_prune](#run_related_prune)
+- [VariantQC](#VariantQC)
+    - [run_geno_prune](#run_geno_prune)
+    - [run_case_control_prune](#run_case_control_prune)
+    - [run_haplotype_prune](#run_haplotype_prune)
+    - [run_hwe_prune](#run_hwe_prune)
+    - [run_ld_prune](#run_ld_prune)
+- [Assoc](#Assoc)
+    - [write_exclusion_file](#write_exclusion_file)
+    - [run_pca_pruning](#run_pca_pruning)
+    - [run_plink_pca](#run_plink_pca)
+    - [calculate_inflation](#calculate_inflation)
+    - [run_gwas](#run_gwas)
+    - [run_prs](#run_prs)
+    - [run_association](#run_association)
+- [Ancestry](#Ancestry)
+    - [get_raw_files](#get_raw_files)
+    - [munge_training_data](#munge_training_data)
+    - [calculate_pcs](#calculate_pcs)
+    - [transform](#transform)
+    - [train_umap_classifier](#train_umap_classifier)
+    - [load_umap_classifier](#load_umap_classifier)
+    - [predict_ancestry_from_pcs](#predict_ancestry_from_pcs)
+    - [get_containerized_predictions](#get_containerized_predictions)
+    - [umap_transform_with_fitted](#umap_transform_with_fitted)
+    - [split_cohort_ancestry](#split_cohort_ancestry)
+    - [run_ancestry](#run_ancestry)
+
 
 ---
+
+# Sample Quality Control
 
 ## SampleQC
 
@@ -123,22 +152,9 @@ Executes relatedness pruning on genotype data using PLINK.
     * 'metrics': Metrics such as 'outlier_count'.
     * 'output': Paths to the generated output files.
 
-
-# VariantQC Class Functions Guide
-
-## Introduction
-
-This guide details the methods available in the `VariantQC` class
-
-## Table of Contents
-- [VariantQC](#VariantQC)
-- [run_geno_prune](#run_geno_prune)
-- [run_case_control_prune](#run_case_control_prune)
-- [run_haplotype_prune](#run_haplotype_prune)
-- [run_hwe_prune](#run_hwe_prune)
-- [run_ld_prune](#run_ld_prune)
-
 ---
+
+# Variant Quality Control
 
 ## VariantQC
 
@@ -272,21 +288,7 @@ Prunes SNPs based on Linkage Disequilibrium.
     * 'output': Dictionary containing paths to the generated output files.
 
 
-# Assoc Class Functions Guide
-
-## Introduction
-
-This guide details the methods available in the `Assoc` class for running various genomic analyses.
-
-## Table of Contents
-- [Assoc](#Assoc)
-- [write_exclusion_file](#write_exclusion_file)
-- [run_pca_pruning](#run_pca_pruning)
-- [run_plink_pca](#run_plink_pca)
-- [calculate_inflation](#calculate_inflation)
-- [run_gwas](#run_gwas)
-- [run_prs](#run_prs)
-- [run_association](#run_association)
+# Associations
 
 ---
 
@@ -406,25 +408,7 @@ Wrapper function to run PCA and GWAS analysis.
 ---
 
 
-# Ancestry Class Functions Guide
-
-## Introduction
-
-This guide details the methods available in the `Ancestry` class for processing reference and genotype data to predict ancestry.
-
-## Table of Contents
-- [Ancestry](#Ancestry)
-- [get_raw_files](#get_raw_files)
-- [munge_training_data](#munge_training_data)
-- [calculate_pcs](#calculate_pcs)
-- [transform](#transform)
-- [train_umap_classifier](#train_umap_classifier)
-- [load_umap_classifier](#load_umap_classifier)
-- [predict_ancestry_from_pcs](#predict_ancestry_from_pcs)
-- [get_containerized_predictions](#get_containerized_predictions)
-- [umap_transform_with_fitted](#umap_transform_with_fitted)
-- [split_cohort_ancestry](#split_cohort_ancestry)
-- [run_ancestry](#run_ancestry)
+# Ancestry Predictions
 
 ---
 
