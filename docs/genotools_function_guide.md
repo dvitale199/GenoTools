@@ -5,11 +5,27 @@
 This guide details the methods available in the `SampleQC` class for quality control on genotype data.
 
 ## Table of Contents
-- [Constructor](#constructor)
+- [Constructor](#Constructor)
 - [run_callrate_prune](#run_callrate_prune)
 - [run_sex_prune](#run_sex_prune)
 - [run_het_prune](#run_het_prune)
 - [run_related_prune](#run_related_prune)
+
+---
+
+## Constructor
+
+```python
+__init__(self, geno_path=None, out_path=None)
+```
+
+### Description
+
+Initializes the `SampleQC` class with paths to genotype data and output path.
+
+### Parameters
+- **geno_path**: Path to the genotype data.
+- **out_path**: Path for output data.
 
 ---
 
@@ -115,11 +131,28 @@ Executes relatedness pruning on genotype data using PLINK.
 This guide details the methods available in the `VariantQC` class
 
 ## Table of Contents
+- [Constructor](#Constructor)
 - [run_geno_prune](#run_geno_prune)
 - [run_case_control_prune](#run_case_control_prune)
 - [run_haplotype_prune](#run_haplotype_prune)
 - [run_hwe_prune](#run_hwe_prune)
 - [run_ld_prune](#run_ld_prune)
+
+---
+
+## Constructor
+
+```python
+__init__(self, geno_path=None, out_path=None)
+```
+
+### Description
+
+Initializes the `VariantQC` class with paths to genotype data and output path.
+
+### Parameters
+- **geno_path**: Path to the genotype data.
+- **out_path**: Path for output data.
 
 ---
 
@@ -246,6 +279,7 @@ Prunes SNPs based on Linkage Disequilibrium.
 This guide details the methods available in the `Assoc` class for running various genomic analyses.
 
 ## Table of Contents
+- [Constructor](#Constructor)
 - [write_exclusion_file](#write_exclusion_file)
 - [run_pca_pruning](#run_pca_pruning)
 - [run_plink_pca](#run_plink_pca)
@@ -379,6 +413,15 @@ This guide details the methods available in the `Ancestry` class for processing 
 - [Constructor](#constructor)
 - [get_raw_files](#get_raw_files)
 - [munge_training_data](#munge_training_data)
+- [calculate_pcs](#calculate_pcs)
+- [transform](#transform)
+- [train_umap_classifier](#train_umap_classifier)
+- [load_umap_classifier](#load_umap_classifier)
+- [predict_ancestry_from_pcs](#predict_ancestry_from_pcs)
+- [get_containerized_predictions](#get_containerized_predictions)
+- [umap_transform_with_fitted](#umap_transform_with_fitted)
+- [split_cohort_ancestry](#split_cohort_ancestry)
+- [run_ancestry](#run_ancestry)
 
 ---
 
