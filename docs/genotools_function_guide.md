@@ -5,7 +5,7 @@
 This guide details the methods available in the `SampleQC` class for quality control on genotype data.
 
 ## Table of Contents
-- [Constructor](#Constructor)
+- [Constructor](#SampleQC Constructor)
 - [run_callrate_prune](#run_callrate_prune)
 - [run_sex_prune](#run_sex_prune)
 - [run_het_prune](#run_het_prune)
@@ -13,7 +13,7 @@ This guide details the methods available in the `SampleQC` class for quality con
 
 ---
 
-## Constructor
+## SampleQC Constructor
 
 ```python
 __init__(self, geno_path=None, out_path=None)
