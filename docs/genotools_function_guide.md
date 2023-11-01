@@ -5,7 +5,7 @@
 This guide details the methods available in the `SampleQC` class for quality control on genotype data.
 
 ## Table of Contents
-- [Constructor](#SampleQC Constructor)
+- [SampleQC](#SampleQC)
 - [run_callrate_prune](#run_callrate_prune)
 - [run_sex_prune](#run_sex_prune)
 - [run_het_prune](#run_het_prune)
@@ -13,7 +13,7 @@ This guide details the methods available in the `SampleQC` class for quality con
 
 ---
 
-## SampleQC Constructor
+## SampleQC
 
 ```python
 __init__(self, geno_path=None, out_path=None)
@@ -131,7 +131,7 @@ Executes relatedness pruning on genotype data using PLINK.
 This guide details the methods available in the `VariantQC` class
 
 ## Table of Contents
-- [Constructor](#Constructor)
+- [VariantQC](#VariantQC)
 - [run_geno_prune](#run_geno_prune)
 - [run_case_control_prune](#run_case_control_prune)
 - [run_haplotype_prune](#run_haplotype_prune)
@@ -140,7 +140,7 @@ This guide details the methods available in the `VariantQC` class
 
 ---
 
-## Constructor
+## VariantQC
 
 ```python
 __init__(self, geno_path=None, out_path=None)
@@ -279,7 +279,7 @@ Prunes SNPs based on Linkage Disequilibrium.
 This guide details the methods available in the `Assoc` class for running various genomic analyses.
 
 ## Table of Contents
-- [Constructor](#Constructor)
+- [Assoc](#Assoc)
 - [write_exclusion_file](#write_exclusion_file)
 - [run_pca_pruning](#run_pca_pruning)
 - [run_plink_pca](#run_plink_pca)
@@ -290,11 +290,14 @@ This guide details the methods available in the `Assoc` class for running variou
 
 ---
 
-## Constructor
+## Assoc
 
 ```python
 __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None)
 ```
+### Description
+
+Initializes the `Assoc` class with paths to genotype data and output path, pca, build, gwas, pheno_name, covar_path, and covar_names.
 
 ### Parameters
 
@@ -410,7 +413,7 @@ Wrapper function to run PCA and GWAS analysis.
 This guide details the methods available in the `Ancestry` class for processing reference and genotype data to predict ancestry.
 
 ## Table of Contents
-- [Constructor](#constructor)
+- [Ancestry](#Ancestry)
 - [get_raw_files](#get_raw_files)
 - [munge_training_data](#munge_training_data)
 - [calculate_pcs](#calculate_pcs)
@@ -425,7 +428,7 @@ This guide details the methods available in the `Ancestry` class for processing 
 
 ---
 
-## Constructor
+## Ancestry
 
 ```python
 __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None)
