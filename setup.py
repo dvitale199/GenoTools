@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='genotools', 
-    version='1.0', 
+    version='1.0.0', 
     packages=find_packages(),
     entry_points={
         'console_scripts': [
@@ -25,7 +25,7 @@ setup(
         'setuptools==65.6.3',
         'statsmodels==0.13.5',
         'streamlit==1.15.2',
-        'umap_learn==0.5.3',
+        'umap_learn==0.5.4',
         'xgboost==1.7.6'
     ]
 )
