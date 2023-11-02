@@ -166,12 +166,14 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry
                 level = 'variant'
 
             for metric, value in dictionary[step]['metrics'].items():
-                if step == 'assoc':
-                    tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry_label]})
-                    gwas_df = pd.concat([gwas_df, tmp_gwas_df], ignore_index=True)
-                else:
-                    tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
-                    metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
+                tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
+                metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
+
+    if ('assoc' in dictionary.keys()) and ('gwas' in dictionary['assoc'].keys()):
+        for metric, value in dictionary['assoc']['gwas']['metrics'].items():
+            tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry_label]})
+            gwas_df = pd.concat([gwas_df, tmp_gwas_df], ignore_index=True)
+
 
     return metrics_df, pruned_df, gwas_df
 
