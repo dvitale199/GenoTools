@@ -315,25 +315,26 @@ class Assoc:
         if not os.path.exists(f'{self.geno_path}.pgen'):
             raise FileNotFoundError(f"{self.geno_path} does not exist.")
 
+        assoc = {}
 
         # calculate pcs
         if self.pca:
-            pca = self.run_plink_pca()
+            assoc['pca'] = self.run_plink_pca()
 
         # run gwas
         if self.gwas:
             # if pca called and covars passed, warn and default to passed covars
             if os.path.isfile(f'{self.out_path}.eigenvec') and (self.covar_path is not None):
                 warnings.warn('PCA ran and Covar passed! Defaulting to passed covars!')
-                gwas = self.run_gwas(covars=True)
+                assoc['gwas'] = self.run_gwas(covars=True)
             
             # if pca called and no covars pass, defult to pca
             elif os.path.isfile(f'{self.out_path}.eigenvec') and (self.covar_path is None):
                 self.covar_path = f'{self.out_path}.eigenvec'
-                gwas = self.run_gwas(covars=True)
+                assoc['gwas'] = self.run_gwas(covars=True)
             
             # otherwise run GWAS with no covars
             else:
-                gwas = self.run_gwas(covars=False)
+                assoc['gwas'] = self.run_gwas(covars=False)
         
-        return gwas
+        return assoc
