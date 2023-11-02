@@ -148,13 +148,13 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
 def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry='all'):
     #TODO: Add association output
-    for step in ['callrate', 'sex', 'realted', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
+    for step in ['callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
             pf = dictionary[step]['pass']
             ancestry_label = ancestry
 
-            if step in ['callrate', 'sex', 'realted', 'het']:
+            if step in ['callrate', 'sex', 'related', 'het']:
                 level = 'sample'
                 samplefile = dictionary[step]['output']['pruned_samples']
                 if os.path.isfile(samplefile):
@@ -271,7 +271,7 @@ def handle_main():
 
     # if all sample or all variant called, replace necessary items with defaults
     if args_dict['all_sample']:
-        args_dict['callrate'] = 0.02
+        args_dict['callrate'] = 0.05
         args_dict['sex'] = [0.25, 0.75]
         args_dict['related'] = True
         args_dict['het'] = [-0.25, 0.25]
