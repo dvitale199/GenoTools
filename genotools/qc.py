@@ -448,11 +448,11 @@ class SampleQC:
                 grm_pruned = pd.concat([related, duplicated], ignore_index=True)
 
                 if '#FID' in grm_pruned:
-                    grm_pruned.rename(columns={"#FID": "FID", "#IID": "IID"}, inplace = True)
-                else:
-                    grm_pruned['FID'] = 0
                     grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
-                grm_pruned.drop_duplicates(subset=['FID','IID'], keep='last', inplace=True)
+                else:
+                    grm_pruned['#FID'] = 0
+                    grm_pruned.rename(columns={"#IID": "IID"}, inplace = True)
+                grm_pruned.drop_duplicates(subset=['#FID','IID'], keep='last', inplace=True)
                 grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
                 process_complete = True
 
