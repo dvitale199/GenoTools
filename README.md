@@ -12,3 +12,9 @@ git clone https://github.com/dvitale199/GenoTools
 cd GenoTools
 pip install .
 ```
+
+Modify the paths in the following command to run the standard GP2 pipeline:
+```
+genotools --geno_path /path/to/genotypes/for/qc --out_path /path/to/qc/output --ancestry --ref_panel /path/to/reference/panel --ref_labels /path/to/reference/ancestry/labels --container --all_sample --all_variant
+```
+Note: add the ```--singularity``` flag to run ancestry predictions on HPC
