@@ -40,7 +40,7 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         print()
     
     elif bfile_path and (not pfile_path):
-        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,phenos --out {bfile_path}'
+        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {bfile_path}'
         shell_do(convert_cmd)
     
     else:
@@ -49,8 +49,22 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
 
 
 def upfront_check(geno_path, args):
+    if not os.path.isfile(f'{geno_path}.pgen'):
+        raise FileNotFoundError(f"{geno_path} does not exist.")
+
+    # if no pgen present, but bed is present, and skip fails is True, convert to pgen
+    if not os.path.isfile(f'{geno_path}.pgen') and os.path.isfile(f'{geno_path}.bed') and (not args['skip_fails']):
+        warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...')
+        bfiles_to_pfiles(bfile_path=geno_path)
+
     sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
     var = pd.read_csv(f'{geno_path}.pvar', sep = '\s+', low_memory = False)
+
+    if 'SEX' not in sam.columns: 
+        raise KeyError(f'{geno_path}.psam is missing SEX column. Even if no SEX information is present, GenoTools requires a SEX column.')
+    
+    if 'PHENO1' not in sam.columns:
+        raise KeyError(f'{geno_path}.psam is missing PHENO1 column. Even if no PHENO1 information is present, GenoTools requires a PHENO1 column.')
 
     sex_counts = sam['SEX'].value_counts().to_dict()
     pheno_counts = sam['PHENO1'].value_counts().to_dict()

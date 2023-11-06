@@ -773,7 +773,7 @@ class Ancestry:
             ancestry_group_outpath = f'{outname}.samples'
             pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
+            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {outname}'
             shell_do(plink_cmd)
 
             listOfFiles.append(f'{outname}.log')
