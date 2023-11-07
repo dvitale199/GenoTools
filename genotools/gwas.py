@@ -65,7 +65,7 @@ class Assoc:
         exclusion_file = self.write_exclusion_file()
 
         # Filter data
-        filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
+        filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {self.out_path}_tmp"
         shell_do(filter_cmd)
         
         # Prune SNPs
@@ -75,7 +75,7 @@ class Assoc:
         # Check if prune.in file exists
         if os.path.isfile(f'{self.out_path}_pruned.prune.in'):
             # Extract pruned SNPs
-            extract_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --extract {self.out_path}_pruned.prune.in --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}"
+            extract_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --extract {self.out_path}_pruned.prune.in --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {self.out_path}"
             shell_do(extract_cmd)
 
             listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
