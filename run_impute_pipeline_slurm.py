@@ -20,9 +20,7 @@ def main(args):
     harmonizer_path = '/data/jamesml/GP2_data_processing/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
     eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
    
-
-    
-    
+   
     harm_dir = f'{project_path}/harmonized/{label}'
     os.makedirs(harm_dir, exist_ok = True)
     harm_geno_in = f"{project_path}/raw_genotypes/{label}/{label}_maf_hwe_release5_chr{chrom}"
