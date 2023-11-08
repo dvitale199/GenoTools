@@ -27,5 +27,8 @@ setup(
         'streamlit==1.15.2',
         'umap_learn==0.5.4',
         'xgboost==1.7.6'
-    ]
+    ],
+    package_data={
+      'genotools': ['container/*.pkl','container/*.txt','container/Dockerfile']
+   }
 )

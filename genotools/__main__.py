@@ -10,7 +10,6 @@ def handle_main():
     args = gt_argparse()
 
     args_dict = vars(args)
-    print(args_dict)
     
     from genotools.utils import upfront_check
     from genotools.qc import SampleQC, VariantQC
@@ -71,8 +70,6 @@ def handle_main():
         args_dict['filter_controls'] = True
         args_dict['ld'] = None
 
-    print(args_dict)
-
     # clear log files if repeated out path
     if os.path.exists(f"{args_dict['out_path']}_all_logs.log"):
         os.remove(f"{args_dict['out_path']}_all_logs.log")
@@ -98,8 +95,10 @@ def handle_main():
                 run_steps_list.append('assoc')
     
     # check run steps and output step
-    print(run_steps_list)
-    print(f'Output steps: {run_steps_list[-1]}')
+    if len(run_steps_list) == 0:
+        raise KeyError('No main Ancestry, QC, or GWAS flags were used!')
+    else:
+        print(f'Output steps: {run_steps_list[-1]}')
 
     # create tmp dir
     out_dir = os.path.dirname(args_dict['out_path'])
