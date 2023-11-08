@@ -46,7 +46,7 @@ def main(args):
 
     # run harmonizer
     print('running harmonizer')
-    harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
+   # harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
     print('harmonizer complete')
     print()
 
