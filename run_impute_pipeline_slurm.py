@@ -3,6 +3,7 @@ from genotools.impute import run_phasing_and_imputation
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 import os
+import shutil
 
 def main(args):
     chrom = args.chrom
@@ -21,19 +22,26 @@ def main(args):
     eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
    
    
+
     harm_dir = f'{project_path}/harmonized/{label}'
-    os.makedirs(harm_dir, exist_ok = True)
+    if os.path.exists(harm_dir):
+        shutil.rmtree(harm_dir)
+    os.makedirs(harm_dir)
     harm_geno_in = f"{project_path}/raw_genotypes/{label}/{label}_maf_hwe_release5_chr{chrom}"
     harm_geno_out = f"{harm_dir}/{label}_chr{chrom}_harmonized"
     chunk_geno_out = f"{harm_geno_out}_chunk"
 
 
     phased_dir = f'{project_path}/phased/{label}'
-    os.makedirs(phased_dir, exist_ok = True)
+    if os.path.exists(phased_dir):
+        shutil.rmtree(phased_dir)
+    os.makedirs(phased_dir)
     eagle_geno_out = f'{phased_dir}/{label}_chr{chrom}_phased'
 
     impute_dir = f'{project_path}/imputed/{label}'
-    os.makedirs(impute_dir, exist_ok = True)
+    if os.path.exists(impute_dir):
+        shutil.rmtree(impute_dir)
+    os.makedirs(impute_dir)
     impute_out = f'{impute_dir}/{label}_chr{chrom}_imputed'
 
     harmonizer_ref = f'{ref_path}/vcfs/ALL.chr{chrom}.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
@@ -44,7 +52,7 @@ def main(args):
 
     # run harmonizer
     print('running harmonizer')
-    #harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
+    harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
     print('harmonizer complete')
     print()
 
