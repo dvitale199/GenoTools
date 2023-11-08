@@ -44,12 +44,12 @@ def main(args):
 
     # run harmonizer
     print('running harmonizer')
-   # harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
+    #harmonize(f'{harm_geno_in}', harm_geno_out, harmonizer_ref, harmonizer_path, memory=memory)
     print('harmonizer complete')
     print()
 
     print('chunking genotypes')
-    chunk_outs = chunk_genotypes(harm_geno_out, chunk_geno_out, chunk_size=20000000, chrom=chrom)
+    #chunk_outs = chunk_genotypes(harm_geno_out, chunk_geno_out, chunk_size=20000000, chrom=chrom)
     print('chunking complete')
     print()
 
