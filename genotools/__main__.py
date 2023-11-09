@@ -11,6 +11,11 @@ def handle_main():
 
     args_dict = vars(args)
     
+    from numba.core.errors import NumbaDeprecationWarning
+    import warnings
+    warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+
+    from umap import UMAP
     from genotools.utils import upfront_check
     from genotools.qc import SampleQC, VariantQC
     from genotools.ancestry import Ancestry

@@ -184,10 +184,9 @@ class SampleQC:
 
             process_complete = True
 
-            os.remove(f'{sex_tmp1}.hh')
-            os.remove(f'{sex_tmp1}.sexcheck')
-            os.remove(f'{sex_tmp2}.hh')
-            os.remove(f'{sex_tmp2}.sexcheck')
+            for file in [f'{sex_tmp1}.hh',f'{sex_tmp1}.sexcheck',f'{sex_tmp2}.hh',f'{sex_tmp2}.sexcheck']:
+                if os.path.isfile(file):
+                    os.remove(file)
 
             # log outputs
             outfiles_dict = {
@@ -808,9 +807,10 @@ class VariantQC:
 
         process_complete = True
 
-        os.remove(f'{hap_tmp}.exclude')
-        os.remove(f'{hap_tmp}.hh')
-        os.remove(f'{hap_tmp}.missing.hap')
+        for file in [f'{hap_tmp}.exclude',f'{hap_tmp}.hh',f'{hap_tmp}.missing.hap']:
+            if os.path.isfile(file):
+                os.remove(file)
+
         os.remove(f'{geno_path}.bed')
         os.remove(f'{geno_path}.bim')
         os.remove(f'{geno_path}.fam')
@@ -901,8 +901,10 @@ class VariantQC:
 
         process_complete = True
 
-        os.remove(f'{hwe_tmp}.hh')
-        os.remove(f'{hwe_tmp}.snplist')
+        for file in [f'{hwe_tmp}.hh',f'{hwe_tmp}.snplist']:
+            if os.path.isfile(file):
+                os.remove(file)
+        
         os.remove(f'{geno_path}.bed')
         os.remove(f'{geno_path}.bim')
         os.remove(f'{geno_path}.fam')
