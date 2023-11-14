@@ -11,8 +11,10 @@ def gt_argparse():
     parser = argparse.ArgumentParser(description='Arguments for Genotyping QC (data in Plink .bim/.bam/.fam format)')
 
     # file i/o arguments
-    parser.add_argument('--geno_path', type=str, nargs='?', default=None, const=None, help='Genotype: (string file path). Path to PLINK format genotype file, everything before the *.bed/bim/fam [default: nope].', required=True)
-    parser.add_argument('--out_path', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
+    parser.add_argument('--bfile', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to PLINK 1.9 format genotype file (everything before the *.bed/bim/fam)')
+    parser.add_argument('--pfile', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to PLINK 2 format genotype file (everything before the *.pgen/pvar/psam)')
+    parser.add_argument('--vcf', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to VCF format genotype file')
+    parser.add_argument('--out', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
     parser.add_argument('--full_output', type=str, nargs='?', default='True', const='True', help='Output everything')
     parser.add_argument('--skip_fails', type=str, nargs='?', default='False', const='True', help='Skip up front check for fails')
     parser.add_argument('--warn', type=str, nargs='?', default='False', const='True', help='Warn of error and continue running pipeline')
