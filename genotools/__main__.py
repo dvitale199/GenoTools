@@ -16,7 +16,7 @@ def handle_main():
     warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 
     from umap import UMAP
-    from genotools.utils import upfront_check
+    from genotools.utils import upfront_check, bfiles_to_pfiles, vcf_to_pfiles
     from genotools.qc import SampleQC, VariantQC
     from genotools.ancestry import Ancestry
     from genotools.gwas import Assoc
@@ -74,21 +74,35 @@ def handle_main():
         args_dict['hwe'] = 1e-4
         args_dict['filter_controls'] = True
         args_dict['ld'] = None
-
-    # clear log files if repeated out path
-    if os.path.exists(f"{args_dict['out_path']}_all_logs.log"):
-        os.remove(f"{args_dict['out_path']}_all_logs.log")
-    if os.path.exists(f"{args_dict['out_path']}_cleaned_logs.log"):
-        os.remove(f"{args_dict['out_path']}_cleaned_logs.log")
-
-    # create empty log files in output directory
-    with open(f"{args_dict['out_path']}_all_logs.log", "w") as fp: 
-        pass
-    with open(f"{args_dict['out_path']}_cleaned_logs.log", "w") as fp: 
-        pass
     
     # run data breakdows
+    if (args_dict['bfile'] is None) and (args_dict['pfile'] is None) and (args_dict['vcf'] is None):
+        raise KeyError('No bfiles, pfiles, or vcf genotypes were provided!')
+    
+    elif args_dict['bfile'] and (args_dict['pfile'] is None):
+        bfiles_to_pfiles(bfile_path=args_dict['bfile'])
+        args_dict['geno_path'] = args_dict['bfile']
+    
+    elif args_dict['vcf'] and (args_dict['pfile'] is None):
+        vcf_to_pfiles(vcf_path=args_dict['vcf'])
+        args_dict['geno_path'] = args_dict['vcf'].split('.vcf')[0]
+    
+    else:
+        args_dict['geno_path'] = args_dict['pfile']
+
     args_dict = upfront_check(args_dict['geno_path'], args_dict)
+
+    # clear log files if repeated out path
+    if os.path.exists(f"{args_dict['out']}_all_logs.log"):
+        os.remove(f"{args_dict['out']}_all_logs.log")
+    if os.path.exists(f"{args_dict['out']}_cleaned_logs.log"):
+        os.remove(f"{args_dict['out']}_cleaned_logs.log")
+
+    # create empty log files in output directory
+    with open(f"{args_dict['out']}_all_logs.log", "w") as fp: 
+        pass
+    with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp: 
+        pass
 
     # get correct order of steps to run
     run_steps_list = []
@@ -101,16 +115,16 @@ def handle_main():
     
     # check run steps and output step
     if len(run_steps_list) == 0:
-        raise KeyError('No main Ancestry, QC, or GWAS flags were used!')
+        raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
     else:
         print(f'Output steps: {run_steps_list[-1]}')
 
     # create tmp dir
-    out_dir = os.path.dirname(args_dict['out_path'])
+    out_dir = os.path.dirname(args_dict['out'])
     tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir=out_dir)
 
     # run pipeline
-    out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out_path'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
+    out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
     
     # build output
     clean_out_dict = dict()
@@ -152,7 +166,7 @@ def handle_main():
     clean_out_dict['GWAS'] = gwas_df.to_dict()
 
     # dump output to json
-    with open(f'{args_dict["out_path"]}.json', 'w') as f:
+    with open(f'{args_dict["out"]}.json', 'w') as f:
         json.dump(clean_out_dict, f)
 
     tmp_dir.cleanup() # to delete directory

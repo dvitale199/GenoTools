@@ -476,11 +476,17 @@ class SampleQC:
 
                 process_complete = True
                 related_pruned_out = None
-                process_complete = True
+
+                related_count = 0
+                duplicated_count = 0
 
             if not prune_duplicated and prune_related:
                 print('This option is invalid. Cannot prune related without also pruning duplicated')
                 process_complete = False
+                related_pruned_out = None
+
+                related_count = 0
+                duplicated_count = 0
 
 
             if os.path.isfile(f'{out_path}.log'):

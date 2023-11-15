@@ -40,12 +40,41 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         print()
     
     elif bfile_path and (not pfile_path):
+        if not os.path.isfile(f'{bfile_path}.bed'):
+            raise FileNotFoundError(f'{bfile_path} does not exist.')
+
         convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {bfile_path}'
         shell_do(convert_cmd)
     
     else:
+        if not os.path.isfile(f'{pfile_path}.pgen'):
+            raise FileNotFoundError(f'{pfile_path} does not exist.')
+        
         convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
         shell_do(convert_cmd)
+
+
+def vcf_to_pfiles(vcf_path):
+    if not os.path.isfile(vcf_path):
+        raise FileNotFoundError(f'{vcf_path} does not exist.')
+    
+    prefix = vcf_path.split('.vcf')[0]
+
+    convert_cmd1 = f'{plink2_exec} --vcf {vcf_path} --make-bed --out {prefix}'
+    shell_do(convert_cmd1)
+
+    if not os.path.isfile(f'{prefix}.bed'):
+        raise FileNotFoundError(f'{prefix} bed/bim/fam files do not exist. Conversion from VCF failed')
+    
+    bfiles_to_pfiles(bfile_path=prefix)
+
+    if os.path.isfile(f'{prefix}.pgen'):
+        os.remove(f'{prefix}.bed')
+        os.remove(f'{prefix}.bim')
+        os.remove(f'{prefix}.fam')
+    else:
+        raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from bed/bim/fam failed.')
+
 
 
 def upfront_check(geno_path, args):
