@@ -212,7 +212,7 @@ class SampleQC:
             metrics_dict = {
                 'outlier_count': 0
             }
-        
+
         os.remove(f'{geno_path}.bed')
         os.remove(f'{geno_path}.bim')
         os.remove(f'{geno_path}.fam')
@@ -426,6 +426,9 @@ class SampleQC:
         if os.path.isfile(f'{related_pairs}.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
 
             # create .related related pair sample files
+            kinship = pd.read_csv(f'{related_pairs}.kin0', sep='\s+')
+            kinship['REL'] = pd.cut(x=kinship['KINSHIP'], bins=[-np.inf, 0.0884, 0.177, 0.354, np.inf], labels=['unrel', 'second_deg', 'first_deg', 'duplicate'])
+            kinship.to_csv(f'{related_pairs}.related', index=False)
             shutil.copy(f'{related_pairs}.kin0',f'{related_pairs}.related')
 
             # create .related and .duplicated single sample files
@@ -904,7 +907,7 @@ class VariantQC:
         for file in [f'{hwe_tmp}.hh',f'{hwe_tmp}.snplist']:
             if os.path.isfile(file):
                 os.remove(file)
-        
+
         os.remove(f'{geno_path}.bed')
         os.remove(f'{geno_path}.bim')
         os.remove(f'{geno_path}.fam')
@@ -917,7 +920,7 @@ class VariantQC:
         }
 
         return out_dict
-    
+
 
     def run_ld_prune(self, window_size=50, step_size=5, r2_threshold=0.5):
 
