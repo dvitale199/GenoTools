@@ -69,9 +69,9 @@ def vcf_to_pfiles(vcf_path):
     bfiles_to_pfiles(bfile_path=prefix)
 
     if os.path.isfile(f'{prefix}.pgen'):
-        os.remove(f'{prefix}.pgen')
-        os.remove(f'{prefix}.pvar')
-        os.remove(f'{prefix}.psam')
+        os.remove(f'{prefix}.bed')
+        os.remove(f'{prefix}.bim')
+        os.remove(f'{prefix}.fam')
     else:
         raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from bed/bim/fam failed.')
 
