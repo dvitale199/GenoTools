@@ -210,7 +210,7 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry
             if step in ['callrate', 'sex', 'related', 'het']:
                 level = 'sample'
                 samplefile = dictionary[step]['output']['pruned_samples']
-                if os.path.isfile(samplefile):
+                if (samplefile is not None) and os.path.isfile(samplefile):
                     pruned = pd.read_csv(samplefile, sep='\t')
                     if pruned.shape[0] > 0:
                         pruned.loc[:,'step'] = step
