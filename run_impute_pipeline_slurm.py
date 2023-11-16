@@ -18,7 +18,7 @@ def main(args):
     ref_path = f'{project_path}/refs'
     #minimac_path = '/data/vitaled2/GP2_data_processing/bin/minimac4'
     #load minimac module
-    harmonizer_path = '/Users/jamesml/Documents/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
+    harmonizer_path = '/data/jamesml/GP2_data_processing/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
     #eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
    
    
