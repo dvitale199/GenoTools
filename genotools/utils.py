@@ -222,24 +222,28 @@ def concat_logs(step, out_path, listOfFiles):
         # parent directory for out_path outputs
         out_dir = os.path.dirname(out_path)
 
-    # find log path if file was previously created in proper directory
-    log_exists = False
+    # find all genotools created logs in out_dir
+    log_paths = []
     for file in os.listdir(out_dir):
         if file.endswith("_all_logs.log"):
-            log_exists = True
-            log_path = os.path.join(out_dir, file)
-            
-            # prevent appending to existing log files in out_dir
-            f = open(log_path, "r")
-            check_written = len(f.readlines())
-            f.close()
-            
-            if check_written > 0:
-                log_path = f'{out_path}_all_logs.log'
-                
-    # if no log was made in out_dir directory
-    if not log_exists:
-        log_path = f'{out_path}_all_logs.log'
+            # log_exists = True
+            log_paths.append(file)
+
+    # if no genotools logs exist, create one
+    if len(log_paths) == 0:
+        log_path = os.path.join(out_dir, os.path.split(out_path)[1])
+    
+    # if one genotools log exists, point to it
+    if len(log_paths) == 1:
+        log_path = os.path.join(out_dir, log_paths[0])
+
+    # if more than one genotools log exists, point to the one modified most recently
+    if len(log_paths) > 1:
+        mtimes = {}
+        for path in log_paths:
+            mtimes[path] = os.path.getmtime(os.path.join(out_dir, path))
+        most_recent_log = max(zip(mtimes.values(), mtimes.keys()))[1]
+        log_path = os.path.join(out_dir, most_recent_log)
 
     # combine log files into 1 file
     with open(log_path, "a+") as new_file:

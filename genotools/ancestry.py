@@ -7,6 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
+from sklearn.cluster import Birch
 from xgboost import XGBClassifier
 import pickle as pkl
 import json
@@ -532,7 +533,7 @@ class Ancestry:
         return out_dict
 
 
-    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder):
+    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca):
         """
         Predict ancestry labels for new samples based on their projected principal components.
 
@@ -556,6 +557,8 @@ class Ancestry:
         y_pred = pipe_clf.predict(X_new)
         ancestry_pred = le.inverse_transform(y_pred)
         projected.loc[:,'label'] = ancestry_pred
+
+        projected = self.predict_admixed_samples(projected, train_pca)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -583,7 +586,7 @@ class Ancestry:
         return out_dict
 
 
-    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder):
+    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
         """
         Get predictions using a containerized environment for UMAP and XGBoost classifier.
 
@@ -652,6 +655,8 @@ class Ancestry:
         ancestry_pred = le.inverse_transform(y_pred)
         projected.loc[:,'label'] = ancestry_pred
 
+        projected = self.predict_admixed_samples(projected, train_pca)
+
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -682,6 +687,67 @@ class Ancestry:
         }
 
         return trained_clf_out_dict, pred_out_dict
+
+
+    def predict_admixed_samples(self, projected, train_pca):
+        # copy train pca for admixture
+        train_pca_admix = train_pca.copy()
+
+        # separate CAS and non-CAS refs
+        cas_train = train_pca_admix[train_pca_admix['label'] == 'CAS']
+        other_train = train_pca_admix[train_pca_admix['label'] != 'CAS']
+
+        # cluster CAS based on first three PCs
+        ## should be robust changes in PCs from different SNP sets
+        cas_ids = cas_train[['FID','IID']].reset_index(drop=True)
+        cas_labels = cas_train['label'].reset_index(drop=True)
+        cas_train_cluster = cas_train.drop(columns=['FID','IID','label'], axis=1).reset_index(drop=True)
+
+        birch = Birch(n_clusters=2)
+        birch.fit(cas_train_cluster[['PC1','PC2','PC3']])
+        cas_clusters = pd.Series(birch.predict(cas_train_cluster[['PC1','PC2','PC3']]), name='CAS_clusters')
+
+        # concatenate full training data back together
+        cas_train = pd.concat([cas_ids, cas_train_cluster, cas_labels, cas_clusters], axis=1)
+        cas_train['label'] = np.where(cas_train['CAS_clusters'] == 0, 'CAS', 'CAS2')
+        cas_train = cas_train.drop(columns=['CAS_clusters'], axis=1)
+        train_pca_admix = pd.concat([other_train, cas_train], axis=0, ignore_index=True)
+
+        # create pc_centroids df based off training data
+        pc_centroids = pd.DataFrame()
+
+        train_pca_centroid = train_pca_admix.drop(columns=['FID','IID','label'], axis=1)
+        pc_centroids['ALL'] = np.mean(train_pca_centroid, axis=0)
+
+        for ancestry in train_pca_admix['label'].unique(): 
+            train_pca_ancestry = train_pca_admix[train_pca_admix['label'] == ancestry]
+            train_pca_ancestry_centoid = train_pca_ancestry.drop(columns=['FID','IID','label'], axis=1)
+            pc_centroids[ancestry] = np.mean(train_pca_ancestry_centoid, axis=0)
+        
+        # drop labels
+        projected_ids = projected[['FID','IID','label']]
+        projected_cols = list(projected.columns)
+        projected_admixed = projected.drop(columns=['FID','IID','label'], axis=1)
+        
+        # get distance to each ancestries centroid for all projections
+        for ancestry in pc_centroids.columns:
+            centroid = pc_centroids[ancestry]
+            projected_admixed[f'{ancestry}'] = projected_admixed.apply(lambda row: np.sqrt(np.sum((row - centroid) ** 2)), axis=1)
+
+        # get minimum distance column and the associated ancestry
+        projected_admixed['min_distance'] = projected_admixed[['ALL','AJ','AFR','EAS','AMR','EUR','AAC','SAS','MDE','CAS','FIN','CAS2']].min(axis=1)
+        projected_admixed['min_distance_ancestry'] = projected_admixed.eq(projected_admixed['min_distance'], axis=0).idxmax(1)
+
+        # concat IDs
+        projected = pd.concat([projected_ids, projected_admixed], axis=1)
+
+        # adjust labels
+        projected['label'] = np.where(projected['min_distance_ancestry'] == 'ALL', 'CAH', projected['label'])
+
+        # rearrange columns before returning
+        projected = projected[projected_cols]
+
+        return projected
 
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
@@ -862,6 +928,7 @@ class Ancestry:
                 projected=calc_pcs['new_samples_projected'],
                 pipe_clf=trained_clf['classifier'],
                 label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
             )
         
         else:
@@ -870,6 +937,7 @@ class Ancestry:
                 y_test=train_split['y_test'],
                 projected=calc_pcs['new_samples_projected'],
                 label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
             )
 
         umap_transforms = self.umap_transform_with_fitted(
