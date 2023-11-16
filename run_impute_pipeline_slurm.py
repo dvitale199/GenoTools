@@ -18,8 +18,8 @@ def main(args):
     ref_path = f'{project_path}/refs'
     #minimac_path = '/data/vitaled2/GP2_data_processing/bin/minimac4'
     #load minimac module
-    harmonizer_path = '/data/jamesml/GP2_data_processing/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
-    eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
+    harmonizer_path = '/Users/jamesml/Documents/GenotypeHarmonizer-1.4.25-SNAPSHOT/GenotypeHarmonizer.jar'
+    #eagle_path = '/data/jamesml/GP2_data_processing/bin/Eagle_v2.4.1/eagle'
    
    
 
@@ -27,7 +27,7 @@ def main(args):
     if os.path.exists(harm_dir):
         shutil.rmtree(harm_dir)
     os.makedirs(harm_dir)
-    harm_geno_in = f"{project_path}/raw_genotypes/{label}/{label}_maf_hwe_release5_chr{chrom}"
+    harm_geno_in = f"{project_path}/raw_genotypes/{label}/{label}_release5_chr{chrom}"
     harm_geno_out = f"{harm_dir}/{label}_chr{chrom}_harmonized"
     chunk_geno_out = f"{harm_geno_out}_chunk"
 
