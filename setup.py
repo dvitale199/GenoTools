@@ -26,7 +26,9 @@ setup(
         'statsmodels==0.13.5',
         'streamlit==1.15.2',
         'umap_learn==0.5.3',
-        'xgboost==1.7.6'
+        'xgboost==1.7.6',
+        'google-cloud-aiplatform',
+        'google-cloud-storage'
     ],
     package_data={
       'genotools': ['container/*.pkl','container/*.txt','container/Dockerfile']

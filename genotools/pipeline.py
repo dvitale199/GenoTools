@@ -26,6 +26,8 @@ def gt_argparse():
     parser.add_argument('--model', type=str, nargs='?', default=None, const='path', help='Path to pickle file with trained ancestry model for passed reference panel')
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
+    parser.add_argument('--cloud', type=str, nargs='?', default='False', const='True', help='Run predictions in GCloud')
+    parser.add_argument('--cloud_model', type=str, nargs='?', default='NeuroBooster', help='Model for GCloud predictions')
     parser.add_argument('--subset_ancestry', nargs='*', help='Subset to continue analysis for')
 
     # sample-level qc arguments
@@ -113,6 +115,8 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             ancestry.model_path = args['model']
             ancestry.containerized = args['container']
             ancestry.singularity = args['singularity']
+            ancestry.cloud = args['cloud']
+            ancestry.cloud_model = args['cloud_model']
             ancestry.subset = args['subset_ancestry']
             out_dict[step] = steps_dict[step]()
 
