@@ -12,6 +12,8 @@ from xgboost import XGBClassifier
 import pickle as pkl
 import json
 import warnings
+from google.cloud import aiplatform
+from google.cloud import storage
 
 from genotools.utils import shell_do, get_common_snps, concat_logs
 from genotools.dependencies import check_plink, check_plink2
@@ -20,7 +22,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Ancestry:
-    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None):
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -29,6 +31,8 @@ class Ancestry:
         self.model_path = model_path
         self.containerized = containerized
         self.singularity = singularity
+        self.cloud = cloud
+        self.cloud_model = cloud_model
         self.subset = subset
     
 
@@ -541,6 +545,7 @@ class Ancestry:
         projected (DataFrame): Dataframe containing projected principal components of new samples.
         pipe_clf: Trained classifier pipeline.
         label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
 
         Returns:
         dict: Dictionary containing predicted labels, output data, and metrics.
@@ -595,6 +600,7 @@ class Ancestry:
         y_test (Series): True labels for the test data.
         projected (DataFrame): Projected principal components of new samples.
         label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
 
         Returns:
         tuple: Two dictionaries containing trained classifier results and prediction results.
@@ -688,8 +694,128 @@ class Ancestry:
 
         return trained_clf_out_dict, pred_out_dict
 
+    
+    def get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
+        """
+        Get predictions using a cloud environment for UMAP and XGBoost classifier.
+
+        Args:
+        X_test (DataFrame): Test data.
+        y_test (Series): True labels for the test data.
+        projected (DataFrame): Projected principal components of new samples.
+        label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
+
+        Returns:
+        tuple: Two dictionaries containing trained classifier results and prediction results.
+        """
+        cloud_project = 'genotools'
+
+        model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                                      'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                      'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
+        
+        # initialize endpoint
+        aiplatform.init(project=cloud_project, location=model_dict[self.cloud_model]['region'])
+        endpoint = aiplatform.Endpoint(model_dict[self.cloud_model]['endpoint_id'])
+
+        # convert to list (needed for vertex ai predictions)
+        X_test_arr = np.array(X_test).tolist()
+
+        # no more score function so get testing balanced accuracy based on vertex ai predictions
+        prediction = endpoint.predict(instances=X_test_arr)
+        pipe_clf_pred = prediction.predictions
+        pipe_clf_pred = [int(i) for i in pipe_clf_pred]
+
+        test_acc = metrics.balanced_accuracy_score(y_test, pipe_clf_pred)
+        print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+        margin_of_error = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+        print(f"Balanced Accuracy on Test Set, 95% Confidence Interval: ({test_acc-margin_of_error}, {test_acc+margin_of_error})")
+
+        # confustion matrix
+        pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
+
+        trained_clf_out_dict = {
+            'confusion_matrix': pipe_clf_c_matrix,
+            'test_accuracy': test_acc,
+            'params': model_dict[self.cloud_model]['params']
+        }
+
+        le = label_encoder
+
+        # set new samples aside for labeling after training the model
+        X_new = projected.drop(columns=['FID','IID','label'], axis=1)
+
+        # convert to numpy array
+        X_new_arr = np.array(X_new)
+
+        # if num samples > ~1500, need to split into multiple batches of predictions
+        num_splits = round((X_new.shape[0] / 1500), 0)
+
+        y_pred = []
+
+        if num_splits > 0:
+            for arr in np.array_split(X_new_arr, num_splits):
+                # convert to list (needed for vertex ai predictions)
+                arr = arr.tolist()
+                # get predictions from vertex ai
+                prediction = endpoint.predict(instances=arr)
+                pred = prediction.predictions
+                pred = [int(i) for i in pred]
+                y_pred += pred
+        else:
+            # convert to list (needed for vertex ai predictions)
+            arr = X_new_arr.tolist()
+            # get predictions from vertex ai
+            prediction = endpoint.predict(instances=arr)
+            pred = prediction.predictions
+            pred = [int(i) for i in pred]
+            y_pred += pred
+
+        ancestry_pred = le.inverse_transform(y_pred)
+        projected.loc[:,'label'] = ancestry_pred
+    
+        projected = self.predict_admixed_samples(projected, train_pca)
+
+        print()
+        print('predicted:\n', projected.label.value_counts())
+        print()
+
+        projected[['FID','IID','label']].to_csv(f'{self.out_path}_umap_linearsvc_predicted_labels.txt', sep='\t', index=False)
+
+        data_out = {
+            'ids': projected.loc[:,['FID','IID','label']],
+            'X_new': X_new,
+            'y_pred': ancestry_pred,
+            'label_encoder': le
+        }
+
+        outfiles_dict = {
+            'labels_outpath': f'{self.out_path}_umap_linearsvc_predicted_labels.txt'
+        }
+
+        pred_out_dict = {
+            'data': data_out,
+            'metrics': projected.label.value_counts(),
+            'output': outfiles_dict
+        }
+
+        return trained_clf_out_dict, pred_out_dict
+
 
     def predict_admixed_samples(self, projected, train_pca):
+        """
+        Change labels of samples with complex admixture, calculated based off training PCs.
+
+        Args:
+        projected (DataFrame): Projected principal components of new samples.
+        train_pca: Labeled PCs for training data.
+
+        Returns:
+        DataFrame: Projected principal components of new samples with updated labels.
+        """
         # copy train pca for admixture
         train_pca_admix = train_pca.copy()
 
@@ -908,7 +1034,25 @@ class Ancestry:
             label_encoder=train_split['label_encoder'],
         )
 
-        if self.containerized == False:
+        if self.containerized:
+            trained_clf, pred = self.get_containerized_predictions(
+                X_test=calc_pcs['X_test'],
+                y_test=train_split['y_test'],
+                projected=calc_pcs['new_samples_projected'],
+                label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
+            )
+        
+        elif self.cloud:
+            trained_clf, pred = self.get_cloud_predictions(
+                X_test=calc_pcs['X_test'],
+                y_test=train_split['y_test'],
+                projected=calc_pcs['new_samples_projected'],
+                label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
+            )
+        
+        else:
             if self.model_path:
                 trained_clf = self.load_umap_classifier(
                     X_test=calc_pcs['X_test'],
@@ -927,15 +1071,6 @@ class Ancestry:
             pred = self.predict_ancestry_from_pcs(
                 projected=calc_pcs['new_samples_projected'],
                 pipe_clf=trained_clf['classifier'],
-                label_encoder=train_split['label_encoder'],
-                train_pca=calc_pcs['labeled_train_pca']
-            )
-        
-        else:
-            trained_clf, pred = self.get_containerized_predictions(
-                X_test=calc_pcs['X_test'],
-                y_test=train_split['y_test'],
-                projected=calc_pcs['new_samples_projected'],
                 label_encoder=train_split['label_encoder'],
                 train_pca=calc_pcs['labeled_train_pca']
             )
