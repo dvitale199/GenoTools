@@ -694,9 +694,9 @@ class VariantQC:
 
                 process_complete = True
 
-                os.remove(f'{mis_tmp}.exclude')
-                os.remove(f'{mis_tmp}.hh')
-                os.remove(f'{mis_tmp}.missing')
+                for file in [f'{mis_tmp}.exclude', f'{mis_tmp}.hh', f'{mis_tmp}.missing']:
+                    if os.path.isfile(file):
+                        os.remove(file)
 
             else:
                 print(f'Case/Control Missingness pruning failed!')
