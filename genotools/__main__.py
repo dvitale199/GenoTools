@@ -137,6 +137,9 @@ def handle_main():
         ancestry_counts_df.columns = ['label', 'count']
         clean_out_dict['ancestry_counts'] = ancestry_counts_df.to_dict()
 
+        ancestry_labels_df = pd.DataFrame(out_dict['ancestry']['data']['predict_data']['ids'])
+        clean_out_dict['ancestry_labels'] = ancestry_labels_df.to_dict()
+
         le = out_dict['ancestry']['data']['label_encoder']
         confusion_matrix = out_dict['ancestry']['data']['confusion_matrix']
         confusion_matrix = pd.DataFrame(confusion_matrix)
