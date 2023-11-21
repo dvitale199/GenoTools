@@ -359,7 +359,7 @@ class SampleQC:
         return out_dict
 
 
-    def run_related_prune(self,related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True):
+    def run_related_prune(self, related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True):
 
         """
         Execute pruning based on relatedness and duplication checks on genotype data using PLINK and KING.
@@ -429,7 +429,6 @@ class SampleQC:
             kinship = pd.read_csv(f'{related_pairs}.kin0', sep='\s+')
             kinship['REL'] = pd.cut(x=kinship['KINSHIP'], bins=[-np.inf, 0.0884, 0.177, 0.354, np.inf], labels=['unrel', 'second_deg', 'first_deg', 'duplicate'])
             kinship.to_csv(f'{related_pairs}.related', index=False)
-            shutil.copy(f'{related_pairs}.kin0',f'{related_pairs}.related')
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
