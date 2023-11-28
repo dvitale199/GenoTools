@@ -117,12 +117,12 @@ java -Xmx{memory}g -jar {harmonizer_path} \
     process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
     output, error = process.communicate()
 
-    #add_chr(tmp2, geno_out)
+    add_chr(tmp2, geno_out)
 
     # # Remove temporary files
-    for suffix in ['.bim', '.bed', '.fam']:
-        os.remove(f'{tmp1}{suffix}')
-        os.remove(f'{tmp2}{suffix}')
+    # for suffix in ['.bim', '.bed', '.fam']:
+    #     os.remove(f'{tmp1}{suffix}')
+    #     os.remove(f'{tmp2}{suffix}')
 
     print(f"Overall run time: {time.time() - start_time}")
 
