@@ -182,9 +182,9 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             out_dict[step] = steps_dict[step]()
         
         # remove old files when appropriate 
-        if (not args['full_output']):
+        if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry'):
             # when warn is True and step fails, don't remove old file
-            if args['warn'] and (not out_dict[step]['pass']):
+            if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):
                 remove = False
             else:
                 remove = True
@@ -204,12 +204,10 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
 
 def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry='all'):
-    #TODO: Add association output
     for step in ['callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
             pf = dictionary[step]['pass']
-            ancestry_label = ancestry
 
             if step in ['callrate', 'sex', 'related', 'het']:
                 level = 'sample'
@@ -223,12 +221,12 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry
                 level = 'variant'
 
             for metric, value in dictionary[step]['metrics'].items():
-                tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry_label], 'level':[level], 'pass': [pf]})
+                tmp_metrics_df = pd.DataFrame({'step':[qc_step], 'pruned_count':[value], 'metric':[metric], 'ancestry':[ancestry], 'level':[level], 'pass': [pf]})
                 metrics_df = pd.concat([metrics_df, tmp_metrics_df], ignore_index=True)
 
     if ('assoc' in dictionary.keys()) and ('gwas' in dictionary['assoc'].keys()):
         for metric, value in dictionary['assoc']['gwas']['metrics'].items():
-            tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry_label]})
+            tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry]})
             gwas_df = pd.concat([gwas_df, tmp_gwas_df], ignore_index=True)
 
     return metrics_df, pruned_df, gwas_df

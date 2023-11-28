@@ -290,6 +290,12 @@ class Ancestry:
 
         step = "calculate_pcs"
 
+        # check X_train size
+        if X_train.shape[0] < 50: 
+            raise ValueError(f'Training data only consists of {X_train.shape[0]} samples, which is insufficient for PCA calculation. Please use a reference panel with more samples.')
+        if X_train.shape[1] < 50:
+            raise ValueError(f'Training data only consists of {X_train.shape[1]} SNPs, whcih is insufficient for PCA calculation. Please check the SNP overlap between the reference panel and genotypes.')
+
         out_paths = {}
 
         train_labels = label_encoder.inverse_transform(y_train)
