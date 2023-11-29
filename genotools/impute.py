@@ -112,6 +112,7 @@ java -Xmx{memory}g -jar {harmonizer_path} \
 --callRateFilter 0.90 \
 --refType VCF \
 --output {tmp2}
+--debug
 """
 
     process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
