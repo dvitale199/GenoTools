@@ -60,7 +60,7 @@ def add_chr(geno_in, geno_out):
     geno['chr'] = geno['chr'].apply(lambda x: f'chr{x}')
     
     # Save the modified .bim file
-    geno.to_csv(f'{geno_out}.bim', sep='\t', header=False, index=False)
+    geno.to_csv(f'{geno_out}.bim', sep='\t', header=True, index=False)
     
     # Copy the associated .bed and .fam files
     shutil.copy(f'{geno_in}.bed', f'{geno_out}.bed')
@@ -94,9 +94,9 @@ def harmonize(geno_in, geno_out, ref_path, harmonizer_path, memory):
 
     The overall run time of the function is printed at the end.
     """
-    #
+    
     start_time = time.time()
-
+    print('Creating Temp files')
     tmp1 = f'{geno_in}_tmp1'
     tmp2 = f'{geno_in}_tmp2'
 
@@ -112,7 +112,6 @@ java -Xmx{memory}g -jar {harmonizer_path} \
 --callRateFilter 0.90 \
 --refType VCF \
 --output {tmp2}
---debug
 """
 
     process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
