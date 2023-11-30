@@ -1013,3 +1013,133 @@ class VariantQC:
         }
 
         return out_dict
+
+
+class WholeGenomeSeqQC:
+
+    def __init__(self, geno_path=None, out_path=None):
+        self.geno_path = geno_path
+        self.out_path = out_path
+
+
+    def run_depth_prune(self, depth_min=10):
+
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = "wgs_depth_prune"
+
+        # get initial snps count
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
+
+        # remove variants where DP field is less than desired depth
+        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info \"DP >= {depth_min}\" --out {out_path}"
+        shell_do(plink_cmd)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+
+        # filter depth count
+        depth_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        depth_rm_count = initial_snp_count - depth_snp_count
+
+        process_complete = True
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'depth_rm_count': depth_rm_count
+        }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+
+    def run_gq_prune(self, gq_min=20):
+
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = "wgs_gq_prune"
+
+        # get initial snps count
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
+
+        # remove variants where GQ field is less than desired gq
+        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info \"GQ >= {gq_min}\" --out {out_path}"
+        shell_do(plink_cmd)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+
+        # filter gq count
+        gq_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        gq_rm_count = initial_snp_count - gq_snp_count
+
+        process_complete = True
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'gq_rm_count': gq_rm_count
+        }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+
+    def run_filter_prune(self):
+
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = "wgs_filter_prune"
+
+        # get initial snp count
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
+
+        # variants that failed one or more filters tracked by FILTER field
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --var-filter --out {out_path}"
+        shell_do(plink_cmd1)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+
+        # filter pruned count
+        filter_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        filter_rm_count = initial_snp_count - filter_snp_count
+
+        process_complete = True
+
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+
+        metrics_dict = {
+            'filter_rm_count': filter_rm_count
+        }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
