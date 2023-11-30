@@ -60,7 +60,7 @@ def add_chr(geno_in, geno_out):
     geno['chr'] = geno['chr'].apply(lambda x: f'chr{x}')
     
     # Save the modified .bim file
-    geno.to_csv(f'{geno_out}.bim', sep='\t', header=None, index=False)
+    geno.to_csv(f'{geno_out}.bim', sep='\t', header=False, index=False)
     
     # Copy the associated .bed and .fam files
     shutil.copy(f'{geno_in}.bed', f'{geno_out}.bed')
@@ -94,7 +94,7 @@ def harmonize(geno_in, geno_out, ref_path, harmonizer_path, memory):
 
     The overall run time of the function is printed at the end.
     """
-
+    #
     start_time = time.time()
 
     tmp1 = f'{geno_in}_tmp1'
