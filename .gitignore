@@ -6,3 +6,4 @@ executables/*
 test.ipynb
 build/*
 requirements.txt
+.DS_Store
