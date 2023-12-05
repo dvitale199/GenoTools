@@ -1024,6 +1024,20 @@ class WholeGenomeSeqQC:
 
     def run_depth_prune(self, depth_min=10):
 
+        """
+        Prunes SNPs based on depth.
+
+        Parameters:
+        - depth_min (int, optional): Depth threshold where all genotype calls below are excluded.
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('wgs_depth_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'depth_rm_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -1033,7 +1047,8 @@ class WholeGenomeSeqQC:
         initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # remove variants where DP field is less than desired depth
-        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info \"DP >= {depth_min}\" --out {out_path}"
+        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info DP >= {depth_min} --out {out_path}"
+        # plink_cmd = f"{plink2_exec} --pfile {geno_path} --vcf-min-dp {depth_min} --out {out_path}"
         shell_do(plink_cmd)
 
         listOfFiles = [f'{out_path}.log']
@@ -1065,6 +1080,20 @@ class WholeGenomeSeqQC:
 
     def run_gq_prune(self, gq_min=20):
 
+        """
+        Prunes SNPs based on genotype quality (GQ).
+
+        Parameters:
+        - gq_min (int, optional): GQ threshold where all genotype calls below are excluded.
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('wgs_gq_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'gq_rm_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+
         geno_path = self.geno_path
         out_path = self.out_path
 
@@ -1074,7 +1103,7 @@ class WholeGenomeSeqQC:
         initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
 
         # remove variants where GQ field is less than desired gq
-        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info \"GQ >= {gq_min}\" --out {out_path}"
+        plink_cmd = f"{plink2_exec} --pfile {geno_path} --vcf_min_gq {gq_min} --out {out_path}"
         shell_do(plink_cmd)
 
         listOfFiles = [f'{out_path}.log']
@@ -1105,6 +1134,17 @@ class WholeGenomeSeqQC:
 
 
     def run_filter_prune(self):
+
+        """
+        Prunes SNPs based on whether or not they PASS all input filters.
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('wgs_filter_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'filter_rm_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
 
         geno_path = self.geno_path
         out_path = self.out_path
