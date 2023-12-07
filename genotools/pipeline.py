@@ -22,7 +22,6 @@ def gt_argparse():
     # ancerstry arguments
     parser.add_argument('--ancestry', type=str, nargs='?', default='False', const='True', help='Split by ancestry')
     parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
-    parser.add_argument('--ref_labels', type=str, nargs='?', default=None, const=None, help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
     parser.add_argument('--model', type=str, nargs='?', default=None, const='path', help='Path to pickle file with trained ancestry model for passed reference panel')
     parser.add_argument('--container', type=str, nargs='?', default='False', const='True', help='Run predictions in container')
     parser.add_argument('--singularity', type=str, nargs='?', default='False', const='True', help='Run containerized precitions via singularity')
@@ -111,7 +110,6 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             ancestry.geno_path = step_input
             ancestry.out_path = step_output
             ancestry.ref_panel = args['ref_panel']
-            ancestry.ref_labels = args['ref_labels']
             ancestry.model_path = args['model']
             ancestry.containerized = args['container']
             ancestry.singularity = args['singularity']

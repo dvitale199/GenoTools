@@ -22,11 +22,10 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Ancestry:
-    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None):
+    def __init__(self, geno_path=None, ref_panel=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
-        self.ref_labels = ref_labels
         self.out_path = out_path
         self.model_path = model_path
         self.containerized = containerized
@@ -109,14 +108,21 @@ class Ancestry:
         ref_raw = pd.concat([ref_ids,ref_snps], axis=1)
         ref_raw.columns = col_names
 
-        # read ancestry file with reference labels 
-        ancestry = pd.read_csv(f'{self.ref_labels}', sep='\t', header=None, names=['FID','IID','label'])
-        ref_fam = pd.read_csv(f'{self.ref_panel}.fam', sep='\s+', header=None)
-        ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
+        # read fam file and drop columns
+        ref_fam = pd.read_csv(f'{self.ref_panel}.fam', sep='\s+', header=None, names=['FID','IID','PAT','MAT','SEX','label'])
+        ref_labeled = ref_fam.drop(columns=['PAT','MAT','SEX'])
 
         # combined_labels
-        labeled_ref_raw = ref_raw.merge(ref_labeled, how='left', on=['FID','IID'])
-        labeled_ref_raw.drop(columns=[0,1,2,3,4,5],inplace=True)
+        labeled_ref_raw = ref_raw.merge(ref_labeled, how='inner', on=['FID','IID'])
+
+        # # read ancestry file with reference labels 
+        # ancestry = pd.read_csv(f'{self.ref_labels}', sep='\t', header=None, names=['FID','IID','label'])
+        # ref_fam = pd.read_csv(f'{self.ref_panel}.fam', sep='\s+', header=None)
+        # ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
+
+        # # combined_labels
+        # labeled_ref_raw = ref_raw.merge(ref_labeled, how='left', on=['FID','IID'])
+        # labeled_ref_raw.drop(columns=[0,1,2,3,4,5],inplace=True)
 
         print()
         print()
@@ -1008,16 +1014,14 @@ class Ancestry:
             self.train = True
 
         # Check that paths are set
-        if not all([self.geno_path, self.ref_panel, self.ref_labels, self.out_path]):
-            raise ValueError("Please make sure geno_path, ref_panel, ref_labels, and out_path are all set when initializing this class.")
+        if not all([self.geno_path, self.ref_panel, self.out_path]):
+            raise ValueError("Please make sure geno_path, ref_panel, and out_path are all set when initializing this class.")
 
         # Check path validity
         if not os.path.exists(f'{self.geno_path}.pgen'):
             raise FileNotFoundError(f"{self.geno_path} does not exist.")
         elif not os.path.exists(f'{self.ref_panel}.bed'):
             raise FileNotFoundError(f"{self.ref_panel} does not exist.")
-        elif not os.path.exists(f'{self.ref_labels}'):
-            raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
         
         # Check testing param validaity
         elif self.model_path and self.containerized:
