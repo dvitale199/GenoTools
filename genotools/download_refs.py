@@ -13,13 +13,15 @@ def compute_checksum(file_path):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-
 def validate_checksum(file_path, checksum):
     calculated_checksum = compute_checksum(file_path)
     return calculated_checksum == checksum
 
-
 def download_data_from_gcs(url, destination_file_path):
+    if os.path.exists(destination_file_path):
+        print(f"File already exists at {destination_file_path}")
+        return
+
     response = requests.get(url, stream=True)
     total_size_in_bytes = int(response.headers.get('content-length', 0))
     
@@ -39,13 +41,10 @@ def download_data_from_gcs(url, destination_file_path):
     else:
         response.raise_for_status()
 
-
 def unzip_file(zip_file_path, destination_dir):
-    """Unzips a file to a specified destination directory."""
     with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
         zip_ref.extractall(destination_dir)
     print(f"Extracted {zip_file_path} to {destination_dir}")
-
 
 def handle_download():
     parser = argparse.ArgumentParser(description="Download, validate, and unzip reference data")
@@ -61,7 +60,6 @@ def handle_download():
     download_model = args.model is not None or (args.model is None and args.ref is None)
 
     if download_ref:
-
         checksums_dict = {
             "1kg_30x_hgdp_ashk_ref_panel": "fd3d79b9e1c0054b10881fa130eb9b21"
         }
@@ -69,14 +67,19 @@ def handle_download():
         ref = args.ref if args.ref else "1kg_30x_hgdp_ashk_ref_panel"
         url = f"{url_base}/ref_panel/{ref}.zip"
         checksum = checksums_dict[ref]
-
+        ref_panel_path = f'{args.destination}/ref_panel'
         print(f'Pulling reference panel {ref}')
-        destination_file_path = os.path.join(args.destination, os.path.basename(url))
-        download_data_from_gcs(url, destination_file_path)
-        if not validate_checksum(destination_file_path, checksum):
-            print("Error: Checksum validation failed for reference panel.")
-            sys.exit(1)
-        unzip_file(destination_file_path, args.destination)
+        os.makedirs(ref_panel_path, exist_ok=True)
+        destination_file_path = os.path.join(ref_panel_path, os.path.basename(url))
+
+        if os.path.exists(destination_file_path) and validate_checksum(destination_file_path, checksum):
+            print(f"Reference panel already downloaded and validated: {destination_file_path}")
+        else:
+            download_data_from_gcs(url, destination_file_path)
+            if not validate_checksum(destination_file_path, checksum):
+                print("Error: Checksum validation failed for reference panel.")
+                sys.exit(1)
+            unzip_file(destination_file_path, ref_panel_path)
 
     if download_model:
         checksums_dict = {
@@ -87,15 +90,19 @@ def handle_download():
         model = args.model if args.model else "nba_v1"
         url = f"{url_base}/models/{model}.zip"
         checksum = checksums_dict[model]
-
+        model_path = f'{args.destination}/models'
         print(f'Pulling model: {model}')
-        destination_file_path = os.path.join(args.destination, os.path.basename(url))
-        download_data_from_gcs(url, destination_file_path)
-        if not validate_checksum(destination_file_path, checksum):
-            print("Error: Checksum validation failed for reference panel.")
-            sys.exit(1)
-        unzip_file(destination_file_path, args.destination)
+        os.makedirs(model_path, exist_ok=True)
+        destination_file_path = os.path.join(model_path, os.path.basename(url))
 
+        if os.path.exists(destination_file_path) and validate_checksum(destination_file_path, checksum):
+            print(f"Model already downloaded and validated: {destination_file_path}")
+        else:
+            download_data_from_gcs(url, destination_file_path)
+            if not validate_checksum(destination_file_path, checksum):
+                print("Error: Checksum validation failed for model.")
+                sys.exit(1)
+            unzip_file(destination_file_path, model_path)
 
 if __name__ == "__main__":
     handle_download()
