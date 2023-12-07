@@ -43,17 +43,27 @@ def unzip_file(zip_file_path, destination_dir):
 def handle_download():
     parser = argparse.ArgumentParser(description="Download, validate, and unzip reference data")
     parser.add_argument('--destination', type=str, required=True, help="Local destination directory for the download")
-    parser.add_argument('--url', type=str, default="https://storage.googleapis.com/genotools_refs/ref_panel/1kg_30x_hgdp_ashk_ref_panel.zip", help="URL to download the reference data")
-    parser.add_argument('--checksum', type=str, default='fd3d79b9e1c0054b10881fa130eb9b21', help="Optional checksum for validating the downloaded file")
-    
+    parser.add_argument('--model', type=str, default="nba_v1", help="Version of the model to use")
+    parser.add_argument('--ref', type=str, default="1kg_30x_hgdp_ashk_ref_panel", help="Version of the reference panel to use")
+
     args = parser.parse_args()
+
+    url_base = "https://storage.googleapis.com/genotools_refs"
+
+    if args.ref:
+        url = f"{url_base}/ref_panel/{args.ref}.zip"
+        checksum = "fd3d79b9e1c0054b10881fa130eb9b21"
+
+    if args.model:
+        url = f"{url_base}/models/{args.model}.zip"
+        checksum = None
 
     # Download the file
     destination_file_path = os.path.join(args.destination, os.path.basename(args.url))
     download_data_from_gcs(args.url, destination_file_path)
 
     # Validate the checksum if provided
-    if args.checksum and not validate_checksum(destination_file_path, args.checksum):
+    if args.checksum and not validate_checksum(destination_file_path, checksum):
         print("Error: Checksum validation failed.")
         sys.exit(1)
 
