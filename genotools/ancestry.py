@@ -115,15 +115,6 @@ class Ancestry:
         # combined_labels
         labeled_ref_raw = ref_raw.merge(ref_labeled, how='inner', on=['FID','IID'])
 
-        # # read ancestry file with reference labels 
-        # ancestry = pd.read_csv(f'{self.ref_labels}', sep='\t', header=None, names=['FID','IID','label'])
-        # ref_fam = pd.read_csv(f'{self.ref_panel}.fam', sep='\s+', header=None)
-        # ref_labeled = ref_fam.merge(ancestry, how='left', left_on=[0,1], right_on=['FID','IID'])
-
-        # # combined_labels
-        # labeled_ref_raw = ref_raw.merge(ref_labeled, how='left', on=['FID','IID'])
-        # labeled_ref_raw.drop(columns=[0,1,2,3,4,5],inplace=True)
-
         print()
         print()
         print("Labeled Reference Ancestry Counts:")
