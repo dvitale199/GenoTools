@@ -35,26 +35,35 @@ GenoTools' default pipeline commences with ancestry prediction, followed by a se
 
 ## Pipeline Flow
 
-### Ancestry Prediction
-The pipeline begins with **ancestry prediction**, a critical step for discerning the genetic background of samples, which greatly influences subsequent analytical processes.
+### Ancestry Prediction Pipeline
+
+The `Ancestry` class in GenoTools provides a comprehensive pipeline for ancestry predictions in genetic data. Key features include:
+
+- **Data Preparation**: Processes and prunes genotype data, aligns it with reference panels, and prepares labeled datasets for analysis.
+- **Principal Component Analysis**: Performs PCA to transform the genetic data for downstream analysis, crucial for capturing genetic variance.
+- **Machine Learning Pipeline**: Utilizes a combination of UMAP and XGBoost for sophisticated ancestry prediction, including training, parameter tuning, and evaluation.
+- **Flexible Prediction Environment**: Supports predictions both in local, containerized, and cloud environments, catering to diverse computational needs.
+- **Admixture Analysis**: Adjusts labels for samples with complex genetic backgrounds using clustering techniques.
+- **Cohort Splitting**: Efficiently splits data based on predicted ancestries, facilitating focused analysis on specific genetic groups.
+
+Designed for robustness and versatility, the `Ancestry` class is a key component of GenoTools, streamlining complex tasks in ancestry estimation and genetic data analysis.
+
 
 ### Sample-Level QC Steps
 Following ancestry analysis, the pipeline undergoes these sample-level QC procedures:
 
-- **Callrate**: Implements checks and filters based on the call rate threshold (default: 0.05), crucial for ensuring data completeness.
-- **Sex Check**: Conducts verification and correction of sex information within the genotype data, with default cutoffs at 0.25 and 0.75, a vital step for precise downstream analysis.
-- **Relatedness Check**: Identifies and manages related individuals to avoid biases in the analysis. This step is activated by default.
-- **Heterozygosity Rate (Het)**: Evaluates and filters samples based on heterozygosity rates, using default range of -0.25 to 0.25, crucial for detecting potential data outliers or inconsistencies.
+### Sample-Level QC Steps
+- **Callrate**: Default threshold: 0.05
+- **Sex Check**: Default cutoffs: [0.25, 0.75]
+- **Relatedness Check**: Enabled by default
+- **Heterozygosity Rate (Het)**: Default range: [-0.25, 0.25]
 
 ### Variant-Level QC Steps
-After completing sample-level QC, the pipeline transitions to variant-level QC, encompassing:
-
-- **Case-Control Check**: Filters variants on the basis of case-control discrepancies, with a default threshold of 1e-4, pivotal for association studies.
-- **Haplotype Check**: Assesses haplotype stability, essential for preserving genomic integrity, with a default threshold of 1e-4.
-- **Hardy-Weinberg Equilibrium (HWE)**: Confirms allele frequencies are in equilibrium, using a default threshold of 1e-4, a fundamental element in population genetics.
-- **Genotype Missingness (Geno)**: Excludes variants with substantial missingness, set at a default threshold of 0.05, key to maintaining data quality.
-- **Linkage Disequilibrium (LD)**: Reviews and prunes variants in linkage disequilibrium, vital for minimizing redundancy and bias. The LD pruning parameters are set to default (`None`), indicating custom parameters may be provided.
-
+- **Case-Control Check**: Default threshold: 1e-4
+- **Haplotype Check**: Default threshold: 1e-4
+- **Hardy-Weinberg Equilibrium (HWE)**: Default threshold: 1e-4
+- **Genotype Missingness (Geno)**: Default threshold: 0.05
+- **Linkage Disequilibrium (LD)**: Default setting: None (custom parameters may be provided)
 
 
 
