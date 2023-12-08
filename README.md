@@ -41,19 +41,20 @@ The pipeline begins with **ancestry prediction**, a critical step for discerning
 ### Sample-Level QC Steps
 Following ancestry analysis, the pipeline undergoes these sample-level QC procedures:
 
-- **Callrate**: Implements checks and filters based on the call rate threshold, crucial for ensuring data completeness.
-- **Sex Check**: Conducts verification and correction of sex information within the genotype data, a vital step for precise downstream analysis.
-- **Relatedness Check**: Identifies and manages related individuals to avoid biases in the analysis.
-- **Heterozygosity Rate (Het)**: Evaluates and filters samples based on heterozygosity rates, crucial for detecting potential data outliers or inconsistencies.
+- **Callrate**: Implements checks and filters based on the call rate threshold (default: 0.05), crucial for ensuring data completeness.
+- **Sex Check**: Conducts verification and correction of sex information within the genotype data, with default cutoffs at 0.25 and 0.75, a vital step for precise downstream analysis.
+- **Relatedness Check**: Identifies and manages related individuals to avoid biases in the analysis. This step is activated by default.
+- **Heterozygosity Rate (Het)**: Evaluates and filters samples based on heterozygosity rates, using default range of -0.25 to 0.25, crucial for detecting potential data outliers or inconsistencies.
 
 ### Variant-Level QC Steps
 After completing sample-level QC, the pipeline transitions to variant-level QC, encompassing:
 
-- **Case-Control Check**: Filters variants on the basis of case-control discrepancies, pivotal for association studies.
-- **Haplotype Check**: Assesses haplotype stability, essential for preserving genomic integrity.
-- **Hardy-Weinberg Equilibrium (HWE)**: Confirms allele frequencies are in equilibrium, a fundamental element in population genetics.
-- **Genotype Missingness (Geno)**: Excludes variants with substantial missingness, key to maintaining data quality.
-- **Linkage Disequilibrium (LD)**: Reviews and prunes variants in linkage disequilibrium, vital for minimizing redundancy and bias.
+- **Case-Control Check**: Filters variants on the basis of case-control discrepancies, with a default threshold of 1e-4, pivotal for association studies.
+- **Haplotype Check**: Assesses haplotype stability, essential for preserving genomic integrity, with a default threshold of 1e-4.
+- **Hardy-Weinberg Equilibrium (HWE)**: Confirms allele frequencies are in equilibrium, using a default threshold of 1e-4, a fundamental element in population genetics.
+- **Genotype Missingness (Geno)**: Excludes variants with substantial missingness, set at a default threshold of 0.05, key to maintaining data quality.
+- **Linkage Disequilibrium (LD)**: Reviews and prunes variants in linkage disequilibrium, vital for minimizing redundancy and bias. The LD pruning parameters are set to default (`None`), indicating custom parameters may be provided.
+
 
 
 
