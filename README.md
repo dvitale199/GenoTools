@@ -28,6 +28,34 @@ genotools \
 ```
 Note: add the ```--singularity``` flag to run ancestry predictions on HPC
 
+# Default Pipeline in GenoTools
+
+## Overview
+GenoTools' default pipeline commences with ancestry prediction, followed by a series of structured steps for quality control at both the sample and variant levels. This systematic methodology ensures the processing of genotype data is thorough, safeguarding data integrity and relevance for advanced analysis.
+
+## Pipeline Flow
+
+### Ancestry Prediction
+The pipeline begins with **ancestry prediction**, a critical step for discerning the genetic background of samples, which greatly influences subsequent analytical processes.
+
+### Sample-Level QC Steps
+Following ancestry analysis, the pipeline undergoes these sample-level QC procedures:
+
+- **Callrate**: Implements checks and filters based on the call rate threshold, crucial for ensuring data completeness.
+- **Sex Check**: Conducts verification and correction of sex information within the genotype data, a vital step for precise downstream analysis.
+- **Relatedness Check**: Identifies and manages related individuals to avoid biases in the analysis.
+- **Heterozygosity Rate (Het)**: Evaluates and filters samples based on heterozygosity rates, crucial for detecting potential data outliers or inconsistencies.
+
+### Variant-Level QC Steps
+After completing sample-level QC, the pipeline transitions to variant-level QC, encompassing:
+
+- **Case-Control Check**: Filters variants on the basis of case-control discrepancies, pivotal for association studies.
+- **Haplotype Check**: Assesses haplotype stability, essential for preserving genomic integrity.
+- **Hardy-Weinberg Equilibrium (HWE)**: Confirms allele frequencies are in equilibrium, a fundamental element in population genetics.
+- **Genotype Missingness (Geno)**: Excludes variants with substantial missingness, key to maintaining data quality.
+- **Linkage Disequilibrium (LD)**: Reviews and prunes variants in linkage disequilibrium, vital for minimizing redundancy and bias.
+
+
 
 # GenoTools Command Line Arguments Documentation
 
