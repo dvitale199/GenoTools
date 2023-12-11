@@ -7,6 +7,8 @@ setup(
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',
     description='A collection of tools for genotype quality control and analysis',
+    long_description=open('README.md').read(),
+    long_description_content_type='text/markdown',
     url='https://github.com/dvitale199/GenoTools',
     license='Apache License 2.0',
     classifiers=[
