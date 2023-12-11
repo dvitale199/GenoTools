@@ -16,7 +16,7 @@ def handle_main():
     warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 
     from umap import UMAP
-    from genotools.utils import upfront_check, bfiles_to_pfiles, vcf_to_pfiles
+    from genotools.utils import upfront_check, bfiles_to_pfiles, vcf_to_pfiles, gt_header
     from genotools.qc import SampleQC, VariantQC
     from genotools.ancestry import Ancestry
     from genotools.gwas import Assoc
@@ -99,8 +99,10 @@ def handle_main():
         os.remove(f"{args_dict['out']}_cleaned_logs.log")
 
     # create empty log files in output directory
+    header = gt_header()
     with open(f"{args_dict['out']}_all_logs.log", "w") as fp: 
-        pass
+        fp.write(header)
+        fp.write("\n")
     with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp: 
         pass
 
