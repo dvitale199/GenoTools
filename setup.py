@@ -4,6 +4,22 @@ setup(
     name='genotools', 
     version='1.0.0', 
     packages=find_packages(),
+    author='Dan Vitale',
+    author_email='d.vitale199@gmail.com',
+    description='A collection of tools for genotype quality control and analysis',
+    url='https://github.com/dvitale199/GenoTools',
+    license='Apache License 2.0',
+    classifiers=[
+        'Programming Language :: Python :: 3',
+        'Operating System :: OS Independent',
+    ],
+    python_requires='>=3.8',
+    extras_require={
+        'dev': [
+            'pytest>=3.7',
+            'twine>=1.11.0'
+        ]
+    },
     entry_points={
         'console_scripts': [
             'genotools=genotools.__main__:handle_main',
