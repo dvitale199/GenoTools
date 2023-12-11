@@ -11,6 +11,19 @@ from genotools.dependencies import check_plink, check_plink2
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
+def gt_header():
+    
+    header = """
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗ 
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝ 
+    """
+    return header
+    
+
 def shell_do(command, print_cmd=False, log=False, return_log=False, err=False):
     if print_cmd:
         print(f'Executing: {(" ").join(command.split())}', file=sys.stderr)
@@ -184,6 +197,10 @@ def process_log(out_path, concat_log):
 
     # write final processed log
     with open(f"{out_path}_cleaned_logs.log", "w") as f:
+        header = gt_header()
+        f.write(header)
+        f.write("\n")
+
         while start < len(step_indices)-1:
             # list step and process names
             out_line =  concat_log[out_indices[start]]
