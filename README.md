@@ -10,15 +10,13 @@ git clone https://github.com/dvitale199/GenoTools
 cd GenoTools
 pip install .
 ```
-you can pull references by running:
+you can pull the most current references by running:
 ```
 genotools-download
 ```
+By default, the reference panel will be downloaded to ~/.genotools/ref. but can be download to a location of choice with `--destination`.
+
 To download specific references/models, you can run the download with the following options:
-```
-genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1
-```
-By default, the reference panel will be downloaded to ~/.genotools/ref. to download to a location of your choice, you can use:
 ```
 genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1 --destination /path/to/download_directory/
 ```
