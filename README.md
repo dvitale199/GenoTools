@@ -18,6 +18,11 @@ To download specific references/models, you can run the download with the follow
 ```
 genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1
 ```
+By default, the reference panel will be downloaded to ~/.genotools/ref. to download to a location of your choice, you can use:
+```
+genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1 --destination /path/to/download_directory/
+```
+
 Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. Available models are `nba_v1` for the NeuroBooster array and `neurochip_v1` for the NeuroChip Array. If using a different array, we would suggest training a new model by running the standard command below.
 
 Modify the paths in the following command to run the standard GP2 pipeline:
