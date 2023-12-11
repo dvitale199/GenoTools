@@ -61,7 +61,7 @@ def handle_download():
 
     if download_ref:
         checksums_dict = {
-            "1kg_30x_hgdp_ashk_ref_panel": "fd3d79b9e1c0054b10881fa130eb9b21"
+            "1kg_30x_hgdp_ashk_ref_panel": "f722b3a0c9f6da723d7fd850abb08b55"
         }
 
         ref = args.ref if args.ref else "1kg_30x_hgdp_ashk_ref_panel"
