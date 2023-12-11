@@ -50,9 +50,9 @@ This will find common snps between your genotype data and the reference panel, r
 genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 
 ## Documentation
-- [GenoTools Command Line Arguments](docs/cli_args.md)
-- [Default Pipeline Overview](docs/default_pipeline_overview.md)
-- [Package Function Guide (for developers)](docs/genotools_function_guide.md)
+- [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
+- [Default Pipeline Overview](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
+- [Package Function Guide (for developers)](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
 
 ## Acknowledgements
 GenoTools was developed as the core genotype and wgs processing pipeline for the Global Parkinson's Genetics Program (GP2) at the Center for Alzheimer's and Related Dementias (CARD) at the National Institutes of Health.
