@@ -33,4 +33,4 @@ Following ancestry analysis, the pipeline undergoes these sample-level QC proced
 - **Haplotype Check**: Default threshold: 1e-4
 - **Hardy-Weinberg Equilibrium (HWE)**: Default threshold: 1e-4
 - **Genotype Missingness (Geno)**: Default threshold: 0.05
-- **Linkage Disequilibrium (LD)**: Default setting: None (custom parameters may be provided)
+- **Linkage Disequilibrium (LD)**: Default settings: 50 window size, 5 step size, 0.5 r^2 threshold

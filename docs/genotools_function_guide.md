@@ -275,9 +275,9 @@ Prunes SNPs based on Linkage Disequilibrium.
 
 ### Parameters
 
-- **window_size (int, optional)**: Size of the sliding window over the genome in variant count. Defaults to 50.
-- **step_size (int, optional)**: Step of the sliding window over the genome. Defaults to 5.
-- **r2_threshold (float, optional)**: \( r^2 \) threshold to include a variant. Defaults to 0.5.
+- **window_size**: Size of the sliding window over the genome in variant count. Defaults to 50.
+- **step_size**: Step of the sliding window over the genome. Defaults to 5.
+- **r2_threshold**: \(r^2\) threshold to include a variant. Defaults to 0.5.
 
 ### Returns
 
@@ -480,7 +480,7 @@ Preprocesses labeled raw data for prediction by performing train/test split, lab
     * 'label_encoder': A fitted LabelEncoder for label transformation.
     * 'X_all': All features (including both training and test sets).
     * 'y_all': All labels (including both training and test sets).
-    
+
 ## calculate_pcs
 
 ```python
