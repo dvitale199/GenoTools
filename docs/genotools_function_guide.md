@@ -33,6 +33,8 @@ This guide details the methods available in the `GenoTools` package for quality 
     - [load_umap_classifier](#load_umap_classifier)
     - [predict_ancestry_from_pcs](#predict_ancestry_from_pcs)
     - [get_containerized_predictions](#get_containerized_predictions)
+    - [get_cloud_predictions](#get_cloud_predictions)
+    - [predict_admixed_samples](#predict_admixed_samples)
     - [umap_transform_with_fitted](#umap_transform_with_fitted)
     - [split_cohort_ancestry](#split_cohort_ancestry)
     - [run_ancestry](#run_ancestry)
@@ -133,24 +135,27 @@ Executes heterozygosity-based pruning on genotype data using PLINK.
 ## run_related_prune
 
 ```python
-run_related_prune(self, pi_hat=0.125)
+run_related_prune(self, related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True)
 ```
 
 ### Description
 
-Executes relatedness pruning on genotype data using PLINK.
+Execute pruning based on relatedness and duplication checks on genotype data using PLINK and KING.
 
 ### Parameters
 
-- **pi_hat**: Threshold for removing related individuals based on PI_HAT value. Defaults to 0.125.
+- **related_cutoff** (float, optional): Threshold for relatedness check. Default value is 0.0884.
+- **duplicated_cutoff** (float, optional): Threshold for duplication check. Default value is 0.354.
+- **prune_related** (bool, optional): Whether to prune related samples. Default is True.
+- **prune_duplicated** (bool, optional): Whether to prune duplicated samples. Default is True.
 
 ### Returns
 
-- **dict**: Contains
-    * 'pass': Successful completion flag.
-    * 'step': Label for this procedure ('related_prune').
-    * 'metrics': Metrics such as 'outlier_count'.
-    * 'output': Paths to the generated output files.
+- **dict**: A structured dictionary containing:
+  * 'pass': Boolean indicating the successful completion of the process.
+  * 'step': The label for this procedure ('related_prune').
+  * 'metrics': Metrics associated with the pruning.
+  * 'output': Dictionary containing paths to the generated output files.
 
 ---
 
@@ -625,6 +630,51 @@ Get predictions using a containerized environment for UMAP and XGBoost classifie
 ### Returns
 
 - **tuple**: Two dictionaries containing trained classifier results and prediction results.
+
+---
+
+## get_cloud_predictions
+
+```python
+get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca)
+```
+
+### Description
+
+Get predictions using a cloud environment for UMAP and XGBoost classifier.
+
+### Parameters
+
+- **X_test** (DataFrame): Test data.
+- **y_test** (Series): True labels for the test data.
+- **projected** (DataFrame): Projected principal components of new samples.
+- **label_encoder**: Label encoder used for encoding ancestry labels.
+- **train_pca**: Labeled PCs for training data.
+
+### Returns
+
+- **tuple**: Two dictionaries containing trained classifier results and prediction results.
+
+---
+
+## predict_admixed_samples
+
+```python
+predict_admixed_samples(self, projected, train_pca)
+```
+
+### Description
+
+Change labels of samples with complex admixture, calculated based off training PCs.
+
+### Parameters
+
+- **projected** (DataFrame): Projected principal components of new samples.
+- **train_pca**: Labeled PCs for training data.
+
+### Returns
+
+- **DataFrame**: Projected principal components of new samples with updated labels.
 
 ---
 

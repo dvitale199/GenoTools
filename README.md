@@ -25,13 +25,24 @@ genotools \
   --ancestry \
   --ref_panel /path/to/reference/panel \
   --ref_labels /path/to/reference/ancestry/labels \
-  --container \
   --all_sample \
   --all_variant
 ```
-Note: add the ```--singularity``` flag to run ancestry predictions on HPC
 
 if you'd like to run the pipeline using an existing model, you can do that like so (take note of the `--model` option):
+```
+genotools \
+  --pfile /path/to/genotypes/for/qc \
+  --out /path/to/qc/output \
+  --ancestry \
+  --ref_panel /path/to/reference/panel \
+  --ref_labels /path/to/reference/ancestry/labels \
+  --all_sample \
+  --all_variant
+  --model /path/to/nba_v1/model
+```
+
+if you'd like to run the pipeline using the default nba_v1 model in a Docker container, you can do that like so:
 ```
 genotools \
   --pfile /path/to/genotypes/for/qc \
@@ -42,8 +53,8 @@ genotools \
   --container \
   --all_sample \
   --all_variant
-  --model nba_v1
 ```
+Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
 
 This will find common snps between your genotype data and the reference panel, run PCA, UMAP-transform PCs, and train a new XGBoost classifier specific to your data/ref panel.
 

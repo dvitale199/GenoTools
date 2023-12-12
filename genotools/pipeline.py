@@ -100,15 +100,6 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         steps_ancestry = steps[1:]
         steps = [steps[0]]
 
-        # move common snps file to tmp dir if full output is not requested
-        if not args['full_output']:
-            common_snps_file = f'{os.path.dirname(out_path)}/ref_common_snps.common_snps'
-
-            if os.path.isfile(common_snps_file):
-                shutil.copy(common_snps_file, f'{tmp_dir.name}/ref_common_snps.common_snps')
-            else:
-                raise FileNotFoundError(f'{common_snps_file} does not exist.')
-
     out_dict = dict()
 
     # loop through steps
