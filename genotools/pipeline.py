@@ -102,7 +102,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
         # move common snps file to tmp dir if full output is not requested and predictions are not run in cloud
         if not args['full_output']:
-            if args['model_path'] and (not args['cloud']):
+            if args['model'] and (not args['cloud']):
                 model_path_pathlib = pathlib.PurePath(args['model_path'])
                 model_path_name = model_path_pathlib.name
                 model_path_prefix = model_path_name.split('.')[0]
