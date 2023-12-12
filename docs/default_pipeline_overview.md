@@ -19,8 +19,8 @@ The `Ancestry` class in GenoTools provides a comprehensive pipeline for ancestry
 Designed for robustness and versatility, the `Ancestry` class is a key component of GenoTools, streamlining complex tasks in ancestry estimation and genetic data analysis.
 
 
-### Sample-Level QC Steps
-Following ancestry analysis, the pipeline undergoes these sample-level QC procedures:
+### QC Steps
+Following ancestry analysis, the pipeline undergoes these sample-level and variant-level QC procedures:
 
 ### Sample-Level QC Steps
 - **Callrate**: Default threshold: 0.05
