@@ -37,7 +37,6 @@ genotools \
   --ancestry \
   --ref_panel /path/to/reference/panel \
   --ref_labels /path/to/reference/ancestry/labels \
-  --container \
   --all_sample \
   --all_variant
   --model /path/to/nba_v1/model
