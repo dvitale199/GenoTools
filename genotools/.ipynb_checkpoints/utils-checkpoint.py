@@ -3,7 +3,7 @@ import sys
 import os
 import shutil
 import pandas as pd
-import warnings
+import warnings 
 import numpy as np
 from scipy.stats import norm
 from genotools.dependencies import check_plink, check_plink2
@@ -25,7 +25,7 @@ def shell_do(command, print_cmd=False, log=False, return_log=False, err=False):
         return output
     if err:
         return res.stderr.decode('utf-8')
-
+    
 
 def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
     # check if both are none
@@ -33,87 +33,32 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         print()
         print('ERROR: Need either PLINK1.9 or PLINK2 binaries!')
         print()
-
+    
     elif bfile_path and pfile_path:
         print()
         print('ERROR: Cannot accept both PLINK1.9 and PLINK2 binaries simulaneously!')
         print()
-
+    
     elif bfile_path and (not pfile_path):
-        if not os.path.isfile(f'{bfile_path}.bed'):
-            raise FileNotFoundError(f'{bfile_path} does not exist.')
-
-        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {bfile_path}'
+        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,phenos --out {bfile_path}'
         shell_do(convert_cmd)
-
+    
     else:
-        if not os.path.isfile(f'{pfile_path}.pgen'):
-            raise FileNotFoundError(f'{pfile_path} does not exist.')
-
         convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
         shell_do(convert_cmd)
 
 
-def vcf_to_pfiles(vcf_path, wgs=False, gq_min=None):
-    if not os.path.isfile(vcf_path):
-        raise FileNotFoundError(f'{vcf_path} does not exist.')
+def upfront_check(geno_path):
+    fam = pd.read_csv(f'{geno_path}.fam', header=None, sep = '\s+', 
+                      names = ['FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype'])
+    bim = pd.read_csv(f'{geno_path}.bim', header = None, sep = '\s+', low_memory = False,
+                      names = ['CHR', 'SNP_ID', 'Genetic_Distance', 'Position', 'A1', 'A2'])
 
-    prefix = vcf_path.split('.vcf')[0]
+    sex_counts = fam['Sex'].value_counts().to_dict()
+    pheno_counts = fam['Phenotype'].value_counts().to_dict()
+    chr_counts = bim['CHR'].value_counts().to_dict()
 
-    if wgs:
-        convert_cmd = f'{plink2_exec} --vcf {vcf_path} --make-pgen --out {prefix}'
-        if gq_min is not None:
-            convert_cmd = f'{convert_cmd} --vcf-min-gq {gq_min}'
-
-        shell_do(convert_cmd)
-
-        if not os.path.isfile(f'{prefix}.pgen'):
-            raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from VCF failed.')
-
-    elif not wgs and gq_min is not None:
-        raise TypeError(f'Filtering by genotype quality (GQ) requires WGS.')
-
-    else:
-        convert_cmd1 = f'{plink2_exec} --vcf {vcf_path} --make-bed --out {prefix}'
-        shell_do(convert_cmd1)
-
-        if not os.path.isfile(f'{prefix}.bed'):
-            raise FileNotFoundError(f'{prefix} bed/bim/fam files do not exist. Conversion from VCF failed.')
-
-        bfiles_to_pfiles(bfile_path=prefix)
-
-        if os.path.isfile(f'{prefix}.pgen'):
-            os.remove(f'{prefix}.bed')
-            os.remove(f'{prefix}.bim')
-            os.remove(f'{prefix}.fam')
-        else:
-            raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from bed/bim/fam failed.')
-
-
-
-def upfront_check(geno_path, args):
-    if not os.path.isfile(f'{geno_path}.pgen'):
-        raise FileNotFoundError(f"{geno_path} does not exist.")
-
-    # if no pgen present, but bed is present, and skip fails is True, convert to pgen
-    if not os.path.isfile(f'{geno_path}.pgen') and os.path.isfile(f'{geno_path}.bed') and (not args['skip_fails']):
-        warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...')
-        bfiles_to_pfiles(bfile_path=geno_path)
-
-    sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
-    var = pd.read_csv(f'{geno_path}.pvar', sep = '\s+', low_memory = False)
-
-    if 'SEX' not in sam.columns:
-        raise KeyError(f'{geno_path}.psam is missing SEX column. Even if no SEX information is present, GenoTools requires a SEX column.')
-
-    if 'PHENO1' not in sam.columns:
-        raise KeyError(f'{geno_path}.psam is missing PHENO1 column. Even if no PHENO1 information is present, GenoTools requires a PHENO1 column.')
-
-    sex_counts = sam['SEX'].value_counts().to_dict()
-    pheno_counts = sam['PHENO1'].value_counts().to_dict()
-    chr_counts = var['#CHROM'].value_counts().to_dict()
-
-    # print breakdown of data
+    # print breakdown of data 
     print("Your data has the following breakdown:")
     print("- Genetic Sex:")
     for sex in sex_counts.keys():
@@ -132,36 +77,18 @@ def upfront_check(geno_path, args):
             print(f'{pheno_counts[pheno]} Controls \n')
         if pheno == 0 or pheno == -9:
             print(f'{pheno_counts[pheno]} Missing \n')
+            # if pheno_counts[pheno] > 50:  # may want to createe a threshold for how many missing phenos allowed
+            #     warnings.warn("You are missing too many phenotypes (over 50).")
 
-    if args['skip_fails']:
-        return args
-
-    else:
-        # skip sex check when no sex in fam or no X chromosome
-        if args['sex'] is not None:
-            if (1 not in sex_counts.keys()) and (2 not in sex_counts.keys()):
-                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...')
-                args['sex'] = None
-            elif ('23' not in chr_counts.keys()) and ('X' not in chr_counts.keys()):
-                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...')
-                args['sex'] = None
-
-        # change hwe prune to be run without controls filtered when no controls present
-        if (args['hwe'] is not None) and (args['filter_controls'] == True) and (1 not in pheno_counts.keys()):
-            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...')
-            args['filter_controls'] = False
-
-        # skip case control when called without cases or controls present
-        if (args['case_control'] is not None) and ((1 not in pheno_counts.keys()) or (2 not in pheno_counts.keys())):
-            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...')
-            args['case_control'] = None
-
-        # skip het prune if less than 50 samples are present
-        if (args['het'] is not None) and (var.shape[0] < 50):
-            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...')
-            args['het'] = None
-
-        return args
+    # check for items necessary to the pipeline
+    if len(fam) < 50:
+        warnings.warn("You do not have enough total participants in your data (less than 50).")
+    elif 1 not in pheno_counts.keys() and 2 not in pheno_counts.keys():
+        warnings.warn("You are missing at least 1 phenotype class in your data.")
+    elif "23" not in chr_counts and "X" not in chr_counts:
+        warnings.warn("No sign of sex chromosome in your bim file.")
+    elif 1 in sex_counts.keys() or 2 in sex_counts.keys():
+        print("You are all set to continue in the pipeline!")
 
 
 def replace_all(text, dict):
@@ -178,7 +105,7 @@ def process_log(out_path, concat_log):
     ancestries = ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC']
 
     # exclude lines containing this information from log file
-    exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread',
+    exclude = ['Hostname', 'Working directory', 'Intel', 'Start time', 'Random number seed', 'RAM detected', 'threads', 'thread', 
     'written to', 'done.', 'End time:', 'Writing', '.bed', '.bim', '.fam', '.id', '.hh', '.sexcheck', '.psam', '-bit', 'from',
     '.pvar', '.pgen', '.in', '.out', '.het', '.missing', '.snplist', '.kin0', '.eigenvec', '.eigenval', '(--maf/', '--make-bed to','+']
 
@@ -191,7 +118,7 @@ def process_log(out_path, concat_log):
     step_indices.append(len(concat_log))
     start = 0
     stop = 1
-
+    
     # exclude/replace from text
     fillers = ['and', '.']
     replace = {'loaded from': 'loaded', '(see': '', ');': ';'}
@@ -209,7 +136,7 @@ def process_log(out_path, concat_log):
                 ancestry_tokens = [s for s in out_name.split("_") if s in ancestries]
                 if len(ancestry_tokens) >= 1:
                     f.write(f'Ancestry: {ancestry_tokens[-1]}\n')
-
+            
             # rewrite concatenated log section by section with exclusion criteria
             for i in range(step_indices[start], step_indices[stop]):
                 if "error" in concat_log[i].strip('\n'):
@@ -229,53 +156,22 @@ def process_log(out_path, concat_log):
 
 
 def concat_logs(step, out_path, listOfFiles):
-    if '_tmp/' in out_path:
-        # find parent directory for files in temporary directory
-        out_dir = os.path.dirname(os.path.dirname(out_path))
-    else:
-        # parent directory for out_path outputs
-        out_dir = os.path.dirname(out_path)
-
-    # find all genotools created logs in out_dir
-    log_paths = []
-    for file in os.listdir(out_dir):
-        if file.endswith("_all_logs.log"):
-            # log_exists = True
-            log_paths.append(file)
-
-    # if no genotools logs exist, create one
-    if len(log_paths) == 0:
-        log_path = os.path.join(out_dir, os.path.split(out_path)[1])
-
-    # if one genotools log exists, point to it
-    if len(log_paths) == 1:
-        log_path = os.path.join(out_dir, log_paths[0])
-
-    # if more than one genotools log exists, point to the one modified most recently
-    if len(log_paths) > 1:
-        mtimes = {}
-        for path in log_paths:
-            mtimes[path] = os.path.getmtime(os.path.join(out_dir, path))
-        most_recent_log = max(zip(mtimes.values(), mtimes.keys()))[1]
-        log_path = os.path.join(out_dir, most_recent_log)
-
     # combine log files into 1 file
-    with open(log_path, "a+") as new_file:
+    with open(f'{out_path}_all_logs.log', "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
                 new_file.write(f'Log: {name}\n')
                 new_file.write(f'Process: {step}\n')
                 for line in file:
                     new_file.write(line)
+        
                 new_file.write("\n")
 
-    # remove intermediate log files
+    # remove intermediate log files 
     for files in listOfFiles:
         os.remove(files)
 
-    # calls for processing
-    with open(log_path, 'r') as file:
-        out_path = log_path.replace('_all_logs.log', '')
+    with open(f'{out_path}_all_logs.log', 'r') as file:
         process_log(out_path, file.readlines())
 
 
@@ -296,7 +192,7 @@ def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
     snps = pd.read_table(bim_file, sep='\s+', header=None, names=['chr', 'snp_id', 'cm_pos', 'pos', 'a1', 'a2'], dtype={'chr': str})
     # Load gene information
     glist = pd.read_table(gene_reference, sep='\s+', header=None, names=['chr', 'start', 'end', 'name'], dtype={'chr': str})
-
+    
     # convert glist chr X to 23, Y to 24, XY to 25
     glist.loc[glist.chr=='X', 'chr'] = '23'
     glist.loc[glist.chr=='Y', 'chr'] = '24'
@@ -311,8 +207,8 @@ def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
         start = row['start'] - locus_size
         stop = row['end'] + locus_size
         # Find the positions that fall within the current start and stop values
-        include_snps = snps.loc[(snps['chr'] == row['chr']) &
-                                (snps['pos'] >= start) &
+        include_snps = snps.loc[(snps['chr'] == row['chr']) & 
+                                (snps['pos'] >= start) & 
                                 (snps['pos'] <= stop)].copy()
 
         # Assign gene name to included SNPs
@@ -349,7 +245,7 @@ def merge_genos(geno_path1, geno_path2, out_name):
             for cmd in cmds2:
                 shell_do(cmd)
 
-        # if second attempt at merge is successful, there are no triallelic snps and we can go ahead and move the _flip files to our _merged_ref_panel filenames
+        # if second attempt at merge is successful, there are no triallelic snps and we can go ahead and move the _flip files to our _merged_ref_panel filenames 
         # for further processing
         else:
             suffix_list = ['bed','bim','fam']
@@ -360,7 +256,7 @@ def merge_genos(geno_path1, geno_path2, out_name):
     else:
         pass
 
-
+        
 def ld_prune(geno_path, out_name, window_size=1000, step_size=50, rsq_thresh=0.05):
     # now prune for LD
     ld_prune1 = f'{plink_exec} --bfile {geno_path} --allow-no-sex --indep-pairwise {window_size} {step_size} {rsq_thresh} --autosome --out {geno_path}_pruned_data'
@@ -370,23 +266,23 @@ def ld_prune(geno_path, out_name, window_size=1000, step_size=50, rsq_thresh=0.0
 
     for cmd in ld_prune_cmds:
         shell_do(cmd)
+    
 
-
-def get_common_snps(geno_path1, geno_path2, out_name):
-
+def get_common_snps(geno_path1, geno_path2, out_name):  
+    
     """
-    Gets common snps between 2 genotype files and extracts from geno_path1. outputs plink bed/bim/fam file
+    Gets common snps between 2 genotype files and extracts from geno_path1. outputs plink bed/bim/fam file 
     for geno_path1 with only matching snps from geno_path2
     """
-
-    print('Getting Common SNPs')
-
+   
+    print('Getting Common SNPs')	
+    
     # read both bim files
     bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
     bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
     bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
     bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-
+    
     # write bim 1 ids to snplist
     bim1['rsid'].to_csv(f'{geno_path1}.snplist', sep='\t', header=None, index=None)
 
@@ -397,9 +293,9 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
     # two merges and concatenation
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
-    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])
+    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
     common_snps = pd.concat([common_snps1, common_snps2], axis=0)
-
+    
     # flip and merge again
     flip_cmd = f'{plink_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
     shell_do(flip_cmd)
@@ -409,7 +305,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
     bim1_flip['merge_id'] = bim1_flip['chr'].astype(str) + ':' + bim1_flip['pos'].astype(str) + ':' + bim1_flip['a2'] + ':' + bim1_flip['a1']
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
-    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])
+    common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])	
 
     # concat merges and drop duplicates
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
@@ -418,7 +314,7 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     # write snps to txt and extract
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
-
+    
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     shell_do(ext_snps_cmd)
 
@@ -460,15 +356,9 @@ def rm_tmps(tmps, suffixes=None):
     print()
 
 
-# def count_file_lines(file_path):
-#     return sum(1 for line in open(file_path))
 def count_file_lines(file_path):
-    count = 0
-    with open(file_path, 'r') as f:
-        for line in f.readlines():
-            if not line.startswith("##"):
-                count += 1
-    return count
+    return sum(1 for line in open(file_path))
+
 
 def miss_rates(geno_path, out_path, max_threshold=0.05):
 
@@ -489,12 +379,12 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
 
     s_total = smiss.shape[0]
     thresh_list = np.arange(0.0, max_threshold+0.01, 0.01)
-
+    
     # suggest most-stringent threshold which retains >= 90% of samples
     accept_list = []
-
+    
     for thresh in thresh_list:
-
+        
         s_pass = smiss.loc[smiss.F_MISS<=thresh]
         pass_prop = s_pass.shape[0]/s_total
 
@@ -502,13 +392,13 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
             pass
         else:
             accept_list.append(thresh)
-
+    
     if len(accept_list) > 0:
         suggested_threshold = min(accept_list)
     else:
         print('No acceptable threshold found! Try a less-stringent max_threshold')
         suggested_threshold = None
-
+        
     metrics = {
         'avg_lmiss': avg_vmiss,
         'avg_imiss': avg_smiss,
@@ -524,17 +414,17 @@ def zscore_pval_conversion(zscores=None, pvals=None, stats=None):
     if zscores is None and pvals is None:
         print('Conversion Failed!')
         print('Either p-values or z-scores must be provided')
-
+    
     # both zscores and pvals provided
     elif zscores is not None and pvals is not None:
         print('Conversion Failed!')
         print('Provide only p-values or z-scores, not both')
-
+    
     # pvals provided but stats not provided to determine sign of zscore
     elif pvals is not None and stats is None:
         print('Conversion Failed!')
         print('Stats must be provided when going from p-values to z-scores')
-
+    
     else:
         # convert pvals to zscores using stats to get proper sign
         if zscores is None:

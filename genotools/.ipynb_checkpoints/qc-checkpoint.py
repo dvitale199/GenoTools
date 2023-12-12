@@ -429,6 +429,7 @@ class SampleQC:
             kinship = pd.read_csv(f'{related_pairs}.kin0', sep='\s+')
             kinship['REL'] = pd.cut(x=kinship['KINSHIP'], bins=[-np.inf, 0.0884, 0.177, 0.354, np.inf], labels=['unrel', 'second_deg', 'first_deg', 'duplicate'])
             kinship.to_csv(f'{related_pairs}.related', index=False)
+            # shutil.copy(f'{related_pairs}.kin0',f'{related_pairs}.related')
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
@@ -478,17 +479,11 @@ class SampleQC:
 
                 process_complete = True
                 related_pruned_out = None
-
-                related_count = 0
-                duplicated_count = 0
+                process_complete = True
 
             if not prune_duplicated and prune_related:
                 print('This option is invalid. Cannot prune related without also pruning duplicated')
                 process_complete = False
-                related_pruned_out = None
-
-                related_count = 0
-                duplicated_count = 0
 
 
             if os.path.isfile(f'{out_path}.log'):
@@ -501,8 +496,8 @@ class SampleQC:
             os.remove(f'{grm1}.pvar')
             os.remove(f'{grm2}.king.cutoff.in.id')
             os.remove(f'{grm2}.king.cutoff.out.id')
-            os.remove(f'{grm2}.related')
-            os.remove(f'{grm3}.duplicated')
+            # os.remove(f'{grm2}.related')
+            # os.remove(f'{grm3}.duplicated')
             os.remove(f'{grm3}.king.cutoff.in.id')
             os.remove(f'{grm3}.king.cutoff.out.id')
             os.remove(f'{related_pairs}.king.bin')
@@ -696,9 +691,9 @@ class VariantQC:
 
                 process_complete = True
 
-                for file in [f'{mis_tmp}.exclude', f'{mis_tmp}.hh', f'{mis_tmp}.missing']:
-                    if os.path.isfile(file):
-                        os.remove(file)
+                os.remove(f'{mis_tmp}.exclude')
+                os.remove(f'{mis_tmp}.hh')
+                os.remove(f'{mis_tmp}.missing')
 
             else:
                 print(f'Case/Control Missingness pruning failed!')
@@ -1003,185 +998,6 @@ class VariantQC:
 
         metrics_dict = {
             'ld_removed_count': ld_rm_count
-        }
-
-        out_dict = {
-            'pass': process_complete,
-            'step': step,
-            'metrics': metrics_dict,
-            'output': outfiles_dict
-        }
-
-        return out_dict
-
-
-class WholeGenomeSeqQC:
-
-    def __init__(self, geno_path=None, out_path=None):
-        self.geno_path = geno_path
-        self.out_path = out_path
-
-
-    def run_depth_prune(self, depth_min=10):
-
-        """
-        Prunes SNPs based on depth.
-
-        Parameters:
-        - depth_min (int, optional): Depth threshold where all genotype calls below are excluded.
-
-        Returns:
-        - dict: A structured dictionary containing:
-            * 'pass': Boolean indicating the successful completion of the process.
-            * 'step': The label for this procedure ('wgs_depth_prune').
-            * 'metrics': Metrics associated with the pruning, such as 'depth_rm_count'.
-            * 'output': Dictionary containing paths to the generated output files.
-        """
-
-        geno_path = self.geno_path
-        out_path = self.out_path
-
-        step = "wgs_depth_prune"
-
-        # get initial snps count
-        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
-
-        # remove variants where DP field is less than desired depth
-        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info DP >= {depth_min} --make-pgen --out {out_path}"
-        # plink_cmd = f"{plink2_exec} --pfile {geno_path} --vcf-min-dp {depth_min} --out {out_path}"
-        shell_do(plink_cmd)
-
-        listOfFiles = [f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
-
-        # filter depth count
-        depth_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        depth_rm_count = initial_snp_count - depth_snp_count
-
-        process_complete = True
-
-        outfiles_dict = {
-            'plink_out': out_path
-        }
-
-        metrics_dict = {
-            'depth_rm_count': depth_rm_count
-        }
-
-        out_dict = {
-            'pass': process_complete,
-            'step': step,
-            'metrics': metrics_dict,
-            'output': outfiles_dict
-        }
-
-        return out_dict
-
-
-    # def run_gq_prune(self, gq_min=20):
-
-    #     """
-    #     Prunes SNPs based on genotype quality (GQ).
-
-    #     Parameters:
-    #     - gq_min (int, optional): GQ threshold where all genotype calls below are excluded.
-
-    #     Returns:
-    #     - dict: A structured dictionary containing:
-    #         * 'pass': Boolean indicating the successful completion of the process.
-    #         * 'step': The label for this procedure ('wgs_gq_prune').
-    #         * 'metrics': Metrics associated with the pruning, such as 'gq_rm_count'.
-    #         * 'output': Dictionary containing paths to the generated output files.
-    #     """
-
-    #     geno_path = self.geno_path
-    #     out_path = self.out_path
-
-    #     step = "wgs_gq_prune"
-
-    #     # cannot filter based on GQ if geno is in pgen format
-    #     # pfiles don't contain FORMAT field (which includes GQ info)
-    #     if not (os.path.exists(f'{geno_path}.vcf') or os.path.exists(f'{geno_path}.vcf.gz')):
-    #         raise FileNotFoundError(f"Filtering by GQ is not supported wihtout a VCF, please upload VCFs containing the GQ field to use this option.")
-
-    #     # get initial snps count
-
-    #     ## TODO: does genotools accept both .vcf and zipped .vcf files?
-    #     ## TODO: count_file_lines() method does not take into account "##" headers
-    #     ##       * .pvar files don't have ##FORMAT in its header (while .vcf does)
-    #     initial_snp_count = count_file_lines(f'{geno_path}.vcf') - 1
-
-    #     # remove variants where GQ field is less than desired gq
-    #     plink_cmd = f"{plink2_exec} --vcf {geno_path} --vcf-min-gq {gq_min} --make-pgen --out {out_path}"
-    #     shell_do(plink_cmd)
-
-    #     listOfFiles = [f'{out_path}.log']
-    #     concat_logs(step, out_path, listOfFiles)
-
-    #     # filter gq count
-    #     gq_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-    #     gq_rm_count = initial_snp_count - gq_snp_count
-
-    #     process_complete = True
-
-    #     outfiles_dict = {
-    #         'plink_out': out_path
-    #     }
-
-    #     metrics_dict = {
-    #         'gq_rm_count': gq_rm_count
-    #     }
-
-    #     out_dict = {
-    #         'pass': process_complete,
-    #         'step': step,
-    #         'metrics': metrics_dict,
-    #         'output': outfiles_dict
-    #     }
-
-    #     return out_dict
-
-
-    def run_filter_prune(self):
-
-        """
-        Prunes SNPs based on whether or not they PASS all input filters.
-
-        Returns:
-        - dict: A structured dictionary containing:
-            * 'pass': Boolean indicating the successful completion of the process.
-            * 'step': The label for this procedure ('wgs_filter_prune').
-            * 'metrics': Metrics associated with the pruning, such as 'filter_rm_count'.
-            * 'output': Dictionary containing paths to the generated output files.
-        """
-
-        geno_path = self.geno_path
-        out_path = self.out_path
-
-        step = "wgs_filter_prune"
-
-        # get initial snp count
-        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
-
-        # variants that failed one or more filters tracked by FILTER field
-        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --var-filter --make-pgen --out {out_path}"
-        shell_do(plink_cmd1)
-
-        listOfFiles = [f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
-
-        # filter pruned count
-        filter_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        filter_rm_count = initial_snp_count - filter_snp_count
-
-        process_complete = True
-
-        outfiles_dict = {
-            'plink_out': out_path
-        }
-
-        metrics_dict = {
-            'filter_rm_count': filter_rm_count
         }
 
         out_dict = {

@@ -14,6 +14,7 @@ def gt_argparse():
     parser.add_argument('--bfile', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to PLINK 1.9 format genotype file (everything before the *.bed/bim/fam)')
     parser.add_argument('--pfile', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to PLINK 2 format genotype file (everything before the *.pgen/pvar/psam)')
     parser.add_argument('--vcf', type=str, nargs='?', default=None, const=None, help='Genotype: String file path to VCF format genotype file')
+    parser.add_argument('--wgs', type=str, nargs='?', default='False', const='True', help='Genotype contains WGS info')
     parser.add_argument('--out', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
     parser.add_argument('--full_output', type=str, nargs='?', default='True', const='True', help='Output everything')
     parser.add_argument('--skip_fails', type=str, nargs='?', default='False', const='True', help='Skip up front check for fails')
@@ -50,6 +51,11 @@ def gt_argparse():
     parser.add_argument('--ld', nargs='*', help='LD prune with window size, step size, r2 threshold')
     parser.add_argument('--all_variant', type=str, nargs='?', default='False', const='True', help='Run all variant-level QC')
 
+    # WGS qc arguments
+    parser.add_argument('--gq', type=int, nargs='?', default=None, const=10, help='Minimum threshold for GQ prune')
+    parser.add_argument('--dp', type=int, nargs='?', default=None, const=20, help='Minimum threshold DP prune')
+    parser.add_argument('--filter', type=str, nargs='?' default='False', const='True', help='Extract all variants that PASS all filters')
+
     # GWAS and PCA argument
     parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')
     parser.add_argument('--build', type=str, nargs='?', default='hg38', const='hg38', help='Build for PCA')
@@ -60,14 +66,15 @@ def gt_argparse():
 
     # parse args and turn into dict
     args = parser.parse_args()
-    
+
     return args
 
 
-def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, assoc, args, tmp_dir):
+def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, wgs_qc, ancestry, assoc, args, tmp_dir):
     # to know which class to call
     samp_steps = ['callrate','sex','related','het']
     var_steps = ['case_control','haplotype','hwe','geno','ld']
+    wgs_steps = ['dp', 'filter']
 
     # if full output requested, go to out path
     if args['full_output']:
@@ -130,14 +137,14 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')) and (len(step_paths) > 1):
                 warnings.warn(f'{step_input}.pgen was not created. Continuing to next step...')
                 step_input = f'{step_paths[-2]}' if step != steps[1] else geno_path
-                
+
                 # very rare edge case when multiple steps fail
                 if not os.path.isfile(f'{step_input}.pgen'):
                     step_input = f'{step_paths[-3]}'
 
                 step_output = f'{step_paths[-2]}_{step}' if step != steps[-1] else out_path
                 step_paths.append(step_output)
-            
+
             # otherwise keep track of paths
             else:
                 step_paths.append(step_output)
@@ -151,10 +158,10 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             if step == 'related':
                 out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicated_cutoff=args['duplicated_cutoff'],
                                  prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
-            
+
             else:
                 out_dict[step] = steps_dict[step](args[step])
-        
+
         # var qc setup and call
         if step in var_steps:
             var_qc.geno_path = step_input
@@ -166,10 +173,17 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
 
             elif step == 'ld':
                 out_dict[step] = steps_dict[step](window_size=args['ld'][0], step_size=args['ld'][1], r2_threshold=args['ld'][2])
-            
+
             else:
                 out_dict[step] = steps_dict[step](args[step])
-            
+
+        # wgs qc setup and call
+        if step in wgs_steps:
+            wgs_qc.geno_path = step_input
+            wgs_qc.out_path = step_output
+
+            out_dict = steps_dict[step](args[step])
+
         # assoc setup and call
         if step == 'assoc':
             assoc.geno_path = step_input
@@ -180,8 +194,8 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             assoc.covar_path = args['covars']
             assoc.covar_names = args['covar_names']
             out_dict[step] = steps_dict[step]()
-        
-        # remove old files when appropriate 
+
+        # remove old files when appropriate
         if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry'):
             # when warn is True and step fails, don't remove old file
             if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):

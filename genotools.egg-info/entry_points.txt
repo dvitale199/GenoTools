@@ -1,0 +1,2 @@
+[console_scripts]
+genotools = genotools.__main__:handle_main
