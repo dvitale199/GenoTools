@@ -94,6 +94,33 @@ class Ancestry:
             out_paths = {**out_paths, **common_snps_files}
         # otherwise extract common snps from training
         else:
+            # if model path, look for common SNPs file in model dir
+            if self.model_path:
+                model_path_pathlib = pathlib.PurePath(self.model_path)
+                model_path_name = model_path_pathlib.name
+                model_path_prefix = model_path_name.split('.')[0]
+
+                ref_common_snps = f'{outdir}/{model_path_prefix}'
+                common_snps_file = f'{os.path.dirname(self.model_path)}/{model_path_prefix}.common_snps'
+
+                # if it doesn't exist, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
+
+            # if running in container, look for downloaded NBA model
+            if self.containerized:
+                model_destination = os.path.expanduser("~/.genotools/ref")
+                nba_model_dir = f'{model_destination}/models/nba_v1'
+                nba_model_prefix = 'nba_v1'
+
+                ref_common_snps = f'{outdir}/{nba_model_prefix}'
+                common_snps_file = f'{nba_model_dir}/{nba_model_prefix}.common_snps'
+
+                # if it doesn't exist, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist. Please download this file using \'genotools-download\' with no other specifications to use container for predictions.')
+                
+
             # if running in cloud, download from the proper bucket
             if self.cloud:
                 ref_common_snps = f'{outdir}/{self.cloud_model}'
@@ -105,19 +132,6 @@ class Ancestry:
                 blob.download_to_filename(common_snps_file)
                 
                 # if something goes wrong in download, throw error
-                if not os.path.isfile(common_snps_file):
-                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
-            
-            # if model path, look for common SNPs file in model dir
-            if self.model_path:
-                model_path_pathlib = pathlib.PurePath(self.model_path)
-                model_path_name = model_path_pathlib.name
-                model_path_prefix = model_path_name.split('.')[0]
-
-                ref_common_snps = f'{outdir}/{model_path_prefix}'
-                common_snps_file = f'{os.path.dirname(self.model_path)}/{model_path_prefix}.common_snps'
-
-                # if it doesn't exist, throw error
                 if not os.path.isfile(common_snps_file):
                     raise FileNotFoundError(f'{common_snps_file} file does not exist.')
 
