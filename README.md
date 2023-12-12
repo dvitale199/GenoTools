@@ -50,8 +50,8 @@ This will find common snps between your genotype data and the reference panel, r
 genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 
 ## Documentation
-- [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
-- [Default Pipeline Overview](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
+- [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/cli_args.md)
+- [Default Pipeline Overview](https://github.com/dvitale199/GenoTools/blob/main/docs/default_pipeline_overview.md)
 - [Package Function Guide (for developers)](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
 
 ## Acknowledgements
