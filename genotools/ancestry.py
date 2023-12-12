@@ -1051,7 +1051,7 @@ class Ancestry:
 
         # setting train variable to false if there is a model path or containerized predictions
         ## Note sure if its considered bad style to set self variables outside __init__
-        if self.model_path or self.containerized:
+        if self.model_path or self.containerized or self.cloud:
             self.train = False
         else:
             self.train = True
@@ -1069,16 +1069,11 @@ class Ancestry:
             raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
         
         # Check testing param validaity
+        #TODO: MOVE TO MAIN
         elif self.model_path and self.containerized:
             warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
         
         #NOTE: need to add in a check for docker, if not throw an error and say request singularity
-
-
-        model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
-                                      'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
-                      'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
-                                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
 
         raw = self.get_raw_files()
 
