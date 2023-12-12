@@ -40,7 +40,7 @@ genotools \
   --container \
   --all_sample \
   --all_variant
-  --model nba_v1
+  --model /path/to/nba_v1/model
 ```
 
 if you'd like to run the pipeline using the default nba_v1 model in a Docker container, you can do that like so:
@@ -54,7 +54,6 @@ genotools \
   --container \
   --all_sample \
   --all_variant
-  --model nba_v1
 ```
 Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
 
