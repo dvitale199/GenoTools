@@ -628,6 +628,51 @@ Get predictions using a containerized environment for UMAP and XGBoost classifie
 
 ---
 
+## get_cloud_predictions
+
+```python
+get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca)
+```
+
+### Description
+
+Get predictions using a cloud environment for UMAP and XGBoost classifier.
+
+### Parameters
+
+- **X_test** (DataFrame): Test data.
+- **y_test** (Series): True labels for the test data.
+- **projected** (DataFrame): Projected principal components of new samples.
+- **label_encoder**: Label encoder used for encoding ancestry labels.
+- **train_pca**: Labeled PCs for training data.
+
+### Returns
+
+- **tuple**: Two dictionaries containing trained classifier results and prediction results.
+
+---
+
+## predict_admixed_samples
+
+```python
+predict_admixed_samples(self, projected, train_pca)
+```
+
+### Description
+
+Change labels of samples with complex admixture, calculated based off training PCs.
+
+### Parameters
+
+- **projected** (DataFrame): Projected principal components of new samples.
+- **train_pca**: Labeled PCs for training data.
+
+### Returns
+
+- **DataFrame**: Projected principal components of new samples with updated labels.
+
+---
+
 ## umap_transform_with_fitted
 
 ```python
