@@ -99,8 +99,8 @@ def handle_download():
 
     if download_model:
         checksums_dict = {
-            'nba_v1': 'b40e7111db44f60eaea1d4486ad8bea0',
-            'neurochip_v1': 'e17af52210d66429bab3baca05dfb8b7'
+            'nba_v1': 'e167af2a192bd7460f23a0868be4d7bd',
+            'neurochip_v1': '8f46bab3bb1226a36f8d3b9b7dab4b1a'
         }
 
         model = args.model if args.model else "nba_v1"
