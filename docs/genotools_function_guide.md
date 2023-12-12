@@ -33,6 +33,8 @@ This guide details the methods available in the `GenoTools` package for quality 
     - [load_umap_classifier](#load_umap_classifier)
     - [predict_ancestry_from_pcs](#predict_ancestry_from_pcs)
     - [get_containerized_predictions](#get_containerized_predictions)
+    - [get_cloud_predictions](#get_cloud_predictions)
+    - [predict_admixed_samples](#predict_admixed_samples)
     - [umap_transform_with_fitted](#umap_transform_with_fitted)
     - [split_cohort_ancestry](#split_cohort_ancestry)
     - [run_ancestry](#run_ancestry)
