@@ -100,20 +100,6 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         steps_ancestry = steps[1:]
         steps = [steps[0]]
 
-        # move common snps file to tmp dir if full output is not requested and predictions are not run in cloud
-        # if not args['full_output']:
-        #     if args['model'] and (not args['cloud']):
-        #         model_path_pathlib = pathlib.PurePath(args['model'])
-        #         model_path_name = model_path_pathlib.name
-        #         model_path_prefix = model_path_name.split('.')[0]
-
-        #         common_snps_file = f'{os.path.dirname(args["model"])}/{model_path_prefix}.common_snps'
-
-        #         if os.path.isfile(common_snps_file):
-        #             shutil.copy(common_snps_file, f'{tmp_dir.name}/ref_common_snps.common_snps')
-        #         else:
-        #             raise FileNotFoundError(f'{common_snps_file} does not exist.')
-
     out_dict = dict()
 
     # loop through steps

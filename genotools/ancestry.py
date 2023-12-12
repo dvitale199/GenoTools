@@ -1082,11 +1082,6 @@ class Ancestry:
         elif not os.path.exists(f'{self.ref_labels}'):
             raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
         
-        # Check testing param validaity
-        #TODO: MOVE TO MAIN
-        elif self.model_path and self.containerized:
-            warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
-        
         #NOTE: need to add in a check for docker, if not throw an error and say request singularity
 
         raw = self.get_raw_files()
