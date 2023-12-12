@@ -135,24 +135,27 @@ Executes heterozygosity-based pruning on genotype data using PLINK.
 ## run_related_prune
 
 ```python
-run_related_prune(self, pi_hat=0.125)
+run_related_prune(self, related_cutoff=0.0884, duplicated_cutoff=0.354, prune_related=True, prune_duplicated=True)
 ```
 
 ### Description
 
-Executes relatedness pruning on genotype data using PLINK.
+Execute pruning based on relatedness and duplication checks on genotype data using PLINK and KING.
 
 ### Parameters
 
-- **pi_hat**: Threshold for removing related individuals based on PI_HAT value. Defaults to 0.125.
+- **related_cutoff** (float, optional): Threshold for relatedness check. Default value is 0.0884.
+- **duplicated_cutoff** (float, optional): Threshold for duplication check. Default value is 0.354.
+- **prune_related** (bool, optional): Whether to prune related samples. Default is True.
+- **prune_duplicated** (bool, optional): Whether to prune duplicated samples. Default is True.
 
 ### Returns
 
-- **dict**: Contains
-    * 'pass': Successful completion flag.
-    * 'step': Label for this procedure ('related_prune').
-    * 'metrics': Metrics such as 'outlier_count'.
-    * 'output': Paths to the generated output files.
+- **dict**: A structured dictionary containing:
+  * 'pass': Boolean indicating the successful completion of the process.
+  * 'step': The label for this procedure ('related_prune').
+  * 'metrics': Metrics associated with the pruning.
+  * 'output': Dictionary containing paths to the generated output files.
 
 ---
 
