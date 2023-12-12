@@ -114,8 +114,8 @@ class Ancestry:
                 model_path_name = model_path_pathlib.name
                 model_path_prefix = model_path_name.split('.')[0]
 
-                ref_common_snps = f'{os.path.dirname(self.model_path)}/{model_path_prefix}'
-                common_snps_file = f'{ref_common_snps}.common_snps'
+                ref_common_snps = f'{outdir}/{model_path_prefix}'
+                common_snps_file = f'{os.path.dirname(self.model_path)}/{model_path_prefix}.common_snps'
 
                 # if it doesn't exist, throw error
                 if not os.path.isfile(common_snps_file):
