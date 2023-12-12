@@ -27,6 +27,7 @@ from sklearn.cluster import Birch
 from xgboost import XGBClassifier
 import pickle as pkl
 import json
+import pathlib
 import warnings
 from google.cloud import aiplatform
 from google.cloud import storage
@@ -50,6 +51,11 @@ class Ancestry:
         self.cloud = cloud
         self.cloud_model = cloud_model
         self.subset = subset
+        self.cloud_project = 'genotools'
+        self.cloud_dictionary = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                                 'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                                 'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                                 'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
     
 
     def get_raw_files(self):
@@ -75,28 +81,55 @@ class Ancestry:
         shell_do(geno_prune_cmd)
         out_paths['geno_pruned_bed'] = geno_prune_path
 
-        ref_common_snps = f'{outdir}/ref_common_snps'
-        common_snps_file = f'{ref_common_snps}.common_snps'
+        # ref_common_snps = f'{outdir}/ref_common_snps'
+        # common_snps_file = f'{ref_common_snps}.common_snps'
 
         # during training get common snps between ref panel and geno
         if self.train:
+            ref_common_snps = f'{self.out_path}_umap_linearsvc_ancestry_model'
+            common_snps_file = f'{ref_common_snps}.common_snps'
+
             common_snps_files = get_common_snps(self.ref_panel, geno_prune_path, ref_common_snps)
             # add common_snps_files output paths to out_paths
             out_paths = {**out_paths, **common_snps_files}
         # otherwise extract common snps from training
         else:
-            if not os.path.exists(f'{common_snps_file}'):
-                raise FileNotFoundError(f"{common_snps_file} does not exist.")
-            else:
-                extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
-                shell_do(extract_cmd)
+            # if running in cloud, download from the proper bucket
+            if self.cloud:
+                ref_common_snps = f'{outdir}/{self.cloud_model}'
+                common_snps_file = f'{ref_common_snps}.common_snps'
 
-                listOfFiles = [f'{ref_common_snps}.log']
-                concat_logs(step, self.out_path, listOfFiles)
+                storage_client = storage.Client(self.cloud_project)
+                bucket = storage_client.get_bucket(self.cloud_dictionary[self.cloud_model]['bucket'])
+                blob = bucket.blob('ref_common_snps.common_snps')
+                blob.download_to_filename(common_snps_file)
+                
+                # if something goes wrong in download, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
+            
+            # if model path, look for common SNPs file in model dir
+            if self.model_path:
+                model_path_pathlib = pathlib.PurePath(self.model_path)
+                model_path_name = model_path_pathlib.name
+                model_path_prefix = model_path_name.split('.')[0]
+
+                ref_common_snps = f'{os.path.dirname(self.model_path)}/{model_path_prefix}'
+                common_snps_file = f'{ref_common_snps}.common_snps'
+
+                # if it doesn't exist, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
+
+            extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+            shell_do(extract_cmd)
+
+            listOfFiles = [f'{ref_common_snps}.log']
+            concat_logs(step, self.out_path, listOfFiles)
     
-                # add to out_paths (same as common_snps_files)
-                out_paths['common_snps'] = common_snps_file
-                out_paths['bed'] = ref_common_snps
+            # add to out_paths (same as common_snps_files)
+            out_paths['common_snps'] = common_snps_file
+            out_paths['bed'] = ref_common_snps
                 
         if not os.path.exists(f'{ref_common_snps}.bed'):
             raise FileNotFoundError(f"{ref_common_snps} PLINK binaries (bed/bim/fam) do not exist.")
@@ -497,8 +530,8 @@ class Ancestry:
         # fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
         # dump best estimator to pkl
-        model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
-        model_file = open(model_path, 'wb')
+        self.model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
+        model_file = open(self.model_path, 'wb')
         pkl.dump(pipe_clf, model_file)
         model_file.close()
 
@@ -510,7 +543,7 @@ class Ancestry:
             'fitted_pipe_grid': pipe_grid,
             'train_accuracy': train_acc,
             'test_accuracy': test_acc,
-            'model_path': model_path
+            'model_path': self.model_path
         }
         
         return out_dict
@@ -731,16 +764,16 @@ class Ancestry:
         Returns:
         tuple: Two dictionaries containing trained classifier results and prediction results.
         """
-        cloud_project = 'genotools'
+        # cloud_project = 'genotools'
 
-        model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
-                                      'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
-                      'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
-                                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
+        # model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                    #                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                    #   'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                    #                'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
         
         # initialize endpoint
-        aiplatform.init(project=cloud_project, location=model_dict[self.cloud_model]['region'])
-        endpoint = aiplatform.Endpoint(model_dict[self.cloud_model]['endpoint_id'])
+        aiplatform.init(project=self.cloud_project, location=self.cloud_dictionary[self.cloud_model]['region'])
+        endpoint = aiplatform.Endpoint(self.cloud_dictionary[self.cloud_model]['endpoint_id'])
 
         # convert to list (needed for vertex ai predictions)
         X_test_arr = np.array(X_test).tolist()
@@ -762,7 +795,7 @@ class Ancestry:
         trained_clf_out_dict = {
             'confusion_matrix': pipe_clf_c_matrix,
             'test_accuracy': test_acc,
-            'params': model_dict[self.cloud_model]['params']
+            'params': self.cloud_dictionary[self.cloud_model]['params']
         }
 
         le = label_encoder
@@ -1040,6 +1073,12 @@ class Ancestry:
             warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
         
         #NOTE: need to add in a check for docker, if not throw an error and say request singularity
+
+
+        model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                                      'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                      'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
 
         raw = self.get_raw_files()
 
