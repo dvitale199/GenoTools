@@ -394,8 +394,6 @@ class Ancestry:
         ev_df.columns = ['PC','eigenvalue','explained_variance_ratio']
         ev_df.to_csv(f'{self.out_path}_pca_eigenvalues.txt', sep='\t', index=False)
 
-        # plot_3d(train_pca, color='label', title='Reference Panel PCA - Training', plot_out=f'{plot_dir}/plot_train_skPCA', x='PC1', y='PC2', z='PC3')
-
         # transform testing data
         test_pca = self.transform(X_test, train_mean, train_flash_sd, sk_pca, col_names)
         X_test = test_pca.copy()
@@ -405,8 +403,6 @@ class Ancestry:
 
         # get full reference panel pca
         ref_pca = pd.concat([train_pca, test_pca], ignore_index=True)
-
-        # plot_3d(ref_pca, color='label', title='Reference Panel PCA - All', plot_out=f'{plot_dir}/plot_ref_skPCA', x='PC1', y='PC2', z='PC3')
 
         geno_ids = raw_geno[['FID','IID','label']]
         geno_snps = raw_geno.drop(columns=['FID','IID','label'], axis=1)
@@ -419,8 +415,6 @@ class Ancestry:
 
         # project new samples onto reference panel
         total_pca = pd.concat([ref_pca, projected])
-
-        # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_projected_skPCA', x='PC1', y='PC2', z='PC3')
 
         projected = pd.concat([geno_ids[['FID','IID']], projected], axis=1)
         
@@ -532,16 +526,6 @@ class Ancestry:
 
         pipe_clf_pred = pipe_clf.predict(X_test)
         pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
-        
-        # eventually make this separate function
-        # need to get x and y tick labels from 
-        # fig, ax = plt.subplots(figsize=(10,10))
-        # sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
-                #   xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
-        # plt.ylabel('Actual')
-        # plt.xlabel('Predicted')
-        # plt.show()
-        # fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
         # dump best estimator to pkl
         self.model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
@@ -1059,10 +1043,6 @@ class Ancestry:
 
         step = "predict_ancestry"
 
-        #NOTE: deal with plotting later
-        # self.plot_dir = f'{os.path.dirname(self.out_path)}/plot_ancestry'
-        # os.makedirs(self.plot_dir, exist_ok=True)
-
         # setting train variable to false if there is a model path or containerized predictions
         ## Note sure if its considered bad style to set self variables outside __init__
         if self.model_path or self.containerized or self.cloud:
@@ -1147,59 +1127,7 @@ class Ancestry:
             params=trained_clf['params']
         )
 
-        #NOTE: Just copying over here for the sake of having everything, figure out plotting later
-        #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
-        #     y_min, y_max = min(umap_transforms['total_umap'].iloc[:,1]), max(umap_transforms['total_umap'].iloc[:,1])
-        #     z_min, z_max = min(umap_transforms['total_umap'].iloc[:,2]), max(umap_transforms['total_umap'].iloc[:,2])
-
-        #     x_range = [x_min-5, x_max+5]
-        #     y_range = [y_min-5, y_max+5]
-        #     z_range = [z_min-5, z_max+5]
-
-        #     plot_3d(
-        #         umap_transforms['total_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_total_umap',
-        #         title='UMAP of New and Reference Samples',
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
-        #     plot_3d(
-        #         umap_transforms['ref_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_ref_umap',
-        #         title="UMAP of Reference Samples",
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
-        #     plot_3d(
-        #         umap_transforms['new_samples_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_predicted_samples_umap',
-        #         title='UMAP of New Samples',
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
         ancestry_split = self.split_cohort_ancestry(labels_path=pred['output']['labels_outpath'])
-
 
         data_dict = {
             'predict_data': pred['data'],
