@@ -33,7 +33,7 @@ def gt_argparse():
     parser.add_argument('--out', type=str, nargs='?', default=None, const=None, help='Prefix for output (including path)', required=True)
     parser.add_argument('--full_output', type=str, nargs='?', default='True', const='True', help='Output everything')
     parser.add_argument('--skip_fails', type=str, nargs='?', default='False', const='True', help='Skip up front check for fails')
-    parser.add_argument('--warn', type=str, nargs='?', default='False', const='True', help='Warn of error and continue running pipeline')
+    parser.add_argument('--warn', type=str, nargs='?', default='True', const='True', help='Warn of error and continue running pipeline')
 
     # ancerstry arguments
     parser.add_argument('--ancestry', type=str, nargs='?', default='False', const='True', help='Split by ancestry')
