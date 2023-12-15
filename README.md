@@ -4,6 +4,16 @@
 
 GenoTools is a suite of automated genotype data processing steps written in Python. The core pipeline was built for Quality Control and Ancestry estimation of data in the Global Parkinson's Genetics Program (GP2)
 
+To download the most current version from pip:
+```
+pip install the_real_genotools
+```
+Alternatively, if you'd like to download from github:
+```
+git clone https://github.com/dvitale199/GenoTools.git
+cd GenoTools
+pip install .
+```
 you can pull the most current references by running:
 ```
 genotools-download
