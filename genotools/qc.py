@@ -729,6 +729,8 @@ class VariantQC:
 
             process_complete = False
 
+            mis_rm_count = 0
+
         os.remove(f'{geno_path}.bed')
         os.remove(f'{geno_path}.bim')
         os.remove(f'{geno_path}.fam')
