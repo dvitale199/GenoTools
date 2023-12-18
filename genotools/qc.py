@@ -807,21 +807,30 @@ class VariantQC:
         listOfFiles = [f'{hap_tmp}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
-        mis_hap = pd.read_csv(f'{hap_tmp}.missing.hap', sep='\s+')
-        mis_hap_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:,'FLANKING'].str.split('|'))
-        snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
-        snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
+        if os.path.isfile(f'{hap_tmp}.missing.hap'):
 
-        plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}"
-        shell_do(plink_cmd2)
+            # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
+            mis_hap = pd.read_csv(f'{hap_tmp}.missing.hap', sep='\s+')
+            mis_hap_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:,'FLANKING'].str.split('|'))
+            snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
+            snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
 
-        listOfFiles = [f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
+            plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}"
+            shell_do(plink_cmd2)
 
-        # hap pruned count
-        hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        hap_rm_count = initial_snp_count - hap_snp_count
+            listOfFiles = [f'{out_path}.log']
+            concat_logs(step, out_path, listOfFiles)
+
+            # hap pruned count
+            hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+            hap_rm_count = initial_snp_count - hap_snp_count
+        
+        else:
+            print(f'Haplotype pruning failed!')
+            print(f'Check {hap_tmp}.log for more information')
+            process_complete = False
+            hap_snp_count = count_file_lines(f'{geno_path}.bim')
+            hap_rm_count = 0
 
         outfiles_dict = {
             'plink_out': out_path
@@ -913,9 +922,15 @@ class VariantQC:
         listOfFiles = [f'{hwe_tmp}.log', f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        # hwe pruned count
-        final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        hwe_rm_count = initial_snp_count - final_snp_count
+        if os.path.isfile(f'{out_path}.pvar'):
+            # hwe pruned count
+            final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+            hwe_rm_count = initial_snp_count - final_snp_count
+        else:
+            print(f'HWE pruning failed!')
+            print(f'Check {hwe_tmp}.log or {out_path}.log for more information')
+            process_complete = False
+            hwe_rm_count = 0
 
         outfiles_dict = {
             'plink_out': out_path
