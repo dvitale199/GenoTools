@@ -135,7 +135,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
         else:
             # if warn is True and step input doesn't exist print error and reset step input
             if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')) and (len(step_paths) > 1):
-                warnings.warn(f'{step_input}.pgen was not created. Continuing to next step...')
+                warnings.warn(f'{step_input}.pgen was not created. Continuing to next step...', stacklevel=2)
                 step_input = f'{step_paths[-2]}' if step != steps[1] else geno_path
                 
                 # very rare edge case when multiple steps fail

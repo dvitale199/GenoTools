@@ -112,7 +112,7 @@ def upfront_check(geno_path, args):
 
     # if no pgen present, but bed is present, and skip fails is True, convert to pgen
     if not os.path.isfile(f'{geno_path}.pgen') and os.path.isfile(f'{geno_path}.bed') and (not args['skip_fails']):
-        warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...')
+        warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...', stacklevel=2)
         bfiles_to_pfiles(bfile_path=geno_path)
 
     sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
@@ -155,25 +155,25 @@ def upfront_check(geno_path, args):
         # skip sex check when no sex in fam or no X chromosome
         if args['sex'] is not None:
             if (1 not in sex_counts.keys()) and (2 not in sex_counts.keys()):
-                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...')
+                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...', stacklevel=2)
                 args['sex'] = None
             elif ('23' not in chr_counts.keys()) and ('X' not in chr_counts.keys()):
-                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...')
+                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...', stacklevel=2)
                 args['sex'] = None
 
         # change hwe prune to be run without controls filtered when no controls present
         if (args['hwe'] is not None) and (args['filter_controls'] == True) and (1 not in pheno_counts.keys()):
-            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...')
+            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...', stacklevel=2)
             args['filter_controls'] = False
         
         # skip case control when called without cases or controls present
         if (args['case_control'] is not None) and ((1 not in pheno_counts.keys()) or (2 not in pheno_counts.keys())):
-            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...')
+            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...', stacklevel=2)
             args['case_control'] = None
         
         # skip het prune if less than 50 samples are present
         if (args['het'] is not None) and (var.shape[0] < 50):
-            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...')
+            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...', stacklevel=2)
             args['het'] = None
 
         return args
