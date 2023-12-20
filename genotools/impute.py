@@ -10,7 +10,7 @@ from genotools.dependencies import check_plink, check_plink2
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
-def split_chroms(input, output, chrom, filetype='pgen'):
+def split_chroms(input, output, chrom, prefix, filetype='pgen'):
     """
     Splits genotype data by chromosome using PLINK2.
 
@@ -27,7 +27,7 @@ def split_chroms(input, output, chrom, filetype='pgen'):
     """
 
     # Base command for both pgen and bed
-    cmd_base = "plink2 --max-alleles 2 --set-missing-var-ids @:#$1:$2 --allow-extra-chr --chr {} --make-bed --out {}_chr{}"
+    cmd_base = "plink2 --max-alleles 2 --set-missing-var-ids @:#$1:$2 --allow-extra-chr --chr {} --make-bed --out {}_chr{} --output-chr {prefix}"
 
     # Determine file type
     if filetype == 'pgen':
@@ -63,6 +63,7 @@ def add_chr(geno_in, geno_out):
     geno.to_csv(f'{geno_out}.bim', sep='\t', header=None, index=False)
     
     # Copy the associated .bed and .fam files
+    plink --bfile f'{geno_out}.bim' --make-bed --out New-Output
     shutil.copy(f'{geno_in}.bed', f'{geno_out}.bed')
     shutil.copy(f'{geno_in}.fam', f'{geno_out}.fam')
 
@@ -100,7 +101,7 @@ def harmonize(geno_in, geno_out, ref_path, harmonizer_path, memory):
     tmp1 = f'{geno_in}_tmp1'
     tmp2 = f'{geno_in}_tmp2'
 
-    add_chr(geno_in, tmp1)
+    split_chroms(geno_in, tmp1, chrom, prefix = 'chrMT',filetype='pgen')
 
     # Run commands
     cmd = f"""\
