@@ -63,7 +63,6 @@ def add_chr(geno_in, geno_out):
     geno.to_csv(f'{geno_out}.bim', sep='\t', header=None, index=False)
     
     # Copy the associated .bed and .fam files
-    plink --bfile f'{geno_out}.bim' --make-bed --out New-Output
     shutil.copy(f'{geno_in}.bed', f'{geno_out}.bed')
     shutil.copy(f'{geno_in}.fam', f'{geno_out}.fam')
 
