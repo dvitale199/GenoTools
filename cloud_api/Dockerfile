@@ -18,4 +18,4 @@ RUN pip install the_real_genotools
 EXPOSE 8501
 
 # Start Streamlit app
-CMD ["streamlit", "run", "app.py"]
+CMD ["streamlit", "run", "--server.port=$PORT", "app.py"]
