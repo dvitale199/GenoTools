@@ -1,4 +1,5 @@
 # GenoTools
+[![DOI](https://zenodo.org/badge/337965715.svg)](https://zenodo.org/doi/10.5281/zenodo.10443257)
 
 ## Getting Started
 
