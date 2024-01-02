@@ -7,6 +7,9 @@ authors:
 - family-names: "Koretsky"
   given-names: "Mathew"
   orcid: "https://orcid.org/0000-0003-4341-3991"
+- family-names: "Hong"
+  given-names: "Samantha"
+  orcid: "https://orcid.org/0009-0001-8968-6461"
 title: "GenoTools"
 version: 1.0.2
 doi: 10.5281/zenodo.10443258
