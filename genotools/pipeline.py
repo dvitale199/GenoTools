@@ -45,6 +45,7 @@ def gt_argparse():
     parser.add_argument('--cloud', type=str, nargs='?', default='False', const='True', help='Run predictions in GCloud')
     parser.add_argument('--cloud_model', type=str, nargs='?', default='NeuroBooster', help='Model for GCloud predictions')
     parser.add_argument('--subset_ancestry', nargs='*', help='Subset to continue analysis for')
+    parser.add_argument('--min_samples', type=int, nargs='?', default=0, const=50, help='Minimum number of samples in an ancestry group required for subsequent analyses to be performed')
 
     # sample-level qc arguments
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.02, help='Minimum Callrate threshold for QC')
@@ -125,6 +126,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             ancestry.cloud = args['cloud']
             ancestry.cloud_model = args['cloud_model']
             ancestry.subset = args['subset_ancestry']
+            ancestry.min_samples = args['min_samples']
             out_dict[step] = steps_dict[step]()
 
             # call ancestry specific steps within each group
@@ -210,7 +212,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
     return out_dict
 
 
-def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry='all'):
+def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, out, ancestry='all'):
     for step in ['callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
@@ -224,6 +226,17 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, ancestry
                     if pruned.shape[0] > 0:
                         pruned.loc[:,'step'] = step
                         pruned_df = pd.concat([pruned_df, pruned[['#FID','IID','step']]], ignore_index=True)
+
+                if step == 'related':
+                    relatedfile = dictionary['step']['output']['related_samples']
+                    if (relatedfile is not None) and os.path.isfile(relatedfile):
+                        related = pd.read_csv(relatedfile, sep=',')
+                        if ancestry == 'all':
+                            related_out_path = f'{out}.related'
+                        else:
+                            related_out_path = f'{out}_{ancestry}.related'
+                        related.to_csv(related_out_path, index=False)
+
             else:
                 level = 'variant'
 

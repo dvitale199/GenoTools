@@ -543,7 +543,7 @@ class SampleQC:
 
             outfiles_dict = {
                 'pruned_samples': 'Related Pruning Failed',
-                'related_samples': 0,
+                'related_samples': None,
                 'plink_out': [grm1, grm2, grm3]
             }
 

@@ -181,10 +181,10 @@ def handle_main():
     
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
             if ancestry in out_dict.keys():
-                metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict[ancestry], ancestry=ancestry)
+                metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
 
     else:
-        metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict)
+        metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict, out=args_dict['out'])
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
