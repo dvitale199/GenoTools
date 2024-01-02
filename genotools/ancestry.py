@@ -39,7 +39,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Ancestry:
-    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None):
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None, min_samples=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -51,6 +51,7 @@ class Ancestry:
         self.cloud = cloud
         self.cloud_model = cloud_model
         self.subset = subset
+        self.min_samples = min_samples
         self.cloud_project = 'genotools'
         self.cloud_dictionary = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
                                  'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
@@ -1012,16 +1013,18 @@ class Ancestry:
 
         listOfFiles = []
         for label in split_labels:
-            labels_list.append(label)
-            outname = f'{self.out_path}_{label}'
-            outfiles.append(outname)
-            ancestry_group_outpath = f'{outname}.samples'
-            pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
+            if pred_labels[pred_labels.label == label].shape[0] >= self.min_samples:
 
-            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {outname}'
-            shell_do(plink_cmd)
+                labels_list.append(label)
+                outname = f'{self.out_path}_{label}'
+                outfiles.append(outname)
+                ancestry_group_outpath = f'{outname}.samples'
+                pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-            listOfFiles.append(f'{outname}.log')
+                plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {outname}'
+                shell_do(plink_cmd)
+
+                listOfFiles.append(f'{outname}.log')
             
         concat_logs(step, self.out_path, listOfFiles)
 
