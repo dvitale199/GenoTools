@@ -231,11 +231,12 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, out, anc
                     relatedfile = dictionary[step]['output']['related_samples']
                     if (relatedfile is not None) and os.path.isfile(relatedfile):
                         related = pd.read_csv(relatedfile, sep=',')
-                        if ancestry == 'all':
-                            related_out_path = f'{out}.related'
-                        else:
-                            related_out_path = f'{out}_{ancestry}.related'
-                        related.to_csv(related_out_path, index=False)
+                        if related.shape[0] > 0:
+                            if ancestry == 'all':
+                                related_out_path = f'{out}.related'
+                            else:
+                                related_out_path = f'{out}_{ancestry}.related'
+                            related.to_csv(related_out_path, index=False)
 
             else:
                 level = 'variant'
