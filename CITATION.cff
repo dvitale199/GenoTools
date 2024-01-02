@@ -16,6 +16,9 @@ authors:
 - family-names: "Song"
   given-names: "Yeajin"
   orcid: "https://orcid.org/0009-0002-3127-2634"
+- family-names: "Levine"
+  given-names: "Kristin"
+  orcid: "https://orcid.org/0000-0002-5702-0980"
 title: "GenoTools"
 version: 1.0.2
 doi: 10.5281/zenodo.10443258
