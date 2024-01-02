@@ -228,7 +228,7 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, out, anc
                         pruned_df = pd.concat([pruned_df, pruned[['#FID','IID','step']]], ignore_index=True)
 
                 if step == 'related':
-                    relatedfile = dictionary['step']['output']['related_samples']
+                    relatedfile = dictionary[step]['output']['related_samples']
                     if (relatedfile is not None) and os.path.isfile(relatedfile):
                         related = pd.read_csv(relatedfile, sep=',')
                         if ancestry == 'all':
