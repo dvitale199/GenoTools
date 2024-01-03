@@ -172,6 +172,8 @@ def handle_main():
         confusion_matrix.index = le.inverse_transform([i for i in range(10)])
         clean_out_dict['confusion_matrix'] = confusion_matrix.to_dict()
 
+        clean_out_dict['test_accuracy'] = out_dict['ancestry']['metrics']['test_accuracy']
+
         clean_out_dict['ref_pcs'] = out_dict['ancestry']['data']['ref_pcs'].to_dict()
         clean_out_dict['projected_pcs'] = out_dict['ancestry']['data']['projected_pcs'].to_dict()
         clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap'].to_dict()
