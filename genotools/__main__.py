@@ -179,7 +179,6 @@ def handle_main():
         clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap'].to_dict()
         clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap'].to_dict()
         clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap'].to_dict()
-        clean_out_dict['pred_ancestry_labels'] = out_dict['ancestry']['data']['predict_data']['ids'].to_dict()
     
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
             if ancestry in out_dict.keys():
