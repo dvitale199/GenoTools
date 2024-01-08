@@ -195,12 +195,13 @@ def handle_main():
         if not df.empty:
             clean_out_dict['QC'] = metrics_df.to_dict()
             clean_out_dict['GWAS'] = gwas_df.to_dict()
-            clean_out_dict['pruned_samples_no_label'] = pruned_df.to_dict() 
 
             if 'ancestry_labels' in list(clean_out_dict.keys()):
                 labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
                 labeled_pruned_df = pruned_df.merge(labels[['IID','label']], how='left', on=['IID'])
                 clean_out_dict['pruned_samples'] = labeled_pruned_df.to_dict()
+            else:
+                clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:
