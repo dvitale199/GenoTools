@@ -190,9 +190,12 @@ def handle_main():
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
 
-    clean_out_dict['QC'] = metrics_df.to_dict()
-    clean_out_dict['pruned_samples'] = pruned_df.to_dict()
-    clean_out_dict['GWAS'] = gwas_df.to_dict()
+    # ensure no empty df is being output to JSON
+    for df in [metrics_df, pruned_df, gwas_df]:
+        if not df.empty:
+            clean_out_dict['QC'] = metrics_df.to_dict()
+            clean_out_dict['pruned_samples'] = pruned_df.to_dict()
+            clean_out_dict['GWAS'] = gwas_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:
