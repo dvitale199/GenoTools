@@ -189,6 +189,7 @@ def handle_main():
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
+    pruned_df = pruned_df.rename({'#FID':'FID'}, axis=1)
 
     # ensure no empty df is being output to JSON
     for df in [metrics_df, pruned_df, gwas_df]:
@@ -198,8 +199,11 @@ def handle_main():
 
             if 'ancestry_labels' in list(clean_out_dict.keys()):
                 labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
-                labeled_pruned_df = pruned_df.merge(labels[['IID','label']], how='left', on=['IID'])
-                clean_out_dict['pruned_samples'] = labeled_pruned_df.to_dict()
+                labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
+
+                ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
+                full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
+                clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
             else:
                 clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
