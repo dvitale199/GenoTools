@@ -1012,6 +1012,9 @@ class Ancestry:
             split_labels = pred_labels.label.unique()
 
         listOfFiles = []
+
+        pruned_samples = pd.DataFrame(columns=['FID','IID','step','label'])
+
         for label in split_labels:
             if pred_labels[pred_labels.label == label].shape[0] >= self.min_samples:
 
@@ -1026,11 +1029,18 @@ class Ancestry:
 
                 listOfFiles.append(f'{outname}.log')
             
+            else:
+                pruned_samples_label = pred_labels[pred_labels.label == label]
+                pruned_samples_label['step'] = 'insufficient_ancestry_sample_n'
+                pruned_samples_label = pruned_samples_label[['FID','IID','step','label']]
+                pruned_samples = pd.concat([pruned_samples,pruned_samples_label], axis=0, ignore_index=True)
+            
         concat_logs(step, self.out_path, listOfFiles)
 
         output_dict = {
             'labels': labels_list,
-            'paths': outfiles
+            'paths': outfiles,
+            'pruned_samples': pruned_samples
         }
 
         return output_dict
@@ -1142,7 +1152,8 @@ class Ancestry:
             'ref_umap': umap_transforms['ref_umap'],
             'new_samples_umap': umap_transforms['new_samples_umap'],
             'label_encoder': train_split['label_encoder'],
-            'labels_list': ancestry_split['labels']
+            'labels_list': ancestry_split['labels'],
+            'pruned_samples': ancestry_split['pruned_samples']
         }
 
         metrics_dict = {

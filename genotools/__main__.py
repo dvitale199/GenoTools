@@ -179,7 +179,6 @@ def handle_main():
         clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap'].to_dict()
         clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap'].to_dict()
         clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap'].to_dict()
-        clean_out_dict['pred_ancestry_labels'] = out_dict['ancestry']['data']['predict_data']['ids'].to_dict()
     
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
             if ancestry in out_dict.keys():
@@ -190,10 +189,23 @@ def handle_main():
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
+    pruned_df = pruned_df.rename({'#FID':'FID'}, axis=1)
 
-    clean_out_dict['QC'] = metrics_df.to_dict()
-    clean_out_dict['pruned_samples'] = pruned_df.to_dict()
-    clean_out_dict['GWAS'] = gwas_df.to_dict()
+    # ensure no empty df is being output to JSON
+    for df in [metrics_df, pruned_df, gwas_df]:
+        if not df.empty:
+            clean_out_dict['QC'] = metrics_df.to_dict()
+            clean_out_dict['GWAS'] = gwas_df.to_dict()
+
+            if 'ancestry_labels' in list(clean_out_dict.keys()):
+                labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
+                labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
+
+                ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
+                full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
+                clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
+            else:
+                clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:
