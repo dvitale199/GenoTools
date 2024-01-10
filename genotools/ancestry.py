@@ -1033,7 +1033,7 @@ class Ancestry:
                 pruned_samples_label = pred_labels[pred_labels.label == label]
                 pruned_samples_label['step'] = 'insufficient_ancestry_sample_n'
                 pruned_samples_label = pruned_samples_label[['FID','IID','step','label']]
-                pruned_samples = pd.concat([pruned_samples,pruned_samples_label], axis=1, ignore_index=True)
+                pruned_samples = pd.concat([pruned_samples,pruned_samples_label], axis=0, ignore_index=True)
             
         concat_logs(step, self.out_path, listOfFiles)
 
