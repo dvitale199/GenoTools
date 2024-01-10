@@ -217,21 +217,23 @@ class Assoc:
             if os.path.isfile(f'{self.out_path}.PHENO1.glm.linear'):
 
             # calculate inflation
-            gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.linear', sep='\s+', dtype={'#CHROM': str})
+                gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.linear.hybrid', sep='\s+', dtype={'#CHROM': str})
 
             # add pruning step here (pre lambdas)
-            gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
+                gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
 
             # calculate inflation
-            lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
+                lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
 
-            metrics_dict = {
+                metrics_dict = {
                             'lambda': lambda_dict['metrics']['inflation'],
                             'lambda1000': np.nan,
                             'cases': np.nan,
                             'controls': np.nan
                             }
-            outfiles_dict =
+                outfiles_dict = {
+                    'gwas_output': f'{self.out_path}.PHENO1.glm.linear.hybrid'
+                }
         elif os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
             process_complete = True
 
