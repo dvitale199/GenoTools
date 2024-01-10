@@ -10,4 +10,3 @@ requirements.txt
 dist/*
 the_real_genotools.egg-info/*
 geno_tools.egg-info/*
-
