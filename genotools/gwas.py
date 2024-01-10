@@ -176,7 +176,7 @@ class Assoc:
         return out_dict
 
 
-    def run_gwas(self, covars=True):
+    def run_gwas(self, covars=True, linear=False):
         # what step are we running?
         step = 'GWAS'
         print()
@@ -213,8 +213,26 @@ class Assoc:
                         --pheno-name PHENO1 \
                         --pheno {self.geno_path}_pheno.txt \
                         --out {self.out_path}'
-            
-        if os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
+        if linear:
+            if os.path.isfile(f'{self.out_path}.PHENO1.glm.linear'):
+
+            # calculate inflation
+            gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.linear', sep='\s+', dtype={'#CHROM': str})
+
+            # add pruning step here (pre lambdas)
+            gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
+
+            # calculate inflation
+            lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
+
+            metrics_dict = {
+                            'lambda': lambda_dict['metrics']['inflation'],
+                            'lambda1000': np.nan,
+                            'cases': np.nan,
+                            'controls': np.nan
+                            }
+            outfiles_dict =
+        elif os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
             process_complete = True
 
             outfiles_dict = {
