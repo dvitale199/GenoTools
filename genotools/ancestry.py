@@ -1025,12 +1025,20 @@ class Ancestry:
                 shell_do(plink_cmd)
 
                 listOfFiles.append(f'{outname}.log')
+
+                pruned_samples = pd.DataFrame(columns=['FID','IID','step','label'])
+            
+            else:
+                pruned_samples = pred_labels[pred_labels.label == label]
+                pruned_samples['step'] = 'insufficient_ancestry_sample_n'
+                pruned_samples = pruned_samples[['FID','IID','step','label']]
             
         concat_logs(step, self.out_path, listOfFiles)
 
         output_dict = {
             'labels': labels_list,
-            'paths': outfiles
+            'paths': outfiles,
+            'pruned_samples': pruned_samples
         }
 
         return output_dict
@@ -1142,7 +1150,8 @@ class Ancestry:
             'ref_umap': umap_transforms['ref_umap'],
             'new_samples_umap': umap_transforms['new_samples_umap'],
             'label_encoder': train_split['label_encoder'],
-            'labels_list': ancestry_split['labels']
+            'labels_list': ancestry_split['labels'],
+            'pruned_samples': ancestry_split['pruned_samples']
         }
 
         metrics_dict = {
