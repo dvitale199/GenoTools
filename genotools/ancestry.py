@@ -1012,6 +1012,9 @@ class Ancestry:
             split_labels = pred_labels.label.unique()
 
         listOfFiles = []
+
+        pruned_samples = pd.DataFrame(columns=['FID','IID','step','label'])
+
         for label in split_labels:
             if pred_labels[pred_labels.label == label].shape[0] >= self.min_samples:
 
@@ -1025,13 +1028,12 @@ class Ancestry:
                 shell_do(plink_cmd)
 
                 listOfFiles.append(f'{outname}.log')
-
-                pruned_samples = pd.DataFrame(columns=['FID','IID','step','label'])
             
             else:
-                pruned_samples = pred_labels[pred_labels.label == label]
-                pruned_samples['step'] = 'insufficient_ancestry_sample_n'
-                pruned_samples = pruned_samples[['FID','IID','step','label']]
+                pruned_samples_label = pred_labels[pred_labels.label == label]
+                pruned_samples_label['step'] = 'insufficient_ancestry_sample_n'
+                pruned_samples_label = pruned_samples_label[['FID','IID','step','label']]
+                pruned_samples = pd.concat([pruned_samples,pruned_samples_label], axis=1, ignore_index=True)
             
         concat_logs(step, self.out_path, listOfFiles)
 
