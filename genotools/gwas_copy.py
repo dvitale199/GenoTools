@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import warnings
 from scipy.stats import ncx2
-from genotools.utils import shell_do
+from genotools.utils import shell_do, process_log
 from genotools.dependencies import check_plink, check_plink2
 
 
@@ -101,7 +101,7 @@ class Assoc:
         if filetype == 'pgen':
             filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
             shell_do(filter_cmd)
-        elif filetype == 'bed'
+        elif filetype == 'bed':
             filter_cmd = f"{plink2_exec} --bfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
             shell_do(filter_cmd)
 
