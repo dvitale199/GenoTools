@@ -3,13 +3,45 @@ import pandas as pd
 import numpy as np
 import warnings
 from scipy.stats import ncx2
-from genotools.utils import shell_do, concat_logs
+from genotools.utils import shell_do
 from genotools.dependencies import check_plink, check_plink2
 
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
 
+def concat_logs(step, out_path, listOfFiles):
+    if '_tmp/out' in out_path:
+        # find parent directory for files in temporary directory
+        out_dir = os.path.dirname(os.path.dirname(out_path))
+    else:
+        # parent directory for out_path outputs
+        out_dir = os.path.dirname(out_path)
+
+    # find log path only if file was previously created in proper directory
+    for file in os.listdir(out_dir):
+        if file.endswith(".log"):
+            log_path = os.path.join(out_dir, file)
+
+    # combine log files into 1 file
+    with open(log_path, "a+") as new_file:
+        for name in listOfFiles:
+            with open(name) as file:
+                new_file.write(f'Log: {name}\n')
+                new_file.write(f'Process: {step}\n')
+                for line in file:
+                    new_file.write(line)
+        
+                new_file.write("\n")
+
+    # remove intermediate log files 
+    for files in listOfFiles:
+        os.remove(files)
+
+    # calls for processing
+    with open(log_path, 'r') as file:
+        out_path = log_path.replace('.log', '')
+        process_log(out_path, file.readlines())
 class Assoc:
     def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, covar_path=None, covar_names=None):
         self.geno_path = geno_path
@@ -21,7 +53,7 @@ class Assoc:
         self.covar_names = covar_names
 
     
-    def run_plink_pca(self):
+    def run_plink_pca(self, filetype='pgen'):
         # what step are we running?
         step = 'plink_pca'
         print()
@@ -65,11 +97,17 @@ class Assoc:
             
 
         # Filter data
-        filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
-        shell_do(filter_cmd)
+        # temp bfile change to pfile soon
+        if filetype == 'pgen':
+            filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
+            shell_do(filter_cmd)
+        elif filetype == 'bed'
+            filter_cmd = f"{plink2_exec} --bfile {self.geno_path} --maf 0.01 --geno 0.01 --hwe 5e-6 --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,phenos --out {self.out_path}_tmp"
+            shell_do(filter_cmd)
+
         
         # Prune SNPs
-        prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise 1000 10 0.02 --autosome --out {self.out_path}_pruned"
+        prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp_all_logs --indep-pairwise 1000 10 0.02 --autosome --out {self.out_path}_pruned"
         shell_do(prune_cmd)
 
         listOfFiles = [f'{self.out_path}_tmp.log', f'{self.out_path}_pruned.log']
