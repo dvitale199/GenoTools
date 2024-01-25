@@ -164,8 +164,8 @@ class Assoc:
 
         return out_dict
 
-
-    def calculate_inflation(self, pval_array, normalize=False, ncases=None, ncontrols=None):
+    @staticmethod
+    def calculate_inflation(pval_array, normalize=False, ncases=None, ncontrols=None):
 
             step = 'lambda_calculation'
 
@@ -275,8 +275,8 @@ class Assoc:
             gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
 
             # calculate inflation
-            lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
-            lambda1000_dict = self.calculate_inflation(gwas_df_add.P, normalize=True, ncases=ncases, ncontrols=ncontrols)
+            lambda_dict = Assoc.calculate_inflation(gwas_df_add.P, normalize=False)
+            lambda1000_dict = Assoc.calculate_inflation(gwas_df_add.P, normalize=True, ncases=ncases, ncontrols=ncontrols)
 
             metrics_dict = {
                 'lambda': lambda_dict['metrics']['inflation'],
