@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use GenoTools, please cite it as below."
+authors:
+- family-names: "Vitale"
+  given-names: "Dan"
+  orcid: "https://orcid.org/0000-0002-0637-3671"
+- family-names: "Koretsky"
+  given-names: "Mathew"
+  orcid: "https://orcid.org/0000-0003-4341-3991"
+- family-names: "Kuznetsov"
+  given-names: "Nicole"
+  orcid: "https://orcid.org/0009-0005-9847-0282"
+- family-names: "Hong"
+  given-names: "Samantha"
+  orcid: "https://orcid.org/0009-0001-8968-6461"
+- family-names: "Leonard"
+  given-names: "Hampton"
+  orcid: "https://orcid.org/0000-0003-2390-8110"
+- family-names: "Song"
+  given-names: "Yeajin"
+  orcid: "https://orcid.org/0009-0002-3127-2634"
+- family-names: "Levine"
+  given-names: "Kristin"
+  orcid: "https://orcid.org/0000-0002-5702-0980"
+title: "GenoTools"
+version: 1.0.2
+doi: 10.5281/zenodo.10443258
+date-released: 2023-12-29
+url: "https://github.com/dvitale199/GenoTools"

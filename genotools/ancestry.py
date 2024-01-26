@@ -1,3 +1,19 @@
+# Copyright 2023 The GenoTools Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+
 import os
 import pandas as pd
 import numpy as np
@@ -7,10 +23,14 @@ from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.pipeline import Pipeline
+from sklearn.cluster import Birch
 from xgboost import XGBClassifier
 import pickle as pkl
 import json
+import pathlib
 import warnings
+from google.cloud import aiplatform
+from google.cloud import storage
 
 from genotools.utils import shell_do, get_common_snps, concat_logs
 from genotools.dependencies import check_plink, check_plink2
@@ -19,7 +39,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Ancestry:
-    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, subset=None):
+    def __init__(self, geno_path=None, ref_panel=None, ref_labels=None, out_path=None, model_path=None, containerized=False, singularity=False, cloud=False, cloud_model=None, subset=None, min_samples=None):
         # initialize passed variables
         self.geno_path = geno_path
         self.ref_panel = ref_panel
@@ -28,7 +48,15 @@ class Ancestry:
         self.model_path = model_path
         self.containerized = containerized
         self.singularity = singularity
+        self.cloud = cloud
+        self.cloud_model = cloud_model
         self.subset = subset
+        self.min_samples = min_samples
+        self.cloud_project = 'genotools'
+        self.cloud_dictionary = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                                 'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                                 'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                                 'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
     
 
     def get_raw_files(self):
@@ -54,28 +82,69 @@ class Ancestry:
         shell_do(geno_prune_cmd)
         out_paths['geno_pruned_bed'] = geno_prune_path
 
-        ref_common_snps = f'{outdir}/ref_common_snps'
-        common_snps_file = f'{ref_common_snps}.common_snps'
+        # ref_common_snps = f'{outdir}/ref_common_snps'
+        # common_snps_file = f'{ref_common_snps}.common_snps'
 
         # during training get common snps between ref panel and geno
         if self.train:
+            ref_common_snps = f'{self.out_path}_umap_linearsvc_ancestry_model'
+            common_snps_file = f'{ref_common_snps}.common_snps'
+
             common_snps_files = get_common_snps(self.ref_panel, geno_prune_path, ref_common_snps)
             # add common_snps_files output paths to out_paths
             out_paths = {**out_paths, **common_snps_files}
         # otherwise extract common snps from training
         else:
-            if not os.path.exists(f'{common_snps_file}'):
-                raise FileNotFoundError(f"{common_snps_file} does not exist.")
-            else:
-                extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
-                shell_do(extract_cmd)
+            # if model path, look for common SNPs file in model dir
+            if self.model_path:
+                model_path_pathlib = pathlib.PurePath(self.model_path)
+                model_path_name = model_path_pathlib.name
+                model_path_prefix = model_path_name.split('.')[0]
 
-                listOfFiles = [f'{ref_common_snps}.log']
-                concat_logs(step, self.out_path, listOfFiles)
+                ref_common_snps = f'{outdir}/{model_path_prefix}'
+                common_snps_file = f'{os.path.dirname(self.model_path)}/{model_path_prefix}.common_snps'
+
+                # if it doesn't exist, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
+
+            # if running in container, look for downloaded NBA model
+            if self.containerized:
+                model_destination = os.path.expanduser("~/.genotools/ref")
+                nba_model_dir = f'{model_destination}/models/nba_v1'
+                nba_model_prefix = 'nba_v1'
+
+                ref_common_snps = f'{outdir}/{nba_model_prefix}'
+                common_snps_file = f'{nba_model_dir}/{nba_model_prefix}.common_snps'
+
+                # if it doesn't exist, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist. Please download this file using \'genotools-download\' with no other specifications to use container for predictions.')
+                
+
+            # if running in cloud, download from the proper bucket
+            if self.cloud:
+                ref_common_snps = f'{outdir}/{self.cloud_model}'
+                common_snps_file = f'{ref_common_snps}.common_snps'
+
+                storage_client = storage.Client(self.cloud_project)
+                bucket = storage_client.get_bucket(self.cloud_dictionary[self.cloud_model]['bucket'])
+                blob = bucket.blob('ref_common_snps.common_snps')
+                blob.download_to_filename(common_snps_file)
+                
+                # if something goes wrong in download, throw error
+                if not os.path.isfile(common_snps_file):
+                    raise FileNotFoundError(f'{common_snps_file} file does not exist.')
+
+            extract_cmd = f'{plink2_exec} --bfile {self.ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}'
+            shell_do(extract_cmd)
+
+            listOfFiles = [f'{ref_common_snps}.log']
+            concat_logs(step, self.out_path, listOfFiles)
     
-                # add to out_paths (same as common_snps_files)
-                out_paths['common_snps'] = common_snps_file
-                out_paths['bed'] = ref_common_snps
+            # add to out_paths (same as common_snps_files)
+            out_paths['common_snps'] = common_snps_file
+            out_paths['bed'] = ref_common_snps
                 
         if not os.path.exists(f'{ref_common_snps}.bed'):
             raise FileNotFoundError(f"{ref_common_snps} PLINK binaries (bed/bim/fam) do not exist.")
@@ -285,6 +354,12 @@ class Ancestry:
 
         step = "calculate_pcs"
 
+        # check X_train size
+        if X_train.shape[0] < 50: 
+            raise ValueError(f'Training data only consists of {X_train.shape[0]} samples, which is insufficient for PCA calculation. Please use a reference panel with more samples.')
+        if X_train.shape[1] < 50:
+            raise ValueError(f'Training data only consists of {X_train.shape[1]} SNPs, whcih is insufficient for PCA calculation. Please check the SNP overlap between the reference panel and genotypes.')
+
         out_paths = {}
 
         train_labels = label_encoder.inverse_transform(y_train)
@@ -320,8 +395,6 @@ class Ancestry:
         ev_df.columns = ['PC','eigenvalue','explained_variance_ratio']
         ev_df.to_csv(f'{self.out_path}_pca_eigenvalues.txt', sep='\t', index=False)
 
-        # plot_3d(train_pca, color='label', title='Reference Panel PCA - Training', plot_out=f'{plot_dir}/plot_train_skPCA', x='PC1', y='PC2', z='PC3')
-
         # transform testing data
         test_pca = self.transform(X_test, train_mean, train_flash_sd, sk_pca, col_names)
         X_test = test_pca.copy()
@@ -331,8 +404,6 @@ class Ancestry:
 
         # get full reference panel pca
         ref_pca = pd.concat([train_pca, test_pca], ignore_index=True)
-
-        # plot_3d(ref_pca, color='label', title='Reference Panel PCA - All', plot_out=f'{plot_dir}/plot_ref_skPCA', x='PC1', y='PC2', z='PC3')
 
         geno_ids = raw_geno[['FID','IID','label']]
         geno_snps = raw_geno.drop(columns=['FID','IID','label'], axis=1)
@@ -345,8 +416,6 @@ class Ancestry:
 
         # project new samples onto reference panel
         total_pca = pd.concat([ref_pca, projected])
-
-        # plot_3d(total_pca, color='label', title='New Samples Projected on Reference Panel', plot_out=f'{plot_dir}/plot_projected_skPCA', x='PC1', y='PC2', z='PC3')
 
         projected = pd.concat([geno_ids[['FID','IID']], projected], axis=1)
         
@@ -458,20 +527,10 @@ class Ancestry:
 
         pipe_clf_pred = pipe_clf.predict(X_test)
         pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
-        
-        # eventually make this separate function
-        # need to get x and y tick labels from 
-        # fig, ax = plt.subplots(figsize=(10,10))
-        # sns.heatmap(pipe_clf_c_matrix, annot=True, fmt='d',
-                #   xticklabels=le.inverse_transform([i for i in range(8)]), yticklabels=le.inverse_transform([i for i in range(8)]))
-        # plt.ylabel('Actual')
-        # plt.xlabel('Predicted')
-        # plt.show()
-        # fig.savefig(f'{plot_dir}/plot_umap_linearsvc_ancestry_conf_matrix.png')
 
         # dump best estimator to pkl
-        model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
-        model_file = open(model_path, 'wb')
+        self.model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
+        model_file = open(self.model_path, 'wb')
         pkl.dump(pipe_clf, model_file)
         model_file.close()
 
@@ -483,7 +542,7 @@ class Ancestry:
             'fitted_pipe_grid': pipe_grid,
             'train_accuracy': train_acc,
             'test_accuracy': test_acc,
-            'model_path': model_path
+            'model_path': self.model_path
         }
         
         return out_dict
@@ -532,7 +591,7 @@ class Ancestry:
         return out_dict
 
 
-    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder):
+    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca):
         """
         Predict ancestry labels for new samples based on their projected principal components.
 
@@ -540,6 +599,7 @@ class Ancestry:
         projected (DataFrame): Dataframe containing projected principal components of new samples.
         pipe_clf: Trained classifier pipeline.
         label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
 
         Returns:
         dict: Dictionary containing predicted labels, output data, and metrics.
@@ -556,6 +616,8 @@ class Ancestry:
         y_pred = pipe_clf.predict(X_new)
         ancestry_pred = le.inverse_transform(y_pred)
         projected.loc[:,'label'] = ancestry_pred
+
+        projected = self.predict_admixed_samples(projected, train_pca)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -583,15 +645,16 @@ class Ancestry:
         return out_dict
 
 
-    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder):
+    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
         """
-        Get predictions using a containerized environment for UMAP and linear SVM classifier.
+        Get predictions using a containerized environment for UMAP and XGBoost classifier.
 
         Args:
         X_test (DataFrame): Test data.
         y_test (Series): True labels for the test data.
         projected (DataFrame): Projected principal components of new samples.
         label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
 
         Returns:
         tuple: Two dictionaries containing trained classifier results and prediction results.
@@ -652,6 +715,8 @@ class Ancestry:
         ancestry_pred = le.inverse_transform(y_pred)
         projected.loc[:,'label'] = ancestry_pred
 
+        projected = self.predict_admixed_samples(projected, train_pca)
+
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -683,10 +748,191 @@ class Ancestry:
 
         return trained_clf_out_dict, pred_out_dict
 
+    
+    def get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
+        """
+        Get predictions using a cloud environment for UMAP and XGBoost classifier.
+
+        Args:
+        X_test (DataFrame): Test data.
+        y_test (Series): True labels for the test data.
+        projected (DataFrame): Projected principal components of new samples.
+        label_encoder: Label encoder used for encoding ancestry labels.
+        train_pca: Labeled PCs for training data.
+
+        Returns:
+        tuple: Two dictionaries containing trained classifier results and prediction results.
+        """
+        # cloud_project = 'genotools'
+
+        # model_dict = {'NeuroBooster':{'region':'europe-west3','endpoint_id':'1897238100053065728','bucket':'gp2_common_snps',
+                    #                   'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}},
+                    #   'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
+                    #                'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
+        
+        # initialize endpoint
+        aiplatform.init(project=self.cloud_project, location=self.cloud_dictionary[self.cloud_model]['region'])
+        endpoint = aiplatform.Endpoint(self.cloud_dictionary[self.cloud_model]['endpoint_id'])
+
+        # convert to list (needed for vertex ai predictions)
+        X_test_arr = np.array(X_test).tolist()
+
+        # no more score function so get testing balanced accuracy based on vertex ai predictions
+        prediction = endpoint.predict(instances=X_test_arr)
+        pipe_clf_pred = prediction.predictions
+        pipe_clf_pred = [int(i) for i in pipe_clf_pred]
+
+        test_acc = metrics.balanced_accuracy_score(y_test, pipe_clf_pred)
+        print(f'Balanced Accuracy on Test Set: {test_acc}')
+
+        margin_of_error = 1.96 * np.sqrt((test_acc * (1-test_acc)) / np.shape(y_test)[0])
+        print(f"Balanced Accuracy on Test Set, 95% Confidence Interval: ({test_acc-margin_of_error}, {test_acc+margin_of_error})")
+
+        # confustion matrix
+        pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
+
+        trained_clf_out_dict = {
+            'confusion_matrix': pipe_clf_c_matrix,
+            'test_accuracy': test_acc,
+            'params': self.cloud_dictionary[self.cloud_model]['params']
+        }
+
+        le = label_encoder
+
+        # set new samples aside for labeling after training the model
+        X_new = projected.drop(columns=['FID','IID','label'], axis=1)
+
+        # convert to numpy array
+        X_new_arr = np.array(X_new)
+
+        # if num samples > ~1500, need to split into multiple batches of predictions
+        num_splits = round((X_new.shape[0] / 1500), 0)
+
+        y_pred = []
+
+        if num_splits > 0:
+            for arr in np.array_split(X_new_arr, num_splits):
+                # convert to list (needed for vertex ai predictions)
+                arr = arr.tolist()
+                # get predictions from vertex ai
+                prediction = endpoint.predict(instances=arr)
+                pred = prediction.predictions
+                pred = [int(i) for i in pred]
+                y_pred += pred
+        else:
+            # convert to list (needed for vertex ai predictions)
+            arr = X_new_arr.tolist()
+            # get predictions from vertex ai
+            prediction = endpoint.predict(instances=arr)
+            pred = prediction.predictions
+            pred = [int(i) for i in pred]
+            y_pred += pred
+
+        ancestry_pred = le.inverse_transform(y_pred)
+        projected.loc[:,'label'] = ancestry_pred
+    
+        projected = self.predict_admixed_samples(projected, train_pca)
+
+        print()
+        print('predicted:\n', projected.label.value_counts())
+        print()
+
+        projected[['FID','IID','label']].to_csv(f'{self.out_path}_umap_linearsvc_predicted_labels.txt', sep='\t', index=False)
+
+        data_out = {
+            'ids': projected.loc[:,['FID','IID','label']],
+            'X_new': X_new,
+            'y_pred': ancestry_pred,
+            'label_encoder': le
+        }
+
+        outfiles_dict = {
+            'labels_outpath': f'{self.out_path}_umap_linearsvc_predicted_labels.txt'
+        }
+
+        pred_out_dict = {
+            'data': data_out,
+            'metrics': projected.label.value_counts(),
+            'output': outfiles_dict
+        }
+
+        return trained_clf_out_dict, pred_out_dict
+
+
+    def predict_admixed_samples(self, projected, train_pca):
+        """
+        Change labels of samples with complex admixture, calculated based off training PCs.
+
+        Args:
+        projected (DataFrame): Projected principal components of new samples.
+        train_pca: Labeled PCs for training data.
+
+        Returns:
+        DataFrame: Projected principal components of new samples with updated labels.
+        """
+        # copy train pca for admixture
+        train_pca_admix = train_pca.copy()
+
+        # separate CAS and non-CAS refs
+        cas_train = train_pca_admix[train_pca_admix['label'] == 'CAS']
+        other_train = train_pca_admix[train_pca_admix['label'] != 'CAS']
+
+        # cluster CAS based on first three PCs
+        ## should be robust changes in PCs from different SNP sets
+        cas_ids = cas_train[['FID','IID']].reset_index(drop=True)
+        cas_labels = cas_train['label'].reset_index(drop=True)
+        cas_train_cluster = cas_train.drop(columns=['FID','IID','label'], axis=1).reset_index(drop=True)
+
+        birch = Birch(n_clusters=2)
+        birch.fit(cas_train_cluster[['PC1','PC2','PC3']])
+        cas_clusters = pd.Series(birch.predict(cas_train_cluster[['PC1','PC2','PC3']]), name='CAS_clusters')
+
+        # concatenate full training data back together
+        cas_train = pd.concat([cas_ids, cas_train_cluster, cas_labels, cas_clusters], axis=1)
+        cas_train['label'] = np.where(cas_train['CAS_clusters'] == 0, 'CAS', 'CAS2')
+        cas_train = cas_train.drop(columns=['CAS_clusters'], axis=1)
+        train_pca_admix = pd.concat([other_train, cas_train], axis=0, ignore_index=True)
+
+        # create pc_centroids df based off training data
+        pc_centroids = pd.DataFrame()
+
+        train_pca_centroid = train_pca_admix.drop(columns=['FID','IID','label'], axis=1)
+        pc_centroids['ALL'] = np.mean(train_pca_centroid, axis=0)
+
+        for ancestry in train_pca_admix['label'].unique(): 
+            train_pca_ancestry = train_pca_admix[train_pca_admix['label'] == ancestry]
+            train_pca_ancestry_centoid = train_pca_ancestry.drop(columns=['FID','IID','label'], axis=1)
+            pc_centroids[ancestry] = np.mean(train_pca_ancestry_centoid, axis=0)
+        
+        # drop labels
+        projected_ids = projected[['FID','IID','label']]
+        projected_cols = list(projected.columns)
+        projected_admixed = projected.drop(columns=['FID','IID','label'], axis=1)
+        
+        # get distance to each ancestries centroid for all projections
+        for ancestry in pc_centroids.columns:
+            centroid = pc_centroids[ancestry]
+            projected_admixed[f'{ancestry}'] = projected_admixed.apply(lambda row: np.sqrt(np.sum((row - centroid) ** 2)), axis=1)
+
+        # get minimum distance column and the associated ancestry
+        projected_admixed['min_distance'] = projected_admixed[['ALL','AJ','AFR','EAS','AMR','EUR','AAC','SAS','MDE','CAS','FIN','CAS2']].min(axis=1)
+        projected_admixed['min_distance_ancestry'] = projected_admixed.eq(projected_admixed['min_distance'], axis=0).idxmax(1)
+
+        # concat IDs
+        projected = pd.concat([projected_ids, projected_admixed], axis=1)
+
+        # adjust labels
+        projected['label'] = np.where(projected['min_distance_ancestry'] == 'ALL', 'CAH', projected['label'])
+
+        # rearrange columns before returning
+        projected = projected[projected_cols]
+
+        return projected
+
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
         """
-        Transform data using a fitted UMAP model.
+        Transform data using a fitted UMAP components.
 
         Args:
         ref_pca (DataFrame): Reference PCA data with labels.
@@ -766,23 +1012,35 @@ class Ancestry:
             split_labels = pred_labels.label.unique()
 
         listOfFiles = []
+
+        pruned_samples = pd.DataFrame(columns=['FID','IID','step','label'])
+
         for label in split_labels:
-            labels_list.append(label)
-            outname = f'{self.out_path}_{label}'
-            outfiles.append(outname)
-            ancestry_group_outpath = f'{outname}.samples'
-            pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
+            if pred_labels[pred_labels.label == label].shape[0] >= self.min_samples:
 
-            plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,phenos --out {outname}'
-            shell_do(plink_cmd)
+                labels_list.append(label)
+                outname = f'{self.out_path}_{label}'
+                outfiles.append(outname)
+                ancestry_group_outpath = f'{outname}.samples'
+                pred_labels[pred_labels.label == label][['FID','IID']].to_csv(ancestry_group_outpath, index=False, header=False, sep='\t')
 
-            listOfFiles.append(f'{outname}.log')
+                plink_cmd = plink_cmd = f'{plink2_exec} --pfile {self.geno_path} --keep {ancestry_group_outpath} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {outname}'
+                shell_do(plink_cmd)
+
+                listOfFiles.append(f'{outname}.log')
+            
+            else:
+                pruned_samples_label = pred_labels[pred_labels.label == label]
+                pruned_samples_label['step'] = 'insufficient_ancestry_sample_n'
+                pruned_samples_label = pruned_samples_label[['FID','IID','step','label']]
+                pruned_samples = pd.concat([pruned_samples,pruned_samples_label], axis=0, ignore_index=True)
             
         concat_logs(step, self.out_path, listOfFiles)
 
         output_dict = {
             'labels': labels_list,
-            'paths': outfiles
+            'paths': outfiles,
+            'pruned_samples': pruned_samples
         }
 
         return output_dict
@@ -798,13 +1056,9 @@ class Ancestry:
 
         step = "predict_ancestry"
 
-        #NOTE: deal with plotting later
-        # self.plot_dir = f'{os.path.dirname(self.out_path)}/plot_ancestry'
-        # os.makedirs(self.plot_dir, exist_ok=True)
-
         # setting train variable to false if there is a model path or containerized predictions
         ## Note sure if its considered bad style to set self variables outside __init__
-        if self.model_path or self.containerized:
+        if self.model_path or self.containerized or self.cloud:
             self.train = False
         else:
             self.train = True
@@ -820,10 +1074,6 @@ class Ancestry:
             raise FileNotFoundError(f"{self.ref_panel} does not exist.")
         elif not os.path.exists(f'{self.ref_labels}'):
             raise FileNotFoundError(f"{self.ref_labels} does not exist.")  
-        
-        # Check testing param validaity
-        elif self.model_path and self.containerized:
-            warnings.warn('Model path provided and containerized predictions requested! Defaulting to containerized predictions!')
         
         #NOTE: need to add in a check for docker, if not throw an error and say request singularity
 
@@ -842,7 +1092,25 @@ class Ancestry:
             label_encoder=train_split['label_encoder'],
         )
 
-        if self.containerized == False:
+        if self.containerized:
+            trained_clf, pred = self.get_containerized_predictions(
+                X_test=calc_pcs['X_test'],
+                y_test=train_split['y_test'],
+                projected=calc_pcs['new_samples_projected'],
+                label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
+            )
+        
+        elif self.cloud:
+            trained_clf, pred = self.get_cloud_predictions(
+                X_test=calc_pcs['X_test'],
+                y_test=train_split['y_test'],
+                projected=calc_pcs['new_samples_projected'],
+                label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
+            )
+        
+        else:
             if self.model_path:
                 trained_clf = self.load_umap_classifier(
                     X_test=calc_pcs['X_test'],
@@ -862,14 +1130,7 @@ class Ancestry:
                 projected=calc_pcs['new_samples_projected'],
                 pipe_clf=trained_clf['classifier'],
                 label_encoder=train_split['label_encoder'],
-            )
-        
-        else:
-            trained_clf, pred = self.get_containerized_predictions(
-                X_test=calc_pcs['X_test'],
-                y_test=train_split['y_test'],
-                projected=calc_pcs['new_samples_projected'],
-                label_encoder=train_split['label_encoder'],
+                train_pca=calc_pcs['labeled_train_pca']
             )
 
         umap_transforms = self.umap_transform_with_fitted(
@@ -879,59 +1140,7 @@ class Ancestry:
             params=trained_clf['params']
         )
 
-        #NOTE: Just copying over here for the sake of having everything, figure out plotting later
-        #     x_min, x_max = min(umap_transforms['total_umap'].iloc[:,0]), max(umap_transforms['total_umap'].iloc[:,0])
-        #     y_min, y_max = min(umap_transforms['total_umap'].iloc[:,1]), max(umap_transforms['total_umap'].iloc[:,1])
-        #     z_min, z_max = min(umap_transforms['total_umap'].iloc[:,2]), max(umap_transforms['total_umap'].iloc[:,2])
-
-        #     x_range = [x_min-5, x_max+5]
-        #     y_range = [y_min-5, y_max+5]
-        #     z_range = [z_min-5, z_max+5]
-
-        #     plot_3d(
-        #         umap_transforms['total_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_total_umap',
-        #         title='UMAP of New and Reference Samples',
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
-        #     plot_3d(
-        #         umap_transforms['ref_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_ref_umap',
-        #         title="UMAP of Reference Samples",
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
-        #     plot_3d(
-        #         umap_transforms['new_samples_umap'],
-        #         color='label',
-        #         symbol='dataset',
-        #         plot_out=f'{plot_dir}/plot_predicted_samples_umap',
-        #         title='UMAP of New Samples',
-        #         x=0,
-        #         y=1,
-        #         z=2,
-        #         x_range=x_range,
-        #         y_range=y_range,
-        #         z_range=z_range
-        #     )
-
         ancestry_split = self.split_cohort_ancestry(labels_path=pred['output']['labels_outpath'])
-
 
         data_dict = {
             'predict_data': pred['data'],
@@ -943,7 +1152,8 @@ class Ancestry:
             'ref_umap': umap_transforms['ref_umap'],
             'new_samples_umap': umap_transforms['new_samples_umap'],
             'label_encoder': train_split['label_encoder'],
-            'labels_list': ancestry_split['labels']
+            'labels_list': ancestry_split['labels'],
+            'pruned_samples': ancestry_split['pruned_samples']
         }
 
         metrics_dict = {

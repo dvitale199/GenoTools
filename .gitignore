@@ -6,3 +6,7 @@ executables/*
 test.ipynb
 build/*
 requirements.txt
+.DS_Store
+dist/*
+the_real_genotools.egg-info/*
+geno_tools.egg-info/*

@@ -1,3 +1,19 @@
+# Copyright 2023 The GenoTools Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+
 import subprocess
 import sys
 import os
@@ -10,6 +26,19 @@ from genotools.dependencies import check_plink, check_plink2
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
+
+def gt_header():
+    
+    header = """
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗ 
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝ 
+    """
+    return header
+    
 
 def shell_do(command, print_cmd=False, log=False, return_log=False, err=False):
     if print_cmd:
@@ -40,17 +69,60 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         print()
     
     elif bfile_path and (not pfile_path):
-        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,phenos --out {bfile_path}'
+        if not os.path.isfile(f'{bfile_path}.bed'):
+            raise FileNotFoundError(f'{bfile_path} does not exist.')
+
+        convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {bfile_path}'
         shell_do(convert_cmd)
     
     else:
+        if not os.path.isfile(f'{pfile_path}.pgen'):
+            raise FileNotFoundError(f'{pfile_path} does not exist.')
+        
         convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
         shell_do(convert_cmd)
 
 
+def vcf_to_pfiles(vcf_path):
+    if not os.path.isfile(vcf_path):
+        raise FileNotFoundError(f'{vcf_path} does not exist.')
+    
+    prefix = vcf_path.split('.vcf')[0]
+
+    convert_cmd1 = f'{plink2_exec} --vcf {vcf_path} --make-bed --out {prefix}'
+    shell_do(convert_cmd1)
+
+    if not os.path.isfile(f'{prefix}.bed'):
+        raise FileNotFoundError(f'{prefix} bed/bim/fam files do not exist. Conversion from VCF failed')
+    
+    bfiles_to_pfiles(bfile_path=prefix)
+
+    if os.path.isfile(f'{prefix}.pgen'):
+        os.remove(f'{prefix}.bed')
+        os.remove(f'{prefix}.bim')
+        os.remove(f'{prefix}.fam')
+    else:
+        raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from bed/bim/fam failed.')
+
+
+
 def upfront_check(geno_path, args):
+    if not os.path.isfile(f'{geno_path}.pgen'):
+        raise FileNotFoundError(f"{geno_path} does not exist.")
+
+    # if no pgen present, but bed is present, and skip fails is True, convert to pgen
+    if not os.path.isfile(f'{geno_path}.pgen') and os.path.isfile(f'{geno_path}.bed') and (not args['skip_fails']):
+        warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...', stacklevel=2)
+        bfiles_to_pfiles(bfile_path=geno_path)
+
     sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
     var = pd.read_csv(f'{geno_path}.pvar', sep = '\s+', low_memory = False)
+
+    if 'SEX' not in sam.columns: 
+        raise KeyError(f'{geno_path}.psam is missing SEX column. Even if no SEX information is present, GenoTools requires a SEX column.')
+    
+    if 'PHENO1' not in sam.columns:
+        raise KeyError(f'{geno_path}.psam is missing PHENO1 column. Even if no PHENO1 information is present, GenoTools requires a PHENO1 column.')
 
     sex_counts = sam['SEX'].value_counts().to_dict()
     pheno_counts = sam['PHENO1'].value_counts().to_dict()
@@ -83,25 +155,25 @@ def upfront_check(geno_path, args):
         # skip sex check when no sex in fam or no X chromosome
         if args['sex'] is not None:
             if (1 not in sex_counts.keys()) and (2 not in sex_counts.keys()):
-                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...')
+                warnings.warn('You tried calling sex prune but no sample sex data is available. Skipping...', stacklevel=2)
                 args['sex'] = None
             elif ('23' not in chr_counts.keys()) and ('X' not in chr_counts.keys()):
-                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...')
+                warnings.warn('You tried calling sex prune but no X chromosome data is available. Skipping...', stacklevel=2)
                 args['sex'] = None
 
         # change hwe prune to be run without controls filtered when no controls present
         if (args['hwe'] is not None) and (args['filter_controls'] == True) and (1 not in pheno_counts.keys()):
-            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...')
+            warnings.warn('You tried calling hwe prune with controls filtered but no controls are available. Skipping...', stacklevel=2)
             args['filter_controls'] = False
         
         # skip case control when called without cases or controls present
         if (args['case_control'] is not None) and ((1 not in pheno_counts.keys()) or (2 not in pheno_counts.keys())):
-            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...')
+            warnings.warn('You tried calling case-control prune but only cases or controls are available, not both. Skipping...', stacklevel=2)
             args['case_control'] = None
         
         # skip het prune if less than 50 samples are present
         if (args['het'] is not None) and (var.shape[0] < 50):
-            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...')
+            warnings.warn('You tried calling het prune with less than 50 samples. Skipping...', stacklevel=2)
             args['het'] = None
 
         return args
@@ -141,6 +213,10 @@ def process_log(out_path, concat_log):
 
     # write final processed log
     with open(f"{out_path}_cleaned_logs.log", "w") as f:
+        header = gt_header()
+        f.write(header)
+        f.write("\n")
+
         while start < len(step_indices)-1:
             # list step and process names
             out_line =  concat_log[out_indices[start]]
@@ -172,17 +248,35 @@ def process_log(out_path, concat_log):
 
 
 def concat_logs(step, out_path, listOfFiles):
-    if '_tmp/out' in out_path:
+    if '_tmp/' in out_path:
         # find parent directory for files in temporary directory
         out_dir = os.path.dirname(os.path.dirname(out_path))
     else:
         # parent directory for out_path outputs
         out_dir = os.path.dirname(out_path)
 
-    # find log path only if file was previously created in proper directory
+    # find all genotools created logs in out_dir
+    log_paths = []
     for file in os.listdir(out_dir):
         if file.endswith("_all_logs.log"):
-            log_path = os.path.join(out_dir, file)
+            # log_exists = True
+            log_paths.append(file)
+
+    # if no genotools logs exist, create one
+    if len(log_paths) == 0:
+        log_path = os.path.join(out_dir, os.path.split(out_path)[1])
+    
+    # if one genotools log exists, point to it
+    if len(log_paths) == 1:
+        log_path = os.path.join(out_dir, log_paths[0])
+
+    # if more than one genotools log exists, point to the one modified most recently
+    if len(log_paths) > 1:
+        mtimes = {}
+        for path in log_paths:
+            mtimes[path] = os.path.getmtime(os.path.join(out_dir, path))
+        most_recent_log = max(zip(mtimes.values(), mtimes.keys()))[1]
+        log_path = os.path.join(out_dir, most_recent_log)
 
     # combine log files into 1 file
     with open(log_path, "a+") as new_file:
@@ -192,7 +286,6 @@ def concat_logs(step, out_path, listOfFiles):
                 new_file.write(f'Process: {step}\n')
                 for line in file:
                     new_file.write(line)
-        
                 new_file.write("\n")
 
     # remove intermediate log files 
