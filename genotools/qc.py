@@ -800,6 +800,13 @@ class VariantQC:
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
+        
+        # if sample size is over 10k, correct and make P more stringent
+        sample_size = count_file_lines(f'{geno_path}.fam')
+        if sample_size > 10000:
+            p_threshold = 0.05/sample_size
+
+
         # missingness by haplotype (--test-mishap), using P > 1E-4
         plink_cmd1 = f"{plink_exec} --bfile {geno_path} --test-mishap --out {hap_tmp}"
         shell_do(plink_cmd1)
