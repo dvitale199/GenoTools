@@ -17,3 +17,4 @@ my_project.run_pca_pruning()
 print('data pruned')
 
 my_project.run_association()
+d
