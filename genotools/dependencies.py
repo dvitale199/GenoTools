@@ -156,17 +156,17 @@ __DEPENDENCIES = {
         'Darwin_arm64': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/plink2_mac_arm64_20230923.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha5/plink2_mac_arm64_20240105.zip'
         },
         'Darwin': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_mac_avx2_20220603.zip'
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha5/plink2_mac_avx2_20240105.zip'
         },
         'Linux': {
             'binary': 'plink2',
             'version_args': ['--version'],
-            'url': 'https://s3.amazonaws.com/plink2-assets/alpha3/plink2_linux_x86_64_20220603.zip'
-        }
+            'url': 'https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20240105.zip'
+        },
     }
 }
