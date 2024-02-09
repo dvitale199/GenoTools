@@ -208,6 +208,7 @@ class Assoc:
 
         # make pheno file from .psam
         psam = pd.read_csv(f'{self.geno_path}.psam', sep='\s+')
+        print('psam produced')
 
         # check if psam has #FID and IID
         if '#FID' in psam.columns:
@@ -255,7 +256,7 @@ class Assoc:
         else:
             gwas_cmd = (
                 f"{plink2_exec} --pfile {self.geno_path} "
-                f"--glm {glm_options} "
+                f"--glm {glm_options} allow-no-covars "
                 f"--pheno-name {self.pheno_name} "
                 f"--pheno {self.geno_path}.pheno "
                 f"--out {self.out_path}"
@@ -264,6 +265,7 @@ class Assoc:
         shell_do(gwas_cmd)
 
         if os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
+            print('logistic')
 
             # calculate inflation
             gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.logistic.hybrid', sep='\s+', dtype={'#CHROM': str})
@@ -289,6 +291,30 @@ class Assoc:
 
             outfiles_dict = {
                 'gwas_output': f'{self.out_path}.PHENO1.glm.logistic.hybrid'
+            }
+        
+        elif os.path.isfile(f'{self.out_path}.PHENO1.glm.linear'):
+            print('linear')
+
+            # calculate inflation
+            gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.linear', sep='\s+', dtype={'#CHROM': str})
+
+            # add pruning step here (pre lambdas)
+            gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
+
+            # calculate inflation
+            lambda_dict = self.calculate_inflation(gwas_df_add.P, normalize=False)
+
+            metrics_dict = {
+                'lambda': lambda_dict['metrics']['inflation'],
+                'lambda1000': np.nan,
+                'cases': np.nan,
+                'controls': np.nan
+                }
+            process_complete = True
+
+            outfiles_dict = {
+                'gwas_output': f'{self.out_path}.PHENO1.glm.linear'
             }
 
         else:
