@@ -19,11 +19,11 @@ import numpy as np
 import os
 import shutil
 from genotools.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
-from genotools.dependencies import check_plink, check_plink2
+from genotools.dependencies import check_plink, check_plink2, check_king
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
-
+king_exec = check_king()
 
 class SampleQC:
 
@@ -589,10 +589,8 @@ class SampleQC:
 
         # create output files
         temp = f'{out_path}_temp'
-        temp2 = f'{out_path}_temp2'
         same_fid_unrelated = f'{out_path}_same_fid.unrelated'
         diff_fid_related = f'{out_path}_diff_fid.related'
-        parental_rels = f'{out_path}.parents'
 
         # if data is bfiles, proceed
         if not os.path.isfile(f'{geno_path}.bed'):
@@ -617,6 +615,15 @@ class SampleQC:
                 kin = pd.read_csv(f'{temp}.kin', sep='\s+')
                 unrelated = kin[kin['Kinship']<=third_deg_cutoff]
                 unrelated.to_csv(same_fid_unrelated, sep='\t', header=True, index=False)
+
+            # remove intermediate files
+            os.remove(f'{temp}.kin')
+            os.remove(f'{temp}.seg')
+            os.remove(f'{temp}.segments.gz')
+            os.remove(f'{temp}allsegs.txt')
+            os.remove(f'{temp}build.log')
+            os.remove(f'{temp}updateids.txt')
+            os.remove(f'{temp}updateparents.txt')
 
             process_complete = True
 
