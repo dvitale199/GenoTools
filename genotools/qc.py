@@ -562,6 +562,98 @@ class SampleQC:
         return out_dict
 
 
+    def run_confirming_kinship(self):
+
+        """
+        Find samples with discordant FIDs using PLINK and KING.
+
+        Parameters:
+        - None
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('confirming_kinship').
+            * 'metrics': Metrics associated with the counts.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = 'confirming_kinship'
+
+        duplicated_cutoff = 0.354 # or greater
+        first_deg_cutoff = 0.177 # to 0.354
+        second_deg_cutoff = 0.0884 # to 0.177
+        third_deg_cutoff = 0.0442 # to 0.0884
+
+        # create output files
+        temp = f'{out_path}_temp'
+        temp2 = f'{out_path}_temp2'
+        same_fid_unrelated = f'{out_path}_same_fid.unrelated'
+        diff_fid_related = f'{out_path}_diff_fid.related'
+        parental_rels = f'{out_path}.parents'
+
+        # if data is bfiles, proceed
+        if not os.path.isfile(f'{geno_path}.bed'):
+            # # if data is vcf, convert to pfiles
+            # if os.path.isfile(f'{geno_path}.vcf'):
+            #     vfiles_to_pfiles(vcf_path=geno_path)
+            # if data is in pfiles, convert to bfiles for KING
+            if os.path.isfile(f'{geno_path}.pgen'):
+                bfiles_to_pfiles(pfile_path=geno_path)
+
+        print('If data does NOT contain PAT/MAT info, the Error column will be 1.0 for any found relationships')
+
+        # run KING
+        king_cmd = f'{king_exec} -b {geno_path}.bed --related --build --degree 3 --prefix {temp}'
+        shell_do(king_cmd)
+
+        if (os.path.isfile(f'{temp}.kin0')) or (os.path.isfile(f'{temp}.kin')):
+            if os.path.isfile(f'{temp}.kin0'):
+                os.rename(f'{temp}.kin0', diff_fid_related)
+
+            if os.path.isfile(f'{temp}.kin'):
+                kin = pd.read_csv(f'{temp}.kin', sep='\s+')
+                unrelated = kin[kin['Kinship']<=third_deg_cutoff]
+                unrelated.to_csv(same_fid_unrelated, sep='\t', header=True, index=False)
+
+            process_complete = True
+
+            outfiles_dict = {
+                'same_fid_unrelated': same_fid_unrelated,
+                'diff_fid_related': diff_fid_related
+            }
+
+            metrics_dict = {
+                'same_fid_unrelated_count': sum(1 for line in open(same_fid_unrelated)) - 1,
+                'diff_fid_related_count': sum(1 for line in open(diff_fid_related)) - 1
+            }
+
+        else:
+            print('Relatedness Assessment has failed!')
+            process_complete = False
+
+            outfiles_dict = {
+                'same_fid_unrelated': None,
+                'diff_fid_related': None
+            }
+
+            metrics_dict = {
+                'same_fid_unrelated_count': 0,
+                'diff_fid_related_count': 0
+            }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+
 class VariantQC:
 
     def __init__(self, geno_path=None, out_path=None):
@@ -800,7 +892,7 @@ class VariantQC:
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
-        
+
         # if sample size is over 10k, correct and make P more stringent
         sample_size = count_file_lines(f'{geno_path}.fam')
         if sample_size > 10000:
@@ -831,7 +923,7 @@ class VariantQC:
             # hap pruned count
             hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
             hap_rm_count = initial_snp_count - hap_snp_count
-        
+
         else:
             print(f'Haplotype pruning failed!')
             print(f'Check {hap_tmp}.log for more information')

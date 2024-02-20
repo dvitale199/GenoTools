@@ -71,7 +71,7 @@ def __install_exec(url, exec_path):
         buffer.write(r.content)
         with zipfile.ZipFile(buffer, "r") as fp:
             fp.extractall(__executable_folder)
-        
+
     elif '.tar.gz' in url:
         file = tarfile.open(fileobj=r.raw, mode="r|gz")
         file.extractall(__executable_folder)
@@ -131,6 +131,9 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
+def check_king():
+    return __check_package('KING')
+
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -168,5 +171,19 @@ __DEPENDENCIES = {
             'version_args': ['--version'],
             'url': 'https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20240105.zip'
         },
+    },
+
+    'KING': {
+        'checker': check_king,
+        'Darwin': {
+            'binary': 'king',
+            'version_args': ['--version'],
+            'url': None
+        },
+        'Linux': {
+            'binary': 'king',
+            'version_args': ['--version'],
+            'url': None
+        }
     }
 }
