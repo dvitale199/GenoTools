@@ -619,6 +619,8 @@ class SampleQC:
             # remove intermediate files
             os.remove(f'{temp}.kin')
             os.remove(f'{temp}.seg')
+            os.remove(f'{temp}X.kin')
+            os.remove(f'{temp}X.kin0')
             os.remove(f'{temp}.segments.gz')
             os.remove(f'{temp}allsegs.txt')
             os.remove(f'{temp}build.log')

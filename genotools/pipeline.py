@@ -56,7 +56,7 @@ def gt_argparse():
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='True', help='Relatedness prune')
     parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
-    parser.add_argument('--kinship_check', nargs='*', help='Confirming familial labels')
+    parser.add_argument('--kinship_check', type=str, nargs='?', default='False', const='True', help='Confirming familial labels')
     parser.add_argument('--all_sample', type=str, nargs='?', default='False', const='True', help='Run all sample-level QC')
 
     # variant-level qc arguments
@@ -84,7 +84,7 @@ def gt_argparse():
 
 def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, ancestry, assoc, args, tmp_dir):
     # to know which class to call
-    samp_steps = ['callrate','sex','related','het','kinship']
+    samp_steps = ['callrate','sex','related','het','kinship_check']
     var_steps = ['case_control','haplotype','hwe','geno','ld']
 
     # if full output requested, go to out path
@@ -161,6 +161,9 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             if step == 'related':
                 out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicated_cutoff=args['duplicated_cutoff'],
                                  prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
+
+            elif step == 'kinship_check':
+                out_dict[step] = steps_dict[step]()
 
             else:
                 out_dict[step] = steps_dict[step](args[step])
