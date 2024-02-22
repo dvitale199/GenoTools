@@ -85,7 +85,7 @@ def handle_main():
         args_dict['geno_path'] = args_dict['bfile']
 
     elif args_dict['vcf'] and (args_dict['pfile'] is None):
-        vcf_to_pfiles(vcf_path=args_dict['vcf'], args_dict['wgs'], args_dict['gq'])
+        vcf_to_pfiles(vcf_path=args_dict['vcf'], wgs=args_dict['wgs'], gq_min=args_dict['gq'])
         args_dict['geno_path'] = args_dict['vcf'].split('.vcf')[0]
 
     else:

@@ -54,7 +54,7 @@ def gt_argparse():
     # WGS qc arguments
     parser.add_argument('--gq', type=int, nargs='?', default=None, const=10, help='Minimum threshold for GQ prune')
     parser.add_argument('--dp', type=int, nargs='?', default=None, const=20, help='Minimum threshold DP prune')
-    parser.add_argument('--filter', type=str, nargs='?' default='False', const='True', help='Extract all variants that PASS all filters')
+    parser.add_argument('--filter', type=str, nargs='?', default='False', const='True', help='Extract all variants that PASS all filters')
 
     # GWAS and PCA argument
     parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')
