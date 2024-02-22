@@ -21,11 +21,11 @@ from genotools.pipeline import gt_argparse
 
 
 def handle_main():
-    
+
     args = gt_argparse()
 
     args_dict = vars(args)
-    
+
     from numba.core.errors import NumbaDeprecationWarning
     import warnings
     warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
@@ -45,8 +45,9 @@ def handle_main():
 
     # ordered steps with their methods to be called
     ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
-                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'case_control':var_qc.run_case_control_prune,
-                    'haplotype':var_qc.run_haplotype_prune,'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
+                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship':samp_qc.run_confirming_kinship,
+                    'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
+                    'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
                     'ld':var_qc.run_ld_prune,'assoc':assoc.run_association}
 
     # some up-front editing of pipeline arguments (booleans and lists)
@@ -67,7 +68,7 @@ def handle_main():
 
         else:
             args_dict['het'] = [float(i) for i in args_dict['sex']]
-        
+
     if args_dict['ld'] is not None:
         if len(args_dict['ld']) == 0:
             args_dict['ld'] = [50, 5, 0.5]
@@ -81,7 +82,7 @@ def handle_main():
         args_dict['sex'] = [0.25, 0.75]
         args_dict['related'] = True
         args_dict['het'] = [-0.25, 0.25]
-    
+
     if args_dict['all_variant']:
         args_dict['geno'] = 0.05
         args_dict['case_control'] = 1e-4
@@ -89,22 +90,22 @@ def handle_main():
         args_dict['hwe'] = 1e-4
         args_dict['filter_controls'] = True
         args_dict['ld'] = None
-    
+
     # run data breakdows
     if (args_dict['bfile'] is None) and (args_dict['pfile'] is None) and (args_dict['vcf'] is None):
         raise KeyError('No bfiles, pfiles, or vcf genotypes were provided!')
-    
+
     elif args_dict['bfile'] and (args_dict['pfile'] is None):
         bfiles_to_pfiles(bfile_path=args_dict['bfile'])
         args_dict['geno_path'] = args_dict['bfile']
-    
+
     elif args_dict['vcf'] and (args_dict['pfile'] is None):
         vcf_to_pfiles(vcf_path=args_dict['vcf'])
         args_dict['geno_path'] = args_dict['vcf'].split('.vcf')[0]
-    
+
     else:
         args_dict['geno_path'] = args_dict['pfile']
-    
+
     # run model-side error catching
     if args_dict['model'] and args_dict['container']:
         raise KeyError('Cannot pass a pre-trained model and run predictions using the NeuroBooster array model in a container! Please choose one of the two.')
@@ -123,10 +124,10 @@ def handle_main():
 
     # create empty log files in output directory
     header = gt_header()
-    with open(f"{args_dict['out']}_all_logs.log", "w") as fp: 
+    with open(f"{args_dict['out']}_all_logs.log", "w") as fp:
         fp.write(header)
         fp.write("\n")
-    with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp: 
+    with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp:
         pass
 
     # get correct order of steps to run
@@ -137,7 +138,7 @@ def handle_main():
                 run_steps_list.append(key)
             if ((key == 'pca') or (key == 'gwas')) and ('assoc' not in run_steps_list):
                 run_steps_list.append('assoc')
-    
+
     # check run steps and output step
     if len(run_steps_list) == 0:
         raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
@@ -150,7 +151,7 @@ def handle_main():
 
     # run pipeline
     out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
-    
+
     # build output
     clean_out_dict = dict()
     metrics_df = pd.DataFrame()
@@ -179,7 +180,7 @@ def handle_main():
         clean_out_dict['total_umap'] = out_dict['ancestry']['data']['total_umap'].to_dict()
         clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap'].to_dict()
         clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap'].to_dict()
-    
+
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
             if ancestry in out_dict.keys():
                 metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
