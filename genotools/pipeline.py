@@ -212,7 +212,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
     return out_dict
 
 
-def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, out, ancestry='all'):
+def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, related_df, dictionary, out, ancestry='all'):
     for step in ['callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
@@ -237,6 +237,9 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, dictionary, out, anc
                             else:
                                 related_out_path = f'{out}_{ancestry}.related'
                             related.to_csv(related_out_path, index=False)
+
+                            related['ancestry'] = ancestry
+                            related_df = pd.concat([related_df, related], ignore_index=True)
 
             else:
                 level = 'variant'
