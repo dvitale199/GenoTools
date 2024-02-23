@@ -253,4 +253,4 @@ def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, related_df, dictiona
             tmp_gwas_df = pd.DataFrame({'value':[value], 'metric':[metric], 'ancestry':[ancestry]})
             gwas_df = pd.concat([gwas_df, tmp_gwas_df], ignore_index=True)
 
-    return metrics_df, pruned_df, gwas_df
+    return metrics_df, pruned_df, gwas_df, related_df
