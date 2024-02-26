@@ -62,3 +62,11 @@ This documentation provides a detailed description of the keys in JSON output fo
 - **`related_samples`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing relatedness information output by PLINK/KING from completed relatedness pruning.
+
+---
+
+### Loading JSON Components in Python
+
+```
+is this a code block
+```
