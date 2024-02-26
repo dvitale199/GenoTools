@@ -156,6 +156,12 @@ def handle_main():
     metrics_df = pd.DataFrame()
     pruned_df = pd.DataFrame()
     gwas_df = pd.DataFrame()
+    related_df = pd.DataFrame()
+
+    # input psam in out_dict
+    if os.path.isfile(f'{args_dict["geno_path"]}.psam'):
+        psam = pd.read_csv(f'{args_dict["geno_path"]}.psam', sep='\s+')
+        clean_out_dict['input_samples'] = psam.to_dict()
 
     if 'ancestry' in out_dict.keys():
         ancestry_counts_df = pd.DataFrame(out_dict['ancestry']['metrics']['predicted_counts']).reset_index()
@@ -182,30 +188,48 @@ def handle_main():
     
         for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
             if ancestry in out_dict.keys():
-                metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
+                metrics_df, pruned_df, gwas_df, related_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, related_df=related_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
 
     else:
-        metrics_df, pruned_df, gwas_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, dictionary=out_dict, out=args_dict['out'])
+        metrics_df, pruned_df, gwas_df, related_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, related_df=related_df, dictionary=out_dict, out=args_dict['out'])
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
     pruned_df = pruned_df.rename({'#FID':'FID'}, axis=1)
 
     # ensure no empty df is being output to JSON
-    for df in [metrics_df, pruned_df, gwas_df]:
-        if not df.empty:
-            clean_out_dict['QC'] = metrics_df.to_dict()
-            clean_out_dict['GWAS'] = gwas_df.to_dict()
+    output_dfs = {'QC':metrics_df, 'GWAS':gwas_df, 'pruned_samples':pruned_df, 'related_samples':related_df}
 
-            if 'ancestry_labels' in list(clean_out_dict.keys()):
-                labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
-                labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
+    for df in output_dfs:
+        if not output_dfs[df].empty:
+            if df == 'pruned_samples':
+                if 'ancestry_labels' in list(clean_out_dict.keys()):
+                    labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
+                    labeled_pruned_df = output_dfs[df].merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
 
-                ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
-                full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
-                clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
+                    ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
+                    full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
+                    clean_out_dict[df] = full_labeled_pruned_df.to_dict()
+                else:
+                    clean_out_dict[df] = output_dfs[df].to_dict()
+            
             else:
-                clean_out_dict['pruned_samples'] = pruned_df.to_dict()
+                clean_out_dict[df] = output_dfs[df].to_dict()
+
+    # for df in [metrics_df, pruned_df, gwas_df, related_df]:
+    #     if not df.empty:
+    #         clean_out_dict['QC'] = metrics_df.to_dict()
+    #         clean_out_dict['GWAS'] = gwas_df.to_dict()
+
+    #         if 'ancestry_labels' in list(clean_out_dict.keys()):
+    #             labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
+    #             labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
+
+    #             ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
+    #             full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
+    #             clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
+    #         else:
+    #             clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:
