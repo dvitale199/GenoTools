@@ -62,3 +62,19 @@ This documentation provides a detailed description of the keys in JSON output fo
 - **`related_samples`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing relatedness information output by PLINK/KING from completed relatedness pruning.
+
+---
+
+### Loading JSON Components into a Pandas DataFrame in Python
+
+```
+import json
+import pandas as pd
+
+json_path = /path/to/output.json
+
+f = open(json_path)
+json_file = json.load(f)
+
+input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_samples' with any JSON key!
+```
