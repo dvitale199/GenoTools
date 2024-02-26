@@ -76,5 +76,5 @@ json_path = /path/to/output.json
 f = open(json_path)
 json_file = json.load(f)
 
-input_samples = pd.DataFrame(json_file['input_samples'])
+input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_samples' with any JSON key!
 ```
