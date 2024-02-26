@@ -65,8 +65,16 @@ This documentation provides a detailed description of the keys in JSON output fo
 
 ---
 
-### Loading JSON Components in Python
+### Loading JSON Components into a Pandas DataFrame in Python
 
 ```
-is this a code block
+import json
+import pandas as pd
+
+json_path = /path/to/output.json
+
+f = open(json_path)
+json_file = json.load(f)
+
+input_samples = pd.DataFrame(json_file['input_samples'])
 ```
