@@ -66,11 +66,26 @@ def __install_exec(url, exec_path):
     r = requests.get(url, verify=False, stream=True)
 
     if '.zip' in url:
-        r.raw.decode_content = True
-        buffer = io.BytesIO()
-        buffer.write(r.content)
-        with zipfile.ZipFile(buffer, "r") as fp:
-            fp.extractall(__executable_folder)
+        try:
+            r.raw.decode_content = True
+            buffer = io.BytesIO()
+            buffer.write(r.content)
+            with zipfile.ZipFile(buffer, "r") as fp:
+                fp.extractall(__executable_folder)
+        except:
+            zip_file = url.split('/')[-1]
+            zip_file_path = os.path.join(__executable_folder, zip_file)
+
+            r = requests.get(url)
+            r.raise_for_status()
+            with open(zip_file_path, 'wb') as fp:
+                fp.write(r.content)
+
+            with zipfile.ZipFile(zip_file_path, 'r') as fp:
+                fp.extractall(__executable_folder)
+
+            permissions = 0o100
+            os.chmod(os.path.join(__executable_folder, 'plink2'), permissions)
 
     elif '.tar.gz' in url:
         file = tarfile.open(fileobj=r.raw, mode="r|gz")
