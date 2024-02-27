@@ -591,6 +591,8 @@ class SampleQC:
         temp = f'{out_path}_temp'
         same_fid_unrelated = f'{out_path}_same_fid.unrelated'
         diff_fid_related = f'{out_path}_diff_fid.related'
+        num_same_fid_unrelated = 0
+        num_diff_fid_related = 0
 
         # if data is bfiles, proceed
         if not os.path.isfile(f'{geno_path}.bed'):
@@ -601,20 +603,46 @@ class SampleQC:
             if os.path.isfile(f'{geno_path}.pgen'):
                 bfiles_to_pfiles(pfile_path=geno_path)
 
-        print('If data does NOT contain PAT/MAT info, the Error column will be 1.0 for any found relationships')
+        print('If data does NOT contain pedigree (PAT/MAT) info, the Error column will be 1.0 for any found relationships')
 
         # run KING
         king_cmd = f'{king_exec} -b {geno_path}.bed --related --build --degree 3 --prefix {temp}'
         shell_do(king_cmd)
 
         if (os.path.isfile(f'{temp}.kin0')) or (os.path.isfile(f'{temp}.kin')):
+            # pairs with different FID but found to be related
             if os.path.isfile(f'{temp}.kin0'):
                 os.rename(f'{temp}.kin0', diff_fid_related)
+                num_diff_fid_related = sum(1 for _ in open(diff_fid_related)) - 1
 
+            # pairs with same FID but found to be unrelated
             if os.path.isfile(f'{temp}.kin'):
                 kin = pd.read_csv(f'{temp}.kin', sep='\s+')
                 unrelated = kin[kin['Kinship']<=third_deg_cutoff]
                 unrelated.to_csv(same_fid_unrelated, sep='\t', header=True, index=False)
+                num_same_fid_unrelated = sum(1 for _ in open(same_fid_unrelated)) - 1
+
+            # create log file
+            with open(f'{out_path}.log', 'w') as log:
+                log.write('KING relatedness options in effect:\n')
+                log.write('  --related\n')
+                log.write('  --build\n')
+                log.write('  --degree 3\n')
+                log.write(f'  --prefix {temp}\n')
+                log.write(f'  -b {geno_path}.bed\n')
+                log.write('Note: if no pedigree info given, Error column will be 1.0 for any found relationship\n')
+                log.write(f'{num_same_fid_unrelated + num_diff_fid_related} total noncongruent relationships found\n')
+                # log.write('Potential pedigree is as follows:\n')
+                # with open(f'{temp}build.log', 'r') as build:
+                #     for line in build:
+                #         if line != '\n':
+                #         log.write(line)
+
+            shutil.copyfile(f'{out_path}.log', f'{out_path}_test.log')
+
+            if os.path.isfile(f'{out_path}.log'):
+                listOfFiles = [f'{out_path}.log']
+                concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
             os.remove(f'{temp}.kin')
@@ -635,8 +663,8 @@ class SampleQC:
             }
 
             metrics_dict = {
-                'same_fid_unrelated_count': sum(1 for line in open(same_fid_unrelated)) - 1,
-                'diff_fid_related_count': sum(1 for line in open(diff_fid_related)) - 1
+                'same_fid_unrelated_count': num_same_fid_unrelated,
+                'diff_fid_related_count': num_diff_fid_related
             }
 
         else:

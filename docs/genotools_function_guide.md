@@ -159,6 +159,30 @@ Execute pruning based on relatedness and duplication checks on genotype data usi
 
 ---
 
+## run_confirming_kinship
+
+```python
+run_confirming_kinship(self)
+```
+
+### Description
+
+Find samples with discordant FIDs using PLINK and KING.
+
+### Parameters
+
+- None
+
+### Returns
+
+- **dict**: A structured dictionary containing:
+  * 'pass': Boolean indicating the successful completion of the process.
+  * 'step': The label for this procedure ('confirming_kinship').
+  * 'metrics': Metrics associated with the counts.
+  * 'output': Dictionary containing paths to the generated output files.
+
+---
+
 # Variant Quality Control
 
 ## VariantQC
