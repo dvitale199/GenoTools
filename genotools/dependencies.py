@@ -80,13 +80,13 @@ def __install_exec(url, exec_path):
             r.raise_for_status()
             with open(zip_file_path, 'wb') as fp:
                 fp.write(r.content)
-            
+
             with zipfile.ZipFile(zip_file_path, 'r') as fp:
                 fp.extractall(__executable_folder)
 
             permissions = 0o100
             os.chmod(os.path.join(__executable_folder, 'plink2'), permissions)
-        
+
     elif '.tar.gz' in url:
         file = tarfile.open(fileobj=r.raw, mode="r|gz")
         file.extractall(__executable_folder)
@@ -146,6 +146,9 @@ def check_plink():
 def check_plink2():
     return __check_package('Plink2')
 
+def check_king():
+    return __check_package('KING')
+
 __DEPENDENCIES = {
     'Plink': {
         'checker': check_plink,
@@ -183,5 +186,19 @@ __DEPENDENCIES = {
             'version_args': ['--version'],
             'url': 'https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20240105.zip'
         },
+    },
+
+    'KING': {
+        'checker': check_king,
+        'Linux': {
+            'binary': 'king',
+            'version_args': ['--version'],
+            'url': 'https://www.kingrelatedness.com/executables/Linux-king232.tar.gz'
+        },
+        'Windows': {
+            'binary': 'king',
+            'version_args': ['--version'],
+            'url': 'https://www.kingrelatedness.com/executables/Windows-king232.zip'
+        }
     }
 }

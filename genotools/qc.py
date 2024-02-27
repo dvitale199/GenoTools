@@ -19,11 +19,11 @@ import numpy as np
 import os
 import shutil
 from genotools.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
-from genotools.dependencies import check_plink, check_plink2
+from genotools.dependencies import check_plink, check_plink2, check_king
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
-
+king_exec = check_king()
 
 class SampleQC:
 
@@ -562,6 +562,135 @@ class SampleQC:
         return out_dict
 
 
+    def run_confirming_kinship(self):
+
+        """
+        Find samples with discordant FIDs using PLINK and KING.
+
+        Parameters:
+        - None
+
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('confirming_kinship').
+            * 'metrics': Metrics associated with the counts.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+        geno_path = self.geno_path
+        out_path = self.out_path
+
+        step = 'confirming_kinship'
+
+        duplicated_cutoff = 0.354 # or greater
+        first_deg_cutoff = 0.177 # to 0.354
+        second_deg_cutoff = 0.0884 # to 0.177
+        third_deg_cutoff = 0.0442 # to 0.0884
+
+        # create output files
+        temp = f'{out_path}_temp'
+        same_fid_unrelated = f'{out_path}_same_fid.unrelated'
+        diff_fid_related = f'{out_path}_diff_fid.related'
+        num_same_fid_unrelated = 0
+        num_diff_fid_related = 0
+
+        # if data is bfiles, proceed
+        if not os.path.isfile(f'{geno_path}.bed'):
+            # # if data is vcf, convert to pfiles
+            # if os.path.isfile(f'{geno_path}.vcf'):
+            #     vfiles_to_pfiles(vcf_path=geno_path)
+            # if data is in pfiles, convert to bfiles for KING
+            if os.path.isfile(f'{geno_path}.pgen'):
+                bfiles_to_pfiles(pfile_path=geno_path)
+
+        print('If data does NOT contain pedigree (PAT/MAT) info, the Error column will be 1.0 for any found relationships')
+
+        # run KING
+        king_cmd = f'{king_exec} -b {geno_path}.bed --related --build --degree 3 --prefix {temp}'
+        shell_do(king_cmd)
+
+        if (os.path.isfile(f'{temp}.kin0')) or (os.path.isfile(f'{temp}.kin')):
+            # pairs with different FID but found to be related
+            if os.path.isfile(f'{temp}.kin0'):
+                os.rename(f'{temp}.kin0', diff_fid_related)
+                num_diff_fid_related = sum(1 for _ in open(diff_fid_related)) - 1
+
+            # pairs with same FID but found to be unrelated
+            if os.path.isfile(f'{temp}.kin'):
+                kin = pd.read_csv(f'{temp}.kin', sep='\s+')
+                unrelated = kin[kin['Kinship']<=third_deg_cutoff]
+                unrelated.to_csv(same_fid_unrelated, sep='\t', header=True, index=False)
+                num_same_fid_unrelated = sum(1 for _ in open(same_fid_unrelated)) - 1
+
+            # create log file
+            with open(f'{out_path}.log', 'w') as log:
+                log.write('KING relatedness options in effect:\n')
+                log.write('  --related\n')
+                log.write('  --build\n')
+                log.write('  --degree 3\n')
+                log.write(f'  --prefix {temp}\n')
+                log.write(f'  -b {geno_path}.bed\n')
+                log.write('Note: if no pedigree info given, Error column will be 1.0 for any found relationship\n')
+                log.write(f'{num_same_fid_unrelated + num_diff_fid_related} total noncongruent relationships found\n')
+                # log.write('Potential pedigree is as follows:\n')
+                # with open(f'{temp}build.log', 'r') as build:
+                #     for line in build:
+                #         if line != '\n':
+                #         log.write(line)
+
+            shutil.copyfile(f'{out_path}.log', f'{out_path}_test.log')
+
+            if os.path.isfile(f'{out_path}.log'):
+                listOfFiles = [f'{out_path}.log']
+                concat_logs(step, out_path, listOfFiles)
+
+            # remove intermediate files
+            os.remove(f'{temp}.kin')
+            os.remove(f'{temp}.seg')
+            os.remove(f'{temp}X.kin')
+            os.remove(f'{temp}X.kin0')
+            os.remove(f'{temp}.segments.gz')
+            os.remove(f'{temp}allsegs.txt')
+            os.remove(f'{temp}build.log')
+            os.remove(f'{temp}updateids.txt')
+            os.remove(f'{temp}updateparents.txt')
+
+            process_complete = True
+
+            outfiles_dict = {
+                'same_fid_unrelated': same_fid_unrelated,
+                'diff_fid_related': diff_fid_related
+            }
+
+            metrics_dict = {
+                'same_fid_unrelated_count': num_same_fid_unrelated,
+                'diff_fid_related_count': num_diff_fid_related
+            }
+
+        else:
+            print('Relatedness Assessment has failed!')
+            process_complete = False
+
+            outfiles_dict = {
+                'same_fid_unrelated': None,
+                'diff_fid_related': None
+            }
+
+            metrics_dict = {
+                'same_fid_unrelated_count': 0,
+                'diff_fid_related_count': 0
+            }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+
 class VariantQC:
 
     def __init__(self, geno_path=None, out_path=None):
@@ -800,7 +929,7 @@ class VariantQC:
         # get initial snp count
         initial_snp_count = count_file_lines(f'{geno_path}.bim')
 
-        
+
         # if sample size is over 10k, correct and make P more stringent
         sample_size = count_file_lines(f'{geno_path}.fam')
         if sample_size > 10000:
@@ -831,7 +960,7 @@ class VariantQC:
             # hap pruned count
             hap_snp_count = count_file_lines(f'{out_path}.pvar') - 1
             hap_rm_count = initial_snp_count - hap_snp_count
-        
+
         else:
             print(f'Haplotype pruning failed!')
             print(f'Check {hap_tmp}.log for more information')
