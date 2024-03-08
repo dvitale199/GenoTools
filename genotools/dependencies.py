@@ -190,6 +190,11 @@ __DEPENDENCIES = {
 
     'KING': {
         'checker': check_king,
+        'Darwin': {
+            'binary': 'king',
+            'version_args': ['--version'],
+            'url': 'https://www.kingrelatedness.com/executables/Linux-king232.tar.gz'
+        },
         'Linux': {
             'binary': 'king',
             'version_args': ['--version'],
