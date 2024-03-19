@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
+import platform
 from genotools.utils import shell_do, count_file_lines, concat_logs, bfiles_to_pfiles
 from genotools.dependencies import check_plink, check_plink2, check_king
 
@@ -593,6 +594,33 @@ class SampleQC:
         diff_fid_related = f'{out_path}_diff_fid.related'
         num_same_fid_unrelated = 0
         num_diff_fid_related = 0
+
+        # check OS is NOT macOS
+        # Will only run this method if os is linux or windows
+        if platform.system() != 'Linux':
+        # if (platform.system() != 'Linux') or (platform.system() != 'Windows'):
+            print('Relatedness Assessment can only run on a linux OS!')
+            process_complete = False
+
+            outfiles_dict = {
+                'same_fid_unrelated': None,
+                'diff_fid_related': None
+            }
+
+            metrics_dict = {
+                'same_fid_unrelated_count': 0,
+                'diff_fid_related_count': 0
+            }
+
+            out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+            }
+
+            return out_dict
+
 
         # if data is bfiles, proceed
         if not os.path.isfile(f'{geno_path}.bed'):

@@ -19,6 +19,7 @@ import shutil
 import argparse
 import warnings
 import pathlib
+import platform
 import pandas as pd
 
 
@@ -163,7 +164,12 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
                                  prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
 
             elif step == 'kinship_check':
-                out_dict[step] = steps_dict[step]()
+                # check that OS is not macOS
+                if platform.system() != 'Linux':
+                    print('Relatedness Assessment can only run on a linux or windows OS!')
+                    out_dict.pop(step, None)
+                elif platform.system() == 'Linux':
+                    out_dict[step] = steps_dict[step]()
 
             else:
                 out_dict[step] = steps_dict[step](args[step])
@@ -195,7 +201,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, an
             out_dict[step] = steps_dict[step]()
 
         # remove old files when appropriate
-        if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry'):
+        if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
             # when warn is True and step fails, don't remove old file
             if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):
                 remove = False
