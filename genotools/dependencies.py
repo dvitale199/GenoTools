@@ -104,8 +104,12 @@ def __check_package(name):
         raise EnvironmentError("Unknown package: {}".format(name))
 
     if platform_system not in __DEPENDENCIES[name]:
-        raise EnvironmentError(
-            "Unknown supported OK: {}".format(platform_system))
+        if name == 'KING':
+            logging.warning("Can not install {} on non-Linux OS".format(name))
+            return
+        else:
+            raise EnvironmentError(
+                "Unknown supported OK: {}".format(platform_system))
 
     if (platform_system == "Darwin") and (platform_processor == "arm") and (name == "Plink2"):
         platform_system = "Darwin_arm64"
@@ -190,11 +194,11 @@ __DEPENDENCIES = {
 
     'KING': {
         'checker': check_king,
-        'Darwin': {
-            'binary': 'king',
-            'version_args': ['--version'],
-            'url': 'https://www.kingrelatedness.com/executables/Linux-king232.tar.gz'
-        },
+        # 'Darwin': {
+        #     'binary': 'king',
+        #     'version_args': ['--version'],
+        #     'url': 'https://www.kingrelatedness.com/executables/Linux-king232.tar.gz'
+        # },
         'Linux': {
             'binary': 'king',
             'version_args': ['--version'],
