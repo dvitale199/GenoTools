@@ -599,7 +599,7 @@ class SampleQC:
         # Will only run this method if os is linux or windows
         if platform.system() != 'Linux':
         # if (platform.system() != 'Linux') or (platform.system() != 'Windows'):
-            print('Relatedness Assessment can only run on a linux or windows OS!')
+            print('Relatedness Assessment can only run on a linux OS!')
             process_complete = False
 
             outfiles_dict = {
