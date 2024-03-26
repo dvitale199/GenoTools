@@ -1,6 +1,13 @@
 # GenoTools
 [![DOI](https://zenodo.org/badge/337965715.svg)](https://zenodo.org/doi/10.5281/zenodo.10443257)
 
+## Documentation
+You can find the full documentation with the following links:
+- [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/cli_args.md)
+- [Default Pipeline Overview](https://github.com/dvitale199/GenoTools/blob/main/docs/default_pipeline_overview.md)
+- [Package Function Guide (for developers)](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
+- [JSON output guide](https://github.com/dvitale199/GenoTools/blob/main/docs/json_output_overview.md)
+
 ## Getting Started
 
 GenoTools is a suite of automated genotype data processing steps written in Python. The core pipeline was built for Quality Control and Ancestry estimation of data in the Global Parkinson's Genetics Program (GP2)
@@ -71,10 +78,7 @@ This will find common snps between your genotype data and the reference panel, r
 
 genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 
-## Documentation
-- [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/cli_args.md)
-- [Default Pipeline Overview](https://github.com/dvitale199/GenoTools/blob/main/docs/default_pipeline_overview.md)
-- [Package Function Guide (for developers)](https://github.com/dvitale199/GenoTools/blob/main/docs/genotools_function_guide.md)
+Please consult the docs links listed at the top of the README for the full argument guide, function guide, Default pipeline overview, and guide for navigating the output JSON.
 
 ## Acknowledgements
 GenoTools was developed as the core genotype and wgs processing pipeline for the Global Parkinson's Genetics Program (GP2) at the Center for Alzheimer's and Related Dementias (CARD) at the National Institutes of Health.
