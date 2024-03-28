@@ -270,8 +270,8 @@ class Assoc:
             # calculate inflation
             gwas_df = pd.read_csv(f'{self.out_path}.PHENO1.glm.logistic.hybrid', sep='\s+', dtype={'#CHROM': str})
             psam = pd.read_csv(f'{self.geno_path}.psam', sep='\s+', dtype={'PHENO1':str})
-            ncontrols = psam.PHENO1.value_counts()[0]
-            ncases = psam.PHENO1.value_counts()[1]
+            ncontrols = psam.PHENO1.value_counts()['1']
+            ncases = psam.PHENO1.value_counts()['2']
 
             # add pruning step here (pre lambdas)
             gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
