@@ -963,8 +963,6 @@ class VariantQC:
         if sample_size > 10000:
             p_threshold = 0.05/sample_size
 
-        print(p_threshold)
-
 
         # missingness by haplotype (--test-mishap), using P > 1E-4
         plink_cmd1 = f"{plink_exec} --bfile {geno_path} --maf 0.05 --test-mishap --out {hap_tmp}"
