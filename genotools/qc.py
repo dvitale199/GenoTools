@@ -965,7 +965,7 @@ class VariantQC:
 
 
         # missingness by haplotype (--test-mishap), using P > 1E-4
-        plink_cmd1 = f"{plink_exec} --bfile {geno_path} --test-mishap --out {hap_tmp}"
+        plink_cmd1 = f"{plink_exec} --bfile {geno_path} --maf 0.05 --test-mishap --out {hap_tmp}"
         shell_do(plink_cmd1)
 
         listOfFiles = [f'{hap_tmp}.log']
@@ -1006,7 +1006,7 @@ class VariantQC:
 
         process_complete = True
 
-        for file in [f'{hap_tmp}.exclude',f'{hap_tmp}.hh',f'{hap_tmp}.missing.hap']:
+        for file in [f'{hap_tmp}.hh']:
             if os.path.isfile(file):
                 os.remove(file)
 
