@@ -1008,7 +1008,7 @@ class VariantQC:
 
         process_complete = True
 
-        for file in [f'{hap_tmp}.exclude',f'{hap_tmp}.hh',f'{hap_tmp}.missing.hap']:
+        for file in [f'{hap_tmp}.hh']:
             if os.path.isfile(file):
                 os.remove(file)
 
