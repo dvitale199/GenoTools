@@ -36,7 +36,7 @@ class Assoc:
         self.pheno_name = pheno_name
         self.covar_path = covar_path
         self.covar_names = covar_names
-    
+
 
     def write_exclusion_file(self):
         if self.build == 'hg19':
@@ -66,16 +66,16 @@ class Assoc:
         """
         else:
             raise ValueError("Invalid build specified.")
-        
+
         exclusion_file = f'{self.out_path}_{self.build}.exclusion'
         with open(exclusion_file, 'w') as f:
             f.write(exclusion_regions)
-        
+
         return exclusion_file
-    
-    
+
+
     def run_pca_pruning(self, maf=0.01, geno=0.01, hwe=5e-6, indep_pairwise=[1000, 10, 0.02]):
-        
+
         step = 'plink_pruning'
 
         exclusion_file = self.write_exclusion_file()
@@ -83,7 +83,7 @@ class Assoc:
         # Filter data
         filter_cmd = f"{plink2_exec} --pfile {self.geno_path} --maf {maf} --geno {geno} --hwe {hwe} --autosome --exclude {exclusion_file} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {self.out_path}_tmp"
         shell_do(filter_cmd)
-        
+
         # Prune SNPs
         prune_cmd = f"{plink2_exec} --pfile {self.out_path}_tmp --indep-pairwise {indep_pairwise[0]} {indep_pairwise[1]} {indep_pairwise[2]} --autosome --out {self.out_path}_pruned"
         shell_do(prune_cmd)
@@ -129,7 +129,7 @@ class Assoc:
     def run_plink_pca(self):
 
         step = 'plink_pca'
- 
+
         # Calculate/generate PCs
         pca_pruned = self.run_pca_pruning()
         pca_cmd = f"{plink2_exec} --pfile {pca_pruned['output']} --pca {self.pca} --out {self.out_path}"
@@ -228,7 +228,7 @@ class Assoc:
             '+totallelecc,'
             '+err'
             )
-        
+
         if covars:
             # covar names are column names of covariate file minus #FID and IID unless specified
             if self.covar_path and not self.covar_names:
@@ -241,7 +241,7 @@ class Assoc:
             else:
                 # if no covar path then default is PCA
                 covar_names = self.covar_names
-            
+
             gwas_cmd = (
                 f"{plink2_exec} --pfile {self.geno_path} "
                 f"--glm {glm_options} "
@@ -252,7 +252,7 @@ class Assoc:
                 f"--covar-name {covar_names} "
                 f"--out {self.out_path}"
                 )
-        
+
         else:
             gwas_cmd = (
                 f"{plink2_exec} --pfile {self.geno_path} "
@@ -261,7 +261,7 @@ class Assoc:
                 f"--pheno {self.geno_path}.pheno "
                 f"--out {self.out_path}"
                 )
-            
+
         shell_do(gwas_cmd)
 
         if os.path.isfile(f'{self.out_path}.PHENO1.glm.logistic.hybrid'):
@@ -286,13 +286,13 @@ class Assoc:
                 'cases': ncases,
                 'controls': ncontrols
                 }
-            
+
             process_complete = True
 
             outfiles_dict = {
                 'gwas_output': f'{self.out_path}.PHENO1.glm.logistic.hybrid'
             }
-        
+
         elif os.path.isfile(f'{self.out_path}.PHENO1.glm.linear'):
             print('linear')
 
@@ -329,7 +329,7 @@ class Assoc:
                 'cases': None,
                 'controls': None
                 }
-            
+
             outfiles_dict = {
                 'gwas_output': None
             }
@@ -342,7 +342,7 @@ class Assoc:
         }
 
         return out_dict
-    
+
 
     def run_prs(self):
         print('COMING SOON')
@@ -367,16 +367,16 @@ class Assoc:
         if self.gwas:
             # if pca called and covars passed, warn and default to passed covars
             if os.path.isfile(f'{self.out_path}.eigenvec') and (self.covar_path is not None):
-                warnings.warn('PCA ran and Covar passed! Defaulting to passed covars!')
+                warnings.warn('PCA ran and Covars passed! Defaulting to passed covars! Recommend merging the PCAs with the inputted Covars and rerunning.')
                 assoc['gwas'] = self.run_gwas(covars=True)
-            
+
             # if pca called and no covars pass, defult to pca
             elif os.path.isfile(f'{self.out_path}.eigenvec') and (self.covar_path is None):
                 self.covar_path = f'{self.out_path}.eigenvec'
                 assoc['gwas'] = self.run_gwas(covars=True)
-            
+
             # otherwise run GWAS with no covars
             else:
                 assoc['gwas'] = self.run_gwas(covars=False)
-        
+
         return assoc
