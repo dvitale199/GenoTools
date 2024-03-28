@@ -425,7 +425,7 @@ class SampleQC:
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
-        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {grm1}'
+        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {grm1}'
         # create table of related pairs
         king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
