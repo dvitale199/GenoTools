@@ -80,7 +80,7 @@ if __name__ == '__main__':
 ---
 
 ### LD Exclusion Region File Format (hg38)
-Copy this to a .txt file and pass to the ```prune_ref_panel()``` function in the provided python script:
+Copy this to a .txt file and pass to the ```prune_ref_panel()``` function in the provided Python script:
 ```
 6	24999772	33532223 r1
 6	26726947	26726981 r2
