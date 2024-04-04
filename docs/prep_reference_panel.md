@@ -11,7 +11,7 @@ In order to run the proper pruning steps, as well as use the custom reference pa
 ---
 
 ### Pruning Script
-Please run the following script in order to prune the reference panel for use in the `GenoTools` ancestry model:
+Please run the following script in order to prune the custom reference panel for use in the `GenoTools` ancestry model:
 
 ```python
 import subprocess
