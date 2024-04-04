@@ -96,7 +96,7 @@ Copy this to a .txt file and pass to the ```prune_ref_panel()``` function in the
 ---
 
 ### Preparing the `--ref_labels` File
-In order to render predictions using the new reference panel, the `GenoTools` ancestry module needs information on which ancestry group each sample belongs to. The file passed to the `--ref_labels` flag when running the ancestry module must be tab-delimited, and contain three columns corresponding to FID, IID, and label. Please note this file should not have a header row and the IDs must match those in the .fam file for the process to run correctly. For more information on how to use the `--ref_labels` flag, please see the `train_new_model.md` documentation. Below is an example of how the `--ref_labels` file should look:
+In order to render predictions using the new reference panel, the `GenoTools` ancestry module needs information on which ancestry group each sample belongs to. The file passed to the `--ref_labels` flag when running the ancestry module must be tab-delimited, and contain three columns corresponding to `FID`, `IID`, and `label`. Please note this file should not have a header row and the IDs must match those in the `.fam` file for the process to run correctly. For more information on how to use the `--ref_labels` flag, please see the `train_new_model.md` documentation. Below is an example of how the `--ref_labels` file should look:
 ```
 FID1    IID1    ANCESTRY1
 FID2    IID2    ANCESTRY2
