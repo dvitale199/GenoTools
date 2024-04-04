@@ -400,6 +400,13 @@ class WholeGenomeSeqQC:
         call_rate_fail_count = call_rate_fail_ids.shape[0]
         call_rate_fail_ids.to_csv(call_rate_fail, sep='\t', header=False, index=False)
 
+        # should we remove the callrate fail samples? (doesn't look like ZH does?)
+        plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {call_rate_fail} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+        shell_do(plink_cmd)
+
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+
         process_complete = True
 
         outfiles_dict = {
@@ -437,7 +444,91 @@ class WholeGenomeSeqQC:
         # utilizes KING software
         # runs --related (like in qc.py)
         # then drops the sample with lower depth (using data from preBqsr file)
-        pass
+        geno_path = self.geno_path
+        out_path = self.out_path
 
+        step = "wgs_related_check"
 
+        # create filenames
+        pre_king = f'{geno_path}_pre_king'
+        kin_est = f'{geno_path}_kin_est'
+        dup_samples = f'{geno_path}.dup_to_exclude'
+
+        plink_cmd = f'{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --make-bed --out {pre_king}'
+
+        king_cmd = f'{king_exec} --prefix {kin_est} -b {pre_king}.bed --related --degree 4 --duplicate'
+
+        cmds = [plink_cmd, king_cmd]
+        for cmd in cmds:
+            shell_do(cmd)
+
+        listOfFiles = [f'{pre_king}.log']
+        # in qc.py sam manually wrote the king log file; should sam do that here as well?
+        concat_logs(step, out_path, listOfFiles)
+
+        # ZH just prints out the within family and across family relationships found
+        # -> doesn't look like she removes relatives
+        # -> only removes duplicates
+        #    - duplicates within same cohort removed
+        #    - duplicates in difference cohorts: core cohort/participants with associated RNAseq prioritized; otherwise higher coverage kept
+
+        # what is .con file?
+        # created from GP2_DUPLICATES in ZH's notebook (but not defined)?
+        if os.path.isfile(f'{kin_est}.con'):
+            process_complete = True
+            dup_table = pd.read_csv(f'{kin_est}.con', sep='\s+')
+            if dup_table.shape[0] != 0:
+                preBqsr_df = pd.read_csv(preBqsr_path, sep='\s+')
+                temp_depth_df = pd.merge(dup_table, preBqsr_df.rename(columns={'AVG_DP':'AVD_DP1'}), left_on='IID1', right_on='participant_id', how='left')
+                depth_df = pd.merge(temp_depth_df, preBqsr_df.rename(columns={'AVD_DP':'AVD_DP2'}), left_on='IID2', right_on='participant_id', how='left')
+                dup = pd.DataFrame(depth_df, columns=['IID1', 'AVG_DP1', 'IID2', 'AVG_DP2'])
+                # get ids of those we want to exclude
+                dup['lower_depth'] = dup[['AVG_DP1', 'AVG_DP2']].idxmin(axis=1).str.replace('AVG_DP', '')
+                dup.loc[dup['lower_depth']=='1', 'dup_samples_to_exclude'] = dup.loc[dup['lower_depth']=='1', 'IID1']
+                dup.loc[dup['lower_depth']=='2', 'dup_samples_to_exclude'] = dup.loc[dup['lower_depth']=='2', 'IID2']
+                dup_sample_ids = dup['dup_samples_to_exclude']
+                dup_sample_ids.to_csv(dup_samples, header=False, index=False)
+                dup_sample_count = dup_sample_ids.shape[0]
+
+                plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {dup_samples} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+                shell_do(plink_cmd)
+
+                listOfFiles = [f'{out_path}.log']
+                concat_logs(step, out_path, listOfFiles)
+
+                outfiles_dict = {
+                    'pruned_samples': f'{dup_samples}',
+                    'plink_out': f'{out_path}',
+                }
+
+                metrics_dict = {
+                    'outlier_count': dup_sample_count
+                }
+
+                out_dict = {
+                    'pass': process_complete,
+                    'step': step,
+                    'metrics': metrics_dict,
+                    'output': outfiles_dict
+                }
+
+            else:
+
+                outfiles_dict = {
+                    'pruned_samples': None,
+                    'plink_out': f'{out_path}',
+                }
+
+                metrics_dict = {
+                    'outlier_count': 0
+                }
+
+                out_dict = {
+                    'pass': process_complete,
+                    'step': step,
+                    'metrics': metrics_dict,
+                    'output': outfiles_dict
+                }
+
+        return out_dict
 
