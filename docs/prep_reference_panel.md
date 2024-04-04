@@ -24,7 +24,7 @@ import numpy as np
 from genotools.dependencies import check_plink, check_plink2
 from genotools.utils import shell_do
 
-def prune_geno(ref_path, ld_path):
+def prune_ref_panel(ref_path, ld_path):
     prune_path = f'{ref_path}_maf_geno_hwe'
     final_path = f'{ref_path}_pruned'
     
@@ -61,15 +61,34 @@ def prune_geno(ref_path, ld_path):
 
 if __name__ == '__main__':
     ref_path = '/path/to/reference/reference/genotypes'
-    ld_path = '/path/to/ld/exclusion/regions'
+    ld_path = '/path/to/ld/exclusion_regions.txt'
 
-    prune_geno(ref_path, ld_path)
+    prune_ref_panel(ref_path, ld_path)
 ```
+
+### Parameters
+- **ref_path**: Path to PLINK 1.9 format reference panel genotype file (before the *.bed/bim/fam).
+- **ld_path**: Path to exclusion regions file in tab-deliminated .txt format (see LD Exclusion Region File Format section).
 
 ---
 
-### Pruning Steps
-1. Find palindrome SNPs from .bim file, and write to
-```python
-{ref_path}_palindromes.snplist
+### Description of Pruning Steps
+1. Find palindrome SNPs from .bim file, and write to ```{ref_path}_palindromes.snplist```.
+2. Prune reference genotypes for ```--maf```, ```--geno```, ```--hwe```, and linkage disequilibrium, as well as removing the previously identified palindrome SNPs.
+3. Exclude high-LD regions from reference genotypes.
+
+---
+
+### LD Exclusion Region File Format (hg38)
+Copy this to a .txt file and pass to the ```prune_ref_panel()``` function in the provided python script:
+```
+6	24999772	33532223 r1
+6	26726947	26726981 r2
+8	8142478	12142491 r3
+20	28534739	28534795 r4
+11	50809938	50809993 r5
+2	94531009	94531062 r6
+11	54525074	55026708 r7
+12	34504916	34504974 r8
+11	55104000	55104074 r9
 ```
