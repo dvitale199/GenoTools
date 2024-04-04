@@ -10,7 +10,7 @@ In order to run the proper pruning steps, as well as use the custom reference pa
 
 ---
 
-### Pruning Steps
+### Pruning Script
 Please run the following script in order to prune the reference panel for use in the `GenoTools` ancestry model:
 
 ```python
@@ -65,3 +65,8 @@ if __name__ == '__main__':
 
     prune_geno(ref_path, ld_path)
 ```
+
+---
+
+### Pruning Steps
+1. Find palindrome SNPs from .bim file, and write to ```python {ref_path}_palindromes.snplist```
