@@ -1,12 +1,12 @@
 # GenoTools Reference Panel Preparation
 
 ## Overview
-This documentation provides a detailed description of how to prepare a reference panel for use in the `GenoTools` ancestry module. Preparing a custom reference panel will allow for the prediction of samples within ancestry groups outside of the 11 provided by the default reference panel.
+This documentation provides a detailed description of how to prepare a reference panel for use in the `GenoTools` ancestry module. Preparing a custom reference panel will allow for the prediction of samples within ancestry groups outside of the 11 included in the provided reference panel.
 
 ---
 
 ### Format
-In order to run the proper pruning steps, as well as use the custom reference panel in the ancestry module, please make sure the reference genotypes are in PLINK1.9 binary format (.bed/.bim/.fam): https://www.cog-genomics.org/plink/1.9/formats
+In order to run the proper pruning steps, as well as use the custom reference panel in the ancestry module, please make sure the reference genotypes are in PLINK1.9 binary format (.bed/.bim/.fam): https://www.cog-genomics.org/plink/1.9/formats. In addition, you will need to create a tab-delimited file containing the sample IDs as well as the reference ancestry groups (see Preparing the `--ref_labels` File section).
 
 ---
 
@@ -68,7 +68,7 @@ if __name__ == '__main__':
 
 ### Parameters
 - **ref_path**: Path to PLINK 1.9 format reference panel genotype file (before the *.bed/bim/fam).
-- **ld_path**: Path to exclusion regions file in tab-deliminated .txt format (see LD Exclusion Region File Format section).
+- **ld_path**: Path to exclusion regions file in tab-delimited .txt format (see LD Exclusion Region File Format section).
 
 ---
 
@@ -91,4 +91,15 @@ Copy this to a .txt file and pass to the ```prune_ref_panel()``` function in the
 11	54525074	55026708 r7
 12	34504916	34504974 r8
 11	55104000	55104074 r9
+```
+
+---
+
+### Preparing the `--ref_labels` File
+In order to render predictions using the new reference panel, the `GenoTools` ancestry module needs information on which ancestry group each sample belongs to. The file passed to the `--ref_labels` flag when running the ancestry module must be tab-delimited, and contain three columns corresponding to FID, IID, and label. Please note this file should not have a header row and the IDs must match those in the .fam file for the process to run correctly. For more information on how to use the `--ref_labels` flag, please see the `train_new_model.md` documentation. Below is an example of how the `--ref_labels` file should look:
+```
+FID1    IID1    ANCESTRY1
+FID2    IID2    ANCESTRY2
+FID3    IID3    ANCESTRY2
+FID4    IID4    ANCESTRY3
 ```
