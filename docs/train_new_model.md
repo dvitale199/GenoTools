@@ -2,7 +2,7 @@
 
 ## Overview
 This documentation provides a detailed description of how to train a new model with the `GenoTools` ancestry module. There are two main use cases for training a new model:
-    1. When none of the available pretrained models are suited for your data but you would like to use the provided reference panel.
+    1. When none of the available pretrained models are suited for your data but you would like to use the provided reference panel and
     2. When you want to train a model using a new reference panel with different ancestry groups than those available through the provided reference panel.
 For the second use case, please see the `prep_reference_panel.md` documentation on how to properly prepare that reference panel for use in the ancestry module.
 
