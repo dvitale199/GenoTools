@@ -69,5 +69,7 @@ if __name__ == '__main__':
 ---
 
 ### Pruning Steps
-1. Find palindrome SNPs from .bim file, and write to ```python
-{ref_path}_palindromes.snplist```
+1. Find palindrome SNPs from .bim file, and write to
+```python
+{ref_path}_palindromes.snplist
+```
