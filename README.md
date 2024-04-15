@@ -1,4 +1,5 @@
 # GenoTools
+## The preprint is out: https://www.biorxiv.org/content/10.1101/2024.03.26.586362v1.full.pdf
 [![DOI](https://zenodo.org/badge/337965715.svg)](https://zenodo.org/doi/10.5281/zenodo.10443257)
 
 ## Documentation
