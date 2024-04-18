@@ -143,7 +143,7 @@ def handle_main():
     if (len(run_steps_list) == 0) and (not args_dict['ancestry']):
         raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
     else:
-        print(f'Output steps: {run_steps_list[-1]}')
+        print(f'Post-Ancestry Steps: {run_steps_list}')
 
     # create tmp dir
     out_dir = os.path.dirname(args_dict['out'])
