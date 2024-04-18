@@ -35,7 +35,7 @@ def handle_main():
     from genotools.qc import SampleQC, VariantQC
     from genotools.ancestry import Ancestry
     from genotools.gwas import Assoc
-    from genotools.pipeline import execute_pipeline, build_metrics_pruned_df
+    from genotools.pipeline import execute_ancestry_predictions, execute_pipeline, build_metrics_pruned_df
 
     # initialize classes
     samp_qc = SampleQC()
@@ -44,7 +44,7 @@ def handle_main():
     assoc = Assoc()
 
     # ordered steps with their methods to be called
-    ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
+    ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
                     'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
                     'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
                     'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
@@ -149,8 +149,19 @@ def handle_main():
     out_dir = os.path.dirname(args_dict['out'])
     tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir=out_dir)
 
-    # run pipeline
-    out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
+    # if ancestry is called, run ancestry
+    if args_dict['ancestry']:
+        ancestry_dict = execute_ancestry_predictions(args_dict['geno_path'], args_dict['out'], args_dict, ancestry, tmp_dir)
+
+        for label in ancestry_dict:
+            args_dict['geno_path'] = f'{args_dict["geno_path"]}_{label}'
+            args_dict['out'] = f'{args_dict["out"]}_{label}'
+
+            ancestry_dict[label] = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
+
+    # otherwise, run pipeline
+    else:
+        out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
 
     # build output
     clean_out_dict = dict()
