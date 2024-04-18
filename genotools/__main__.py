@@ -140,7 +140,7 @@ def handle_main():
                 run_steps_list.append('assoc')
 
     # check run steps and output step
-    if len(run_steps_list) == 0:
+    if (len(run_steps_list) == 0) and (not args_dict['ancestry']):
         raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
     else:
         print(f'Output steps: {run_steps_list[-1]}')
