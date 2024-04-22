@@ -105,12 +105,7 @@ def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
     ancestry.subset = args['subset_ancestry']
     ancestry.min_samples = args['min_samples']
     
-    out_dict = ancestry.run_ancestry()
-
-    ancestry_dict = dict()
-
-    for label in out_dict['data']['labels_list']:
-        ancestry_dict[label] = None
+    ancestry_dict = ancestry.run_ancestry()
 
     return ancestry_dict
 
