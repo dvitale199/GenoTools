@@ -138,6 +138,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
         step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
         step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
         print(f'Running: {step} with input {step_input} and output: {step_output}')
+        step_paths.append(step_output)
 
         # # ancestry setup and call
         # if step == 'ancestry':
