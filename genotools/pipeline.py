@@ -125,11 +125,6 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
         out_path_name = out_path_pathlib.name
         step_paths = [f'{tmp_dir.name}/{out_path_name}']
 
-    # if first step is ancestry, make new steps list to call within-ancestry
-    if steps[0] == 'ancestry':
-        steps_ancestry = steps[1:]
-        steps = [steps[0]]
-
     out_dict = dict()
 
     # loop through steps
@@ -139,43 +134,6 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
         step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
         print(f'Running: {step} with input {step_input} and output: {step_output}')
         step_paths.append(step_output)
-
-        # # ancestry setup and call
-        # if step == 'ancestry':
-        #     # output goes to out_path if no steps requested after ancestry, otherwise put in at out_path_ancestry (for tmps)
-        #     step_output = f'{step_paths[-1]}_{step}' if len(steps_ancestry) > 0 else out_path
-        #     step_paths.append(step_output)
-
-        #     ancestry.geno_path = step_input
-        #     ancestry.out_path = step_output
-        #     ancestry.ref_panel = args['ref_panel']
-        #     ancestry.ref_labels = args['ref_labels']
-        #     ancestry.model_path = args['model']
-        #     ancestry.containerized = args['container']
-        #     ancestry.singularity = args['singularity']
-        #     ancestry.cloud = args['cloud']
-        #     ancestry.cloud_model = args['cloud_model']
-        #     ancestry.subset = args['subset_ancestry']
-        #     ancestry.min_samples = args['min_samples']
-        #     out_dict[step] = steps_dict[step]()
-
-        #     # call ancestry specific steps within each group
-        #     if len(steps_ancestry) > 0:
-        #         for geno, label in zip(out_dict[step]['output']['split_paths'], out_dict[step]['data']['labels_list']):
-        #             out_dict[label] = execute_pipeline(steps_ancestry, steps_dict, geno, f'{out_path}_{label}', samp_qc, var_qc, ancestry, assoc, args, tmp_dir)
-
-        # else:
-        #     # if warn is True and step input doesn't exist print error and reset step input
-        #     if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')) and (len(step_paths) > 1):
-        #         warnings.warn(f'{step_input}.pgen was not created. Continuing to next step...', stacklevel=2)
-        #         step_input = f'{step_paths[-2]}' if step != steps[1] else geno_path
-
-        #         step_output = f'{step_paths[-2]}_{step}' if step != steps[-1] else out_path
-        #         step_paths.append(step_output)
-
-        #     # otherwise keep track of paths
-        #     else:
-        #         step_paths.append(step_output)
 
         # samp qc setup and call
         if step in samp_steps:

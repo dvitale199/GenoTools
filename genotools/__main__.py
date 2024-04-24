@@ -139,11 +139,9 @@ def handle_main():
             if ((key == 'pca') or (key == 'gwas')) and ('assoc' not in run_steps_list):
                 run_steps_list.append('assoc')
 
-    # check run steps and output step
+    # check run steps
     if (len(run_steps_list) == 0) and (not args_dict['ancestry']):
         raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
-    # else:
-    #     print(f'Post-Ancestry Steps: {run_steps_list}')
 
     # create tmp dir
     out_dir = os.path.dirname(args_dict['out'])
@@ -233,21 +231,6 @@ def handle_main():
             
             else:
                 clean_out_dict[df] = output_dfs[df].to_dict()
-
-    # for df in [metrics_df, pruned_df, gwas_df, related_df]:
-    #     if not df.empty:
-    #         clean_out_dict['QC'] = metrics_df.to_dict()
-    #         clean_out_dict['GWAS'] = gwas_df.to_dict()
-
-    #         if 'ancestry_labels' in list(clean_out_dict.keys()):
-    #             labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
-    #             labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
-
-    #             ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
-    #             full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
-    #             clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
-    #         else:
-    #             clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:
