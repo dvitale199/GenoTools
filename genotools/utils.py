@@ -75,12 +75,18 @@ def bfiles_to_pfiles(bfile_path=None, pfile_path=None):
         convert_cmd = f'{plink2_exec} --bfile {bfile_path} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {bfile_path}'
         shell_do(convert_cmd)
 
+        if os.path.isfile(f'{bfile_path}.log'):
+            os.remove(f'{bfile_path}.log')
+
     else:
         if not os.path.isfile(f'{pfile_path}.pgen'):
             raise FileNotFoundError(f'{pfile_path} does not exist.')
 
         convert_cmd = f'{plink2_exec} --pfile {pfile_path} --make-bed --out {pfile_path}'
         shell_do(convert_cmd)
+
+        if os.path.isfile(f'{pfile_path}.log'):
+            os.remove(f'{pfile_path}.log')
 
 
 def vcf_to_pfiles(vcf_path):
