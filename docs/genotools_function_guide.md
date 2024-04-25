@@ -111,7 +111,7 @@ Executes sex-based pruning on genotype data using PLINK.
 ## run_het_prune
 
 ```python
-run_het_prune(self, het_threshold=0.1)
+run_het_prune(self, het_filter=[-0.25,0.25])
 ```
 
 ### Description
@@ -120,7 +120,7 @@ Executes heterozygosity-based pruning on genotype data using PLINK.
 
 ### Parameters
 
-- **het_threshold**: Threshold for acceptable heterozygosity rate. Defaults to 0.1 (10%).
+- **het_filter**: Threshold for acceptable heterozygosity rate. Defaults to [-0.25,0.25].
 
 ### Returns
 
