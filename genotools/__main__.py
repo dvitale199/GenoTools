@@ -35,7 +35,7 @@ def handle_main():
     from genotools.qc import SampleQC, VariantQC
     from genotools.ancestry import Ancestry
     from genotools.gwas import Assoc
-    from genotools.pipeline import execute_pipeline, build_metrics_pruned_df
+    from genotools.pipeline import execute_ancestry_predictions, execute_pipeline, build_metrics_pruned_df
 
     # initialize classes
     samp_qc = SampleQC()
@@ -44,7 +44,7 @@ def handle_main():
     assoc = Assoc()
 
     # ordered steps with their methods to be called
-    ordered_steps =  {'ancestry':ancestry.run_ancestry,'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
+    ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
                     'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
                     'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
                     'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
@@ -139,18 +139,33 @@ def handle_main():
             if ((key == 'pca') or (key == 'gwas')) and ('assoc' not in run_steps_list):
                 run_steps_list.append('assoc')
 
-    # check run steps and output step
-    if len(run_steps_list) == 0:
+    # check run steps
+    if (len(run_steps_list) == 0) and (not args_dict['ancestry']):
         raise KeyError('No main Ancestry, QC, or GWAS flags were used.')
-    else:
-        print(f'Output steps: {run_steps_list[-1]}')
 
     # create tmp dir
     out_dir = os.path.dirname(args_dict['out'])
     tmp_dir = tempfile.TemporaryDirectory(suffix='_tmp', prefix='.', dir=out_dir)
 
-    # run pipeline
-    out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, ancestry=ancestry, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
+    # create empty output dictionary
+    out_dict = dict()
+
+    # if ancestry is called, run ancestry
+    if args_dict['ancestry']:
+        if len(run_steps_list) == 0:
+            out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], args_dict['out'], args_dict, ancestry, tmp_dir)
+        else:
+            out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], f'{args_dict["geno_path"]}_ancestry', args_dict, ancestry, tmp_dir)
+
+            for label in out_dict['ancestry']['data']['labels_list']:
+                geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
+                out = f'{args_dict["out"]}_{label}'
+
+                out_dict[label] = execute_pipeline(run_steps_list, ordered_steps, geno_path, out, samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
+
+    # otherwise, run pipeline
+    else:
+        out_dict = execute_pipeline(run_steps_list, ordered_steps, args_dict['geno_path'], args_dict['out'], samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
 
     # build output
     clean_out_dict = dict()
@@ -187,7 +202,7 @@ def handle_main():
         clean_out_dict['ref_umap'] = out_dict['ancestry']['data']['ref_umap'].to_dict()
         clean_out_dict['new_samples_umap'] = out_dict['ancestry']['data']['new_samples_umap'].to_dict()
 
-        for ancestry in ['AFR', 'SAS', 'EAS', 'EUR', 'AMR', 'AJ', 'CAS', 'MDE', 'FIN', 'AAC', 'CAH']:
+        for ancestry in out_dict['ancestry']['data']['labels_list']:
             if ancestry in out_dict.keys():
                 metrics_df, pruned_df, gwas_df, related_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, related_df=related_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
 
@@ -216,21 +231,6 @@ def handle_main():
             
             else:
                 clean_out_dict[df] = output_dfs[df].to_dict()
-
-    # for df in [metrics_df, pruned_df, gwas_df, related_df]:
-    #     if not df.empty:
-    #         clean_out_dict['QC'] = metrics_df.to_dict()
-    #         clean_out_dict['GWAS'] = gwas_df.to_dict()
-
-    #         if 'ancestry_labels' in list(clean_out_dict.keys()):
-    #             labels = pd.DataFrame(clean_out_dict['ancestry_labels'])
-    #             labeled_pruned_df = pruned_df.merge(labels[['FID','IID','label']], how='left', on=['FID','IID'])
-
-    #             ancestry_pruned_df = out_dict['ancestry']['data']['pruned_samples']
-    #             full_labeled_pruned_df = pd.concat([ancestry_pruned_df, labeled_pruned_df], axis=0, ignore_index=True)
-    #             clean_out_dict['pruned_samples'] = full_labeled_pruned_df.to_dict()
-    #         else:
-    #             clean_out_dict['pruned_samples'] = pruned_df.to_dict()
 
     # dump output to json
     with open(f'{args_dict["out"]}.json', 'w') as f:

@@ -1096,7 +1096,7 @@ class Ancestry:
             trained_clf, pred = self.get_containerized_predictions(
                 X_test=calc_pcs['X_test'],
                 y_test=train_split['y_test'],
-                projected=calc_pcs['new_samples_projected'],
+                projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 label_encoder=train_split['label_encoder'],
                 train_pca=calc_pcs['labeled_train_pca']
             )
@@ -1105,7 +1105,7 @@ class Ancestry:
             trained_clf, pred = self.get_cloud_predictions(
                 X_test=calc_pcs['X_test'],
                 y_test=train_split['y_test'],
-                projected=calc_pcs['new_samples_projected'],
+                projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 label_encoder=train_split['label_encoder'],
                 train_pca=calc_pcs['labeled_train_pca']
             )
@@ -1127,7 +1127,7 @@ class Ancestry:
                 )
 
             pred = self.predict_ancestry_from_pcs(
-                projected=calc_pcs['new_samples_projected'],
+                projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 pipe_clf=trained_clf['classifier'],
                 label_encoder=train_split['label_encoder'],
                 train_pca=calc_pcs['labeled_train_pca']
