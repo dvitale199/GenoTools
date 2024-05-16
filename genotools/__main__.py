@@ -213,7 +213,7 @@ def handle_main():
                     clean_out_dict[df] = full_labeled_pruned_df.to_dict()
                 else:
                     clean_out_dict[df] = output_dfs[df].to_dict()
-            
+
             else:
                 clean_out_dict[df] = output_dfs[df].to_dict()
 
