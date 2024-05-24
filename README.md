@@ -47,6 +47,7 @@ genotools \
   --all_sample \
   --all_variant
 ```
+This will find common snps between your genotype data and the reference panel, run PCA, UMAP-transform PCs, and train a new XGBoost classifier specific to your data/ref panel.
 
 if you'd like to run the pipeline using an existing model, you can do that like so (take note of the `--model` option):
 ```
@@ -74,8 +75,6 @@ genotools \
   --all_variant
 ```
 Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
-
-This will find common snps between your genotype data and the reference panel, run PCA, UMAP-transform PCs, and train a new XGBoost classifier specific to your data/ref panel.
 
 genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 
