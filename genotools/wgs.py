@@ -300,104 +300,107 @@ class WholeGenomeSeqQC:
 
         return out_dict
 
+    '''
+    ZH plans on using the sampleQC het method instead of this one
+    => call sampleQC's het within wgs pipeline
+    '''
+    # def run_het_check(self):
+    #     # can we use the method in qc.py file?
+    #     # or do we want to do per chr method here?
+    #     # TAKES IN GP2_1KG_BFILES_PATH and GP2_BFILES_PATH? whats the difference between
+    #     # ZH has three different criteria for checking het
+    #     # 1) F cutoff > 0.15 and < -0.15
+    #     # 2) F cutoff > 0.25 and < -0.25
+    #     # 3) mean(F) + 3SD(F)
+    #     geno_path = self.geno_path
+    #     out_path = self.out_path
 
-    def run_het_check(self):
-        # can we use the method in qc.py file?
-        # or do we want to do per chr method here?
-        # TAKES IN GP2_1KG_BFILES_PATH and GP2_BFILES_PATH? whats the difference between
-        # ZH has three different criteria for checking het
-        # 1) F cutoff > 0.15 and < -0.15
-        # 2) F cutoff > 0.25 and < -0.25
-        # 3) mean(F) + 3SD(F)
-        geno_path = self.geno_path
-        out_path = self.out_path
+    #     step = "wgs_het_check"
 
-        step = "wgs_het_check"
+    #     # create filenames
+    #     # are some of these just temp files? should we use temp file names and then remove?
+    #     het_var_list = f'{out_path}_het_variant_list'
+    #     het_vars = f'{out_path}_het_variants'
+    #     het_test = f'{out_path}_het_test'
+    #     het_outliers1 = f'{out_path}.het_outliers1'
+    #     het_outliers2 = f'{out_path}.het_outliers2'
+    #     het_out = f'{out_path}.het_out'
 
-        # create filenames
-        # are some of these just temp files? should we use temp file names and then remove?
-        het_var_list = f'{out_path}_het_variant_list'
-        het_vars = f'{out_path}_het_variants'
-        het_test = f'{out_path}_het_test'
-        het_outliers1 = f'{out_path}.het_outliers1'
-        het_outliers2 = f'{out_path}.het_outliers2'
-        het_out = f'{out_path}.het_out'
+    #     # create heterozygous variant list
+    #     # ZH specifies number of threads here? --threads 2
+    #     plink_cmd1 = f'{plink_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --hwe 1E-4 --indep-pairwise 50 5 0.5 --out {het_var_list}'
 
-        # create heterozygous variant list
-        # ZH specifies number of threads here? --threads 2
-        plink_cmd1 = f'{plink_exec} --bfile {geno_path} --geno 0.01 --maf 0.05 --hwe 1E-4 --indep-pairwise 50 5 0.5 --out {het_var_list}'
+    #     # extract heterozygous variants from input geno files
+    #     # ZH specifies memory and threads here? --memory 20000 --threads 4
+    #     plink_cmd2 = f'{plink_exec} --bfile {geno_path} --extract {het_var_list}.prune.in --make-bed --out {het_vars}'
 
-        # extract heterozygous variants from input geno files
-        # ZH specifies memory and threads here? --memory 20000 --threads 4
-        plink_cmd2 = f'{plink_exec} --bfile {geno_path} --extract {het_var_list}.prune.in --make-bed --out {het_vars}'
+    #     # generate heterozygosity test results
+    #     # ZH specifies threads here? --threads 2
+    #     plink_cmd3 = f'{plink_exec} --bfile {geno_path} --het --out {het_test}'
 
-        # generate heterozygosity test results
-        # ZH specifies threads here? --threads 2
-        plink_cmd3 = f'{plink_exec} --bfile {geno_path} --het --out {het_test}'
+    #     cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
+    #     for cmd in cmds:
+    #         shell_do(cmd)
 
-        cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
-        for cmd in cmds:
-            shell_do(cmd)
+    #     listOfFiles = [f'{het_var_list}.log', f'{het_vars}.log', f'{het_test}.log']
+    #     concat_logs(step, out_path, listOfFiles)
 
-        listOfFiles = [f'{het_var_list}.log', f'{het_vars}.log', f'{het_test}.log']
-        concat_logs(step, out_path, listOfFiles)
+    #     # ZH does some manual checking/file creation here with awk
+    #     # outputs het outliers outside of (-0.15, 0.15) to 1kg_HETEROZYGOSITY_OUTLIERS1.txt
+    #     # outputs het outliers outside of (-0.25, 0.25) to 1kg_HETEROZYGOSITY_OUTLIERS2.txt
+    #     het_df = pd.read_csv(f'{het_test}.het', sep='\s+')
+    #     het_outliers1_df = het_df[(het_df.F <= -0.15) & (het_df.F >= 0.15)]
+    #     het_outliers1_ids = het_outliers1_df[['FID', 'IID']]
+    #     het_outliers1_count = het_outliers1_df.shape[0]
+    #     het_outliers1_ids.to_csv(f'{het_outliers1}', sep='\t', header=False, index=False)
+    #     het_outliers2_df = het_df[(het_df.F <= -0.25) & (het_df.F >= 0.25)]
+    #     het_outliers2_ids = het_outliers2_df[['FID', 'IID']]
+    #     het_outliers2_count = het_outliers2_df.shape[0]
+    #     het_outliers2_ids.to_csv(f'{het_outliers2}', sep='\t', header=False, index=False)
 
-        # ZH does some manual checking/file creation here with awk
-        # outputs het outliers outside of (-0.15, 0.15) to 1kg_HETEROZYGOSITY_OUTLIERS1.txt
-        # outputs het outliers outside of (-0.25, 0.25) to 1kg_HETEROZYGOSITY_OUTLIERS2.txt
-        het_df = pd.read_csv(f'{het_test}.het', sep='\s+')
-        het_outliers1_df = het_df[(het_df.F <= -0.15) & (het_df.F >= 0.15)]
-        het_outliers1_ids = het_outliers1_df[['FID', 'IID']]
-        het_outliers1_count = het_outliers1_df.shape[0]
-        het_outliers1_ids.to_csv(f'{het_outliers1}', sep='\t', header=False, index=False)
-        het_outliers2_df = het_df[(het_df.F <= -0.25) & (het_df.F >= 0.25)]
-        het_outliers2_ids = het_outliers2_df[['FID', 'IID']]
-        het_outliers2_count = het_outliers2_df.shape[0]
-        het_outliers2_ids.to_csv(f'{het_outliers2}', sep='\t', header=False, index=False)
+    #     check1 = het_df['F'].mean() + (3*het_df['F'].std())
+    #     check2 = het_df['F'].mean() - (3*het_df['F'].std())
+    #     het_outlier_df = het_df.loc[(het_df['F'] >= check1) | (het_df['F'] <= check2)]
+    #     het_outlier_ids = het_outlier_df['IID']
+    #     het_outlier_count = het_outlier_ids.shape[0]
+    #     het_outlier_ids.to_csv(het_out, sep='\t', header=False, index=False)
 
-        check1 = het_df['F'].mean() + (3*het_df['F'].std())
-        check2 = het_df['F'].mean() - (3*het_df['F'].std())
-        het_outlier_df = het_df.loc[(het_df['F'] >= check1) | (het_df['F'] <= check2)]
-        het_outlier_ids = het_outlier_df['IID']
-        het_outlier_count = het_outlier_ids.shape[0]
-        het_outlier_ids.to_csv(het_out, sep='\t', header=False, index=False)
+    #     out_dict_key = 'flagged_samples'
 
-        out_dict_key = 'flagged_samples'
+    #     # PER ZH: 'heterozygosity outliers MAY be failures and should be examined for ravial bias'
+    #     # do we want to remove het outliers?
+    #     if not self.keep_all:
+    #         plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {het_out} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+    #         shell_do(plink_cmd)
 
-        # PER ZH: 'heterozygosity outliers MAY be failures and should be examined for ravial bias'
-        # do we want to remove het outliers?
-        if not self.keep_all:
-            plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {het_out} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
-            shell_do(plink_cmd)
+    #         listOfFiles = [f'{out_path}.log']
+    #         concat_logs(step, out_path, listOfFiles)
 
-            listOfFiles = [f'{out_path}.log']
-            concat_logs(step, out_path, listOfFiles)
+    #         out_dict_key = 'pruned_samples'
 
-            out_dict_key = 'pruned_samples'
+    #     process_complete = True
 
-        process_complete = True
+    #     outfiles_dict = {
+    #         out_dict_key: f'{het_out}',
+    #         'outliers1' : f'{het_outliers1}',
+    #         'outliers2' : f'{het_outliers2}',
+    #         'plink_out': f'{out_path}',
+    #     }
 
-        outfiles_dict = {
-            out_dict_key: f'{het_out}',
-            'outliers1' : f'{het_outliers1}',
-            'outliers2' : f'{het_outliers2}',
-            'plink_out': f'{out_path}',
-        }
+    #     metrics_dict = {
+    #         'outlier_count': het_outlier_count,
+    #         'outliers1_count': het_outliers1_count,
+    #         'outliers2_count': het_outliers2_count
+    #     }
 
-        metrics_dict = {
-            'outlier_count': het_outlier_count,
-            'outliers1_count': het_outliers1_count,
-            'outliers2_count': het_outliers2_count
-        }
+    #     out_dict = {
+    #         'pass': process_complete,
+    #         'step': step,
+    #         'metrics': metrics_dict,
+    #         'output': outfiles_dict
+    #     }
 
-        out_dict = {
-            'pass': process_complete,
-            'step': step,
-            'metrics': metrics_dict,
-            'output': outfiles_dict
-        }
-
-        return out_dict
+    #     return out_dict
 
 
     def run_check_callrate(self):
@@ -419,26 +422,6 @@ class WholeGenomeSeqQC:
         call_rates = f'{geno_path}_call_rates'
         call_rate_fail = f'{geno_path}.callrate_fail'
 
-        # # split by chr (if n autosomes, n+1 is the X chromosome, n+2 is Y, n+3 is XY, and n+4 is MT per plink2)
-        # per_chr_callrate = dict()
-        # for chr in range(1,27):
-        #     plink_cmd1 = f'{plink2_exec} --pfile {geno_path} --chr {chr} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {geno_path}_{chr}'
-
-        #     # ZH specifies threads here? --threads 4
-        #     plink_cmd2 = f'{plink2_exec} --pfile {geno_path}_{chr} --missing --out {call_rates}_{chr}'
-
-        #     cmds = [plink_cmd1, plink_cmd2]
-        #     for cmd in cmds:
-        #         shell_do(cmd)
-
-        #     listOfFiles = [f'{geno_path}_{chr}.log', f'{call_rates}_{chr}.log']
-        #     concat_logs(step, out_path, listOfFiles)
-
-        #     # store per sample callrates by chromosome
-        #     # why use .smiss file from --missing instead of --mind (like in qc.py)?
-        #     callrate_df = pd.read_csv(f'{call_rates}_{chr}.smiss', sep='\s+')
-        #     callrate_df[f'callrate_{chr}'] = 1 - callrate_df.F_MISS
-        #     per_chr_callrate[chr] = callrate_df[['IID', f'callrate_{chr}']].set_index('IID')
         plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {call_rates}'
         shell_do(plink_cmd)
 
@@ -447,13 +430,6 @@ class WholeGenomeSeqQC:
 
         callrate_df = pd.read_csv(f'{call_rates}.smiss', sep='\s+')
         callrate_df['callrate'] = 1 - callrate_df.F_MISS
-
-        # merge all callrates/chr together
-        # get average across all chromosomes per sample
-        # callrate_dfs = list(per_chr_callrate.values())
-        # one_callrate_df = callrate_dfs.pop(0)
-        # all_callrate_df = one_callrate_df.join(callrate_dfs, how='outer')
-        # all_callrate_df['callrate'] = all_callrate_df.mean()
 
         # count sample as fail if average callrate across all chr is less than 0.95
         call_rate_fail_ids = callrate_df[callrate_df.callrate < 0.95]['IID']
@@ -487,6 +463,8 @@ class WholeGenomeSeqQC:
 
         return out_dict
 
+    def run_merge_sample_callrates(self, list_of_shards):
+        pass
 
     def run_sex_check(self):
         # can we use the method in qc.py file?
