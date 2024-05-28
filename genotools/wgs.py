@@ -150,6 +150,7 @@ class WholeGenomeSeqQC:
         step = "wgs_filter_prune"
 
         # Does ZH manually check something by creating a 'CHECK' col?
+        preBqsr = pd.read_csv(preBqsr_path, sep='\s+')
         preBqsr['CHECK'] = preBqsr.FREELK1 - preBqsr.FREELK0
         preBqsr = preBqsr[['sample_id', 'AVG_DP', 'FREEMIX', 'FREELK1', 'FREELK0', 'CHECK']]
 
@@ -161,7 +162,7 @@ class WholeGenomeSeqQC:
         freemix_flagged_df = preBqsr[preBqsr.FREEMIX >= 0.03]
         freemix_flagged_ids = freemix_flagged_df['sample_id']
         freemix_flagged_count = freemix_flagged_ids.shape[0]
-        freemix_flagged.to_csv(freemix_flagged, sep='\t', header=False, index=False)
+        freemix_flagged_df.to_csv(freemix_flagged, sep='\t', header=False, index=False)
 
         # PER ZH: 'Problem samples MAY be failures and should be removed if CHECK value is large (need to define limits)'
         # TODO: define CHECK limit (arbitrarily set as 1e6 for now)
@@ -418,44 +419,53 @@ class WholeGenomeSeqQC:
         call_rates = f'{geno_path}_call_rates'
         call_rate_fail = f'{geno_path}.callrate_fail'
 
-        # split by chr (if n autosomes, n+1 is the X chromosome, n+2 is Y, n+3 is XY, and n+4 is MT per plink2)
-        per_chr_callrate = dict()
-        for chr in range(1,27):
-            plink_cmd1 = f'{plink2_exec} --pfile {geno_path} --chr {chr} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {geno_path}_{chr}'
+        # # split by chr (if n autosomes, n+1 is the X chromosome, n+2 is Y, n+3 is XY, and n+4 is MT per plink2)
+        # per_chr_callrate = dict()
+        # for chr in range(1,27):
+        #     plink_cmd1 = f'{plink2_exec} --pfile {geno_path} --chr {chr} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {geno_path}_{chr}'
 
-            # ZH specifies threads here? --threads 4
-            plink_cmd2 = f'{plink2_exec} --pfile {geno_path}_{chr} --missing --out {call_rates}_{chr}'
+        #     # ZH specifies threads here? --threads 4
+        #     plink_cmd2 = f'{plink2_exec} --pfile {geno_path}_{chr} --missing --out {call_rates}_{chr}'
 
-            cmds = [plink_cmd1, plink_cmd2]
-            for cmd in cmds:
-                shell_do(cmd)
+        #     cmds = [plink_cmd1, plink_cmd2]
+        #     for cmd in cmds:
+        #         shell_do(cmd)
 
-            listOfFiles = [f'{geno_path}_{chr}.log', f'{call_rates}_{chr}.log']
-            concat_logs(step, out_path, listOfFiles)
+        #     listOfFiles = [f'{geno_path}_{chr}.log', f'{call_rates}_{chr}.log']
+        #     concat_logs(step, out_path, listOfFiles)
 
-            # store per sample callrates by chromosome
-            # why use .smiss file from --missing instead of --mind (like in qc.py)?
-            callrate_df = pd.read_csv(f'{call_rates}_{chr}.smiss', sep='\s+')
-            callrate_df[f'callrate_{chr}'] = 1 - callrate_df.F_MISS
-            per_chr_callrate[chr] = callrate_df[['IID', f'callrate_{chr}']].set_index('IID')
+        #     # store per sample callrates by chromosome
+        #     # why use .smiss file from --missing instead of --mind (like in qc.py)?
+        #     callrate_df = pd.read_csv(f'{call_rates}_{chr}.smiss', sep='\s+')
+        #     callrate_df[f'callrate_{chr}'] = 1 - callrate_df.F_MISS
+        #     per_chr_callrate[chr] = callrate_df[['IID', f'callrate_{chr}']].set_index('IID')
+        plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {call_rates}'
+        shell_do(plink_cmd)
+
+        listOfFiles = [f'{call_rates}.log']
+        concat_logs(step, out_path, listOfFiles)
+
+        callrate_df = pd.read_csv(f'{call_rates}.smiss', sep='\s+')
+        callrate_df['callrate'] = 1 - callrate_df.F_MISS
 
         # merge all callrates/chr together
         # get average across all chromosomes per sample
-        callrate_dfs = list(per_chr_callrate.values())
-        one_callrate_df = callrate_dfs.pop(0)
-        all_callrate_df = one_callrate_df.join(callrate_dfs, how='outer')
-        all_callrate_df['callrate'] = all_callrate_df.mean()
+        # callrate_dfs = list(per_chr_callrate.values())
+        # one_callrate_df = callrate_dfs.pop(0)
+        # all_callrate_df = one_callrate_df.join(callrate_dfs, how='outer')
+        # all_callrate_df['callrate'] = all_callrate_df.mean()
 
         # count sample as fail if average callrate across all chr is less than 0.95
-        call_rate_fail_ids = all_callrate_df[all_callrate_df.callrate < 0.95]['IID']
+        call_rate_fail_ids = callrate_df[callrate_df.callrate < 0.95]['IID']
         call_rate_fail_count = call_rate_fail_ids.shape[0]
         call_rate_fail_ids.to_csv(call_rate_fail, sep='\t', header=False, index=False)
 
-        plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {call_rate_fail} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
-        shell_do(plink_cmd)
+        if not self.keep_all:
+            plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {call_rate_fail} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+            shell_do(plink_cmd)
 
-        listOfFiles = [f'{out_path}.log']
-        concat_logs(step, out_path, listOfFiles)
+            listOfFiles = [f'{out_path}.log']
+            concat_logs(step, out_path, listOfFiles)
 
         process_complete = True
 
