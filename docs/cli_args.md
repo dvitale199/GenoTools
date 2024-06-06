@@ -96,7 +96,7 @@ This documentation provides detailed descriptions of the command-line arguments 
 
 - **`--callrate`**
   - *Type*: `float`
-  - *Default*: 0.5
+  - *Default*: 0.02
   - *Description*: Minimum call rate threshold for sample-level QC.
 
 - **`--sex`**
