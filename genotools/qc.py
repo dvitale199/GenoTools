@@ -416,31 +416,31 @@ class SampleQC:
         if related_cutoff < 0 or related_cutoff > 1 or duplicated_cutoff < 0 or duplicated_cutoff > 1:
             raise ValueError("related_cutoff and duplicated_cutoff should be between 0 and 1.")
 
-        grm1 = f"{out_path}_total_grm"
-        grm2 = f"{out_path}_related_grm"
-        grm3 = f"{out_path}_duplicated_grm"
+        # grm1 = f"{out_path}_total_grm"
+        king1 = f"{out_path}_related_king"
+        king2 = f"{out_path}_duplicated_king"
 
         related_pairs = f"{out_path}_pairs"
         related_out = f"{related_pairs}.related"
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
-        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {grm1}'
+        # king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {grm1}'
         # create table of related pairs
-        king_cmd2 = f'{plink2_exec} --pfile {grm1} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
+        king_cmd1 = f'{plink2_exec} --pfile {geno_path} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
-        king_cmd3 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {related_cutoff} --out {grm2}'
+        king_cmd2 = f'{plink2_exec} --pfile {geno_path} --king-cutoff {related_pairs} {related_cutoff} --out {king1}'
         # see if any samples are duplicated (grm cutoff >= 0.354)
-        king_cmd4 = f'{plink2_exec} --pfile {grm1} --king-cutoff {related_pairs} {duplicated_cutoff} --out {grm3}'
+        king_cmd3 = f'{plink2_exec} --pfile {geno_path} --king-cutoff {related_pairs} {duplicated_cutoff} --out {king2}'
 
-        cmds = [king_cmd1, king_cmd2, king_cmd3, king_cmd4]
+        cmds = [king_cmd1, king_cmd2, king_cmd3]
         for cmd in cmds:
             shell_do(cmd)
 
-        listOfFiles = [f'{grm1}.log', f'{related_pairs}.log', f'{grm2}.log', f'{grm3}.log']
+        listOfFiles = [f'{related_pairs}.log', f'{king1}.log', f'{king2}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        if os.path.isfile(f'{related_pairs}.kin0') and os.path.isfile(f'{grm2}.king.cutoff.out.id') and os.path.isfile(f'{grm3}.king.cutoff.out.id'):
+        if os.path.isfile(f'{related_pairs}.kin0') and os.path.isfile(f'{king1}.king.cutoff.out.id') and os.path.isfile(f'{king2}.king.cutoff.out.id'):
 
             # create .related related pair sample files
             kinship = pd.read_csv(f'{related_pairs}.kin0', sep='\s+')
@@ -448,21 +448,21 @@ class SampleQC:
             kinship.to_csv(f'{related_pairs}.related', index=False)
 
             # create .related and .duplicated single sample files
-            shutil.copy(f'{grm2}.king.cutoff.out.id',f'{grm2}.related')
-            related_count = sum(1 for line in open(f'{grm2}.related'))
+            shutil.copy(f'{king1}.king.cutoff.out.id',f'{king1}.related')
+            related_count = sum(1 for line in open(f'{king1}.related'))
 
-            shutil.copy(f'{grm3}.king.cutoff.out.id',f'{grm3}.duplicated')
-            duplicated_count = sum(1 for line in open(f'{grm3}.duplicated'))
+            shutil.copy(f'{king2}.king.cutoff.out.id',f'{king2}.duplicated')
+            duplicated_count = sum(1 for line in open(f'{king2}.duplicated'))
 
             related_count = related_count - duplicated_count
-            duplicated = pd.read_csv(f'{grm3}.duplicated', sep = '\s+')
+            duplicated = pd.read_csv(f'{king2}.duplicated', sep = '\s+')
 
             # concat duplicated sample ids to related sample ids, drop_duplicates(keep='last) because all duplicated would also be considered related
             if prune_related and prune_duplicated:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {geno_path} --remove {king1}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
                 shell_do(plink_cmd1)
 
-                related = pd.read_csv(f'{grm2}.related', sep = '\s+')
+                related = pd.read_csv(f'{king1}.related', sep = '\s+')
                 grm_pruned = pd.concat([related, duplicated], ignore_index=True)
 
                 if '#FID' in grm_pruned:
@@ -475,7 +475,7 @@ class SampleQC:
                 process_complete = True
 
             if prune_duplicated and not prune_related:
-                plink_cmd1 = f'{plink2_exec} --pfile {grm1} --remove {grm3}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
+                plink_cmd1 = f'{plink2_exec} --pfile {geno_path} --remove {king2}.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
                 shell_do(plink_cmd1)
 
                 grm_pruned = duplicated
@@ -513,15 +513,12 @@ class SampleQC:
                 concat_logs(step, out_path, listOfFiles)
 
             # remove intermediate files
-            os.remove(f'{grm1}.pgen')
-            os.remove(f'{grm1}.psam')
-            os.remove(f'{grm1}.pvar')
-            os.remove(f'{grm2}.king.cutoff.in.id')
-            os.remove(f'{grm2}.king.cutoff.out.id')
-            os.remove(f'{grm2}.related')
-            os.remove(f'{grm3}.duplicated')
-            os.remove(f'{grm3}.king.cutoff.in.id')
-            os.remove(f'{grm3}.king.cutoff.out.id')
+            os.remove(f'{king1}.king.cutoff.in.id')
+            os.remove(f'{king1}.king.cutoff.out.id')
+            os.remove(f'{king1}.related')
+            os.remove(f'{king2}.duplicated')
+            os.remove(f'{king2}.king.cutoff.in.id')
+            os.remove(f'{king2}.king.cutoff.out.id')
             os.remove(f'{related_pairs}.king.bin')
             os.remove(f'{related_pairs}.king.id')
             os.remove(f'{related_pairs}.kin0')
@@ -545,7 +542,7 @@ class SampleQC:
             outfiles_dict = {
                 'pruned_samples': 'Related Pruning Failed',
                 'related_samples': None,
-                'plink_out': [grm1, grm2, grm3]
+                'plink_out': [king1, king2]
             }
 
             metrics_dict = {
