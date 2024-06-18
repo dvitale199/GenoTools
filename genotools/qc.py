@@ -416,7 +416,6 @@ class SampleQC:
         if related_cutoff < 0 or related_cutoff > 1 or duplicated_cutoff < 0 or duplicated_cutoff > 1:
             raise ValueError("related_cutoff and duplicated_cutoff should be between 0 and 1.")
 
-        # grm1 = f"{out_path}_total_grm"
         king1 = f"{out_path}_related_king"
         king2 = f"{out_path}_duplicated_king"
 
@@ -425,7 +424,6 @@ class SampleQC:
         related_pruned_out = f"{out_path}.pruned"
 
         # create pfiles
-        # king_cmd1 = f'{plink2_exec} --pfile {geno_path} --hwe 0.0001 --mac 2 --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {grm1}'
         # create table of related pairs
         king_cmd1 = f'{plink2_exec} --pfile {geno_path} --make-king-table --make-king triangle bin --king-table-filter {related_cutoff} --out {related_pairs}'
         # see if any samples are related (includes duplicates)
