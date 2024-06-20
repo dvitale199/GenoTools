@@ -585,7 +585,7 @@ class WholeGenomeSeqQC:
 
 class WholeGenomeSeqWrapper:
 
-    def __init__(self, shards_dir=None, out_path=None, keep_all=True, shard_key=None, preBqsr_path=None, wgs_metrics_path=None, variant_calling_summary_metrics_path=None):
+    def __init__(self, shards_dir=None, out_path=None, keep_all=True, swarm=False, shard_key=None, preBqsr_path=None, wgs_metrics_path=None, variant_calling_summary_metrics_path=None):
         self.shards_dir = shards_dir
         self.out_path = out_path
         self.keep_all = keep_all
@@ -595,6 +595,10 @@ class WholeGenomeSeqWrapper:
         self.preBqsr = preBqsr_path
         self.wgs_metrics = wgs_metrics_path
         self.var_calling_summary_metrics_path = variant_calling_summary_metrics_path
+
+        # create swarm file dir if using swarm
+        if swarm:
+            os.makedirs(f'{self.out_path}/swarm_scripts')
 
 
     '''
@@ -638,6 +642,9 @@ class WholeGenomeSeqWrapper:
                 wgs_wrapper.run_wgs_related_duplicated()
                 wgs_wrapper.drop_rel_dups_less_coverage()
 
+    Within each method:
+        if swarm:
+            create swarm file call through shell_do()
     '''
 
     def freemix_out_metrics(self):
@@ -665,9 +672,10 @@ class WholeGenomeSeqWrapper:
 
     def find_x_shard(self):
         '''
-        use shard map to find shard with interval on x chromosome for sex check
+        use shard key to find shard with interval on x chromosome for sex check
         '''
-        pass
+        shard_key = self.shard_key
+
 
     def merge_sample_het(self, shards_dir, het_filter=[-0.25,0.25]):
         '''
@@ -826,8 +834,8 @@ class WholeGenomeSeqWrapper:
         shell_do(plink_merge)
 
         # return path to merged ref panel overalp pfiles
-        return {ref_overlap_dir}/merged_ref_overlap
-        
+        return f'{ref_overlap_dir}/merged_ref_overlap'
+
 
     def run_wgs_related_duplicates(self):
         '''
