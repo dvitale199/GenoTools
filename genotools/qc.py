@@ -244,7 +244,7 @@ class SampleQC:
         return out_dict
 
 
-    def run_het_prune(self, het_filter=[-0.25,0.25]):
+    def run_het_prune(self, het_filter=[-0.15,0.15]):
 
         """
         Execute heterozygosity-based pruning on genotype data using PLINK.

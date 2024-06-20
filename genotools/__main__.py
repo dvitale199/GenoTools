@@ -64,7 +64,7 @@ def handle_main():
 
     if args_dict['het'] is not None:
         if len(args_dict['het']) == 0:
-            args_dict['het'] = [-0.25, 0.25]
+            args_dict['het'] = [-0.15, 0.15]
 
         else:
             args_dict['het'] = [float(i) for i in args_dict['sex']]
@@ -81,7 +81,7 @@ def handle_main():
         args_dict['callrate'] = 0.05
         args_dict['sex'] = [0.25, 0.75]
         args_dict['related'] = True
-        args_dict['het'] = [-0.25, 0.25]
+        args_dict['het'] = [-0.15, 0.15]
 
     if args_dict['all_variant']:
         args_dict['geno'] = 0.05
