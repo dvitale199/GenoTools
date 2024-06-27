@@ -18,8 +18,9 @@ import pandas as pd
 import numpy as np
 import os
 from collections import defaultdict
-from genotools.utils import shell_do, concat_logs, bfiles_to_pfiles
+from genotools.utils import shell_do, concat_logs, bfiles_to_pfiles, count_file_lines
 from genotools.dependencies import check_plink, check_plink2, check_king
+from genotools.qc import SampleQC
 
 plink_exec = check_plink()
 plink2_exec = check_plink2()
@@ -35,11 +36,11 @@ class WholeGenomeSeqQC:
             # take the first shard (assuming all shards have all samples)
             # and run freemix, coverage, titv_ratio on one shard
             if freemix:
-                wgs_qc.run_freemix_check(shard_geno_path, qc_file, check_limit)
+                wgs_qc.run_freemix_check(shard_geno_path, check_limit)
             if coverage:
-                wgs_qc.run_coverage_check(shard_geno_path, qc_file, min_mean_coverage)
+                wgs_qc.run_coverage_check(shard_geno_path, min_mean_coverage)
             if titv_ratio:
-                wgs_qc.run_titv_ratio_check(shard_geno_path, qc_file)
+                wgs_qc.run_titv_ratio_check(shard_geno_path)
             if het:
                 wgs_qc.run_het()
                 # run het on each shard
@@ -58,7 +59,13 @@ class WholeGenomeSeqQC:
                 # extract ref snps, merge, run relatedness
     '''
 
-    def __init__(self, shards_dir=None, out_path=None, keep_all=True, swarm=False, shard_key_path=None, preBqsr_path=None, wgs_metrics_path=None, variant_calling_summary_metrics_path=None):
+    def __init__(self, shards_dir=None, out_path=None, keep_all=True, swarm=False, \
+                 shard_key_path=None, \
+                 preBqsr_path=None, \
+                 wgs_metrics_path=None, \
+                 variant_calling_summary_metrics_path=None, \
+                 ref_panel_path=None):
+
         self.shards_dir = shards_dir
         self.out_path = out_path
         self.keep_all = keep_all
@@ -69,16 +76,21 @@ class WholeGenomeSeqQC:
         self.wgs_metrics = wgs_metrics_path
         self.var_calling_summary_metrics_path = variant_calling_summary_metrics_path
 
+        self.ref_panel_path = ref_panel_path
+
         # create list of shard filenames
         self.shard_filenames = list(set([f.split('.')[0] for f in os.listdir(self.shards_dir)]))
 
         self.swarm = swarm
+        self.swarm_scripts = f'{self.out_path}/swarm_scripts'
         if self.swarm:
-            os.makedirs(f'{self.out_path}/swarm_scripts')
+            os.makedirs(f'{self.swarm_scripts}', exist_ok=True)
+            os.makedirs(f'{self.swarm_scripts}/logs', exist_ok=True)
 
-    def run_freemix_check(self, geno_path, preBqsr_path, check_limit=1e6):
+    def run_freemix_check(self, geno_path, check_limit=1e6):
         out_path = self.out_path
         keep_all = self.keep_all
+        preBqsr_path = self.preBqsr
 
         step = "wgs_freemix_filter_prune"
 
@@ -136,9 +148,10 @@ class WholeGenomeSeqQC:
         return out_dict
 
 
-    def run_coverage_check(self, geno_path, wgs_metrics_path, min_mean_coverage=25):
+    def run_coverage_check(self, geno_path, min_mean_coverage=25):
         out_path = self.out_path
         keep_all = self.keep_all
+        wgs_metrics_path = self.wgs_metrics
 
         step = "coverage_check"
 
@@ -158,7 +171,7 @@ class WholeGenomeSeqQC:
 
         out_dict_key = 'flagged_samples'
 
-        # PER ZH: 'Failed samples should be noted'
+        # PER ZH: 'Failed samples should be noted (not removed)'
         if not keep_all:
             plink_cmd = f'{plink2_exec} --pfile {geno_path} --remove {coverage_fails} --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}'
             shell_do(plink_cmd)
@@ -189,8 +202,9 @@ class WholeGenomeSeqQC:
         return out_dict
 
 
-    def run_titv_check(self, geno_path, variant_calling_summary_metrics_path):
+    def run_titv_check(self, geno_path, ):
         out_path = self.out_path
+        variant_calling_summary_metrics_path = self.var_calling_summary_metrics_path
         # titv ratio fails should be removed regardless
         # keep_all = self.keep_all
 
@@ -241,6 +255,8 @@ class WholeGenomeSeqQC:
         '''
         called within merge_sample_het() on each shard
         '''
+        swarm = self.swarm
+
         step = "het_check"
 
         # create filenames
@@ -254,31 +270,36 @@ class WholeGenomeSeqQC:
 
         cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
 
-        for cmd in cmds:
-            shell_do(cmd)
+        if not swarm:
+            for cmd in cmds:
+                shell_do(cmd)
 
-        listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
-        concat_logs(step, het_out, listOfFiles)
+            listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
+            concat_logs(step, het_out, listOfFiles)
 
-        hetpath = f'{het_tmp3}.het'
-        if os.path.isfile(hetpath):
-            os.remove(f'{het_tmp}.prune.in')
-            os.remove(f'{het_tmp}.prune.out')
-            os.remove(f'{het_tmp2}.pgen')
-            os.remove(f'{het_tmp2}.pvar')
-            os.remove(f'{het_tmp2}.psam')
-        else:
-            print(f'Heterozygosity pruning failed!')
-            print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
+            hetpath = f'{het_tmp3}.het'
+            if os.path.isfile(hetpath):
+                os.remove(f'{het_tmp}.prune.in')
+                os.remove(f'{het_tmp}.prune.out')
+                os.remove(f'{het_tmp2}.pgen')
+                os.remove(f'{het_tmp2}.pvar')
+                os.remove(f'{het_tmp2}.psam')
+            else:
+                print(f'Heterozygosity pruning failed!')
+                print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
+
+        return cmds
 
 
     def merge_sample_het(self, het_filter=[-0.25,0.25]):
         '''
+        running het on all shards
         merging all of the shards' .het output for sample het qc
         '''
         out_path = self.out_path
         shard_filenames = self.shard_filenames
         swarm = self.swarm
+        swarm_scripts = self.swarm_scripts
         keep_all = self.keep_all
 
         step = "het_check"
@@ -291,8 +312,24 @@ class WholeGenomeSeqQC:
 
         het_out = f'{het_dir}/{out_filename}'
         if swarm:
-            # TODO: create swarm file and run het
-            pass
+            # TODO: create swarm file for groups of het cmds in sbatch file? and run het
+            for shard in shard_filenames:
+                with open(f'{swarm_scripts}/sample_het_{shard}.sh', 'w') as f:
+                    f.write('#!/usr/bin/env bash\n\n')
+                    het_cmds = self.run_het_check(shard, het_out)
+                    for cmd in het_cmds:
+                        f.write(f'{cmd}\n')
+                f.close()
+
+            with open(f'{swarm_scripts}/sample_het.swarm', 'w') as f:
+                for shard in shard_filenames:
+                    bash_cmd = f'bash {swarm_scripts}/sample_het_{shard}.sh'
+                    f.write(f'{bash_cmd}\n')
+            f.close()
+
+            swarm_cmd = f'swarm -f {swarm_scripts}/sample_het.swarm -b 100 -g 200 --t 16 \
+                        --time=4:0:0 --logdir {swarm_scripts}/logs --gres=lscratch:20 --partition=norm'
+            shell_do(swarm_cmd)
         else:
             # loop through shards and run het
             for shard in shard_filenames:
@@ -347,6 +384,7 @@ class WholeGenomeSeqQC:
         called within merge_callrate_check() on each shard
         '''
         out_path = self.out_path
+        swarm = self.swarm
 
         step = "callrate_check"
 
@@ -354,19 +392,25 @@ class WholeGenomeSeqQC:
         callrates = f'{callrate_out}_callrates'
 
         plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {callrates}'
-        shell_do(plink_cmd)
 
-        listOfFiles = [f'{callrates}.log']
-        concat_logs(step, out_path, listOfFiles)
+        if not swarm:
+            shell_do(plink_cmd)
+
+            listOfFiles = [f'{callrates}.log']
+            concat_logs(step, out_path, listOfFiles)
+
+        return plink_cmd
 
 
     def merge_sample_callrate(self):
         '''
+        running callrate on all shards
         merging all the shards' .callrate output for sample callrate qc
         '''
         out_path = self.out_path
         shard_filenames = self.shard_filenames
         swarm = self.swarm
+        swarm_scripts = self.swarm_scripts
         keep_all = self.keep_all
 
         step = "callrate_check"
@@ -379,8 +423,15 @@ class WholeGenomeSeqQC:
 
         callrate_out = f'{callrate_dir}/{out_filename}'
         if swarm:
-            # TODO: create swarm file and run callrate check on each shard
-            pass
+            with open(f'{swarm_scripts}/sample_callrate.swarm', 'w') as f:
+                for shard in shard_filenames:
+                    cmd = self.run_check_callrate(shard, callrate_out)
+                    f.write(f'{cmd}\n')
+            f.close()
+
+            swarm_cmd = f'swarm -f {swarm_scripts}/sample_callrate.swarm -b 400 -g 200 --t 16 \
+                        --time=4:0:0 --logdir {swarm_scripts}/logs --gres=lscratch:20 --partition=norm'
+            shell_do(swarm_cmd)
         else:
             # loop through each shard in shards_dir and run callrate check
             for shard in shard_filenames:
@@ -484,7 +535,8 @@ class WholeGenomeSeqQC:
         # convert to bfiles
         bfiles_to_pfiles(pfile_path=geno_path)
 
-        plink_cmd = f'{plink_exec} --bfile {geno_path} --chr 23 --from-bp2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  {check_sex[0]} {check_sex[1]} --out {sex_tmp}'
+        plink_cmd = f'{plink_exec} --bfile {geno_path} --chr 23 --from-bp2781479 --to-bp 155701383 \
+                    --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  {check_sex[0]} {check_sex[1]} --out {sex_tmp}'
         shell_do(plink_cmd)
 
         listOfFiles = [f'{sex_tmp}.log']
@@ -602,12 +654,80 @@ class WholeGenomeSeqQC:
         '''
         check for both duplicates and relatedness
         '''
-        # TODO
-        pass
+        out_path = self.out_path
+        ref_panel_path = self.ref_panel_path
 
-    def drop_duplicates(self):
+        step = "relatedness_check"
+
+        subset_geno = self.extract_ref_snps(ref_panel_path)
+        sampleQC = SampleQC(subset_geno, out_path)
+        related_out_dict = sampleQC.run_related_prune(prune_related=False, prune_duplicated=False)
+        related_out_files = related_out_dict['output']
+        related_samples_path = related_out_files['related_samples']
+
+        if os.path.isfile(f'{related_samples_path}'):
+            rel_samples_to_exclude = self.drop_related(related_samples_path)
+            rel_samples_to_exclude_count = count_file_lines(rel_samples_to_exclude)
+            # TODO: should we remove these samples from each shard?
+            process_complete = True
+
+            outfiles_dict = {
+                'samples_to_exclude': rel_samples_to_exclude,
+                'plink_out': out_path
+            }
+
+            metrics_dict = {
+                'outlier_count': rel_samples_to_exclude_count
+            }
+
+        else:
+            print('WGS Relatedness Failed!')
+            print(f'Check all_plink_logs.gtlog for more information')
+
+            process_complete = False
+
+            outfiles_dict = {
+                'samples_to_exclude': None,
+                'plink_out': out_path
+            }
+
+            metrics_dict = {
+                'outlier_count': 0
+            }
+
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+
+        return out_dict
+
+
+    def drop_related(self, related_samples_path):
         '''
         drop duplicates (and related pairs) with less coverage
         '''
-        # TODO
-        pass
+        preBqsr_path = self.preBqsr
+        out_path = self.out_path
+
+        step = "relatedness_check"
+
+        preBqsr = pd.read_csv(preBqsr_path, sep='\s+')
+        related_samples = pd.read_csv(related_samples_path, sep='\s+')
+
+        if related_samples.shape[0] != 0:
+            depth_df = pd.merge(related_samples, preBqsr.rename(columns={"AVG_DP":"AVG_DP1"}), left_on='IID1', right_on='participant_id', how='left')
+            depth_df = pd.merge(depth_df, preBqsr.rename(columns={"AVG_DP":"AVG_DP2"}), left_on='IID2', right_on='participant_id', how='left')
+            related = pd.DataFrame(depth_df, columns=['IID1', 'AVG_DP1', 'IID2', 'AVG_DP2'])
+            related['lower_depth'] = related[['AVG_DP1', 'AVG_DP2']].idxmin(axis=1).str.replace("AVG_DP","")
+            related.loc[related['lower_depth']=='1','rel_samples_to_exclude'] = related.loc[related['lower_depth']=='1','IID1']
+            related.loc[related['lower_depth']=='2','rel_samples_to_exclude'] = related.loc[related['lower_depth']=='2','IID2']
+            rel_samples_to_exclude = list(related['rel_samples_to_exclude'])
+
+        with open(f'{out_path}.rel_samples_to_exclude', 'w') as f:
+            for sample in rel_samples_to_exclude:
+                f.write(f'{sample}\n')
+
+        return f'{out_path}.rel_samples_to_exclude'
