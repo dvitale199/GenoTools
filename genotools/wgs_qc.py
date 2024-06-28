@@ -202,7 +202,7 @@ class WholeGenomeSeqQC:
         return out_dict
 
 
-    def run_titv_check(self, geno_path, ):
+    def run_titv_check(self, geno_path):
         out_path = self.out_path
         variant_calling_summary_metrics_path = self.var_calling_summary_metrics_path
         # titv ratio fails should be removed regardless
