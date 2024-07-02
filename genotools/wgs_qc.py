@@ -17,6 +17,7 @@
 import pandas as pd
 import numpy as np
 import os
+import glob
 from collections import defaultdict
 from genotools.utils import shell_do, concat_logs, bfiles_to_pfiles, count_file_lines
 from genotools.dependencies import check_plink, check_plink2, check_king
@@ -32,7 +33,7 @@ class WholeGenomeSeqQC:
     execute_wgs_pipeline(steps, steps_dict, shards_dir, out_path, wgs_qc, ancestry, assoc, args, tmp_dir):
         # all functionality within WGS_qc class
         if step in wgs_steps:
-            wgs_qc = WholeGenomeSeqQC(shards_dir, out_path, swarm, keep, wgs_qc_metrics_files)
+            wgs_qc = WholeGenomeSeqQC(shards_dir, out_path, slurm, keep, wgs_qc_metrics_files)
             # take the first shard (assuming all shards have all samples)
             # and run freemix, coverage, titv_ratio on one shard
             if freemix:
@@ -59,7 +60,7 @@ class WholeGenomeSeqQC:
                 # extract ref snps, merge, run relatedness
     '''
 
-    def __init__(self, shards_dir=None, out_path=None, keep_all=True, swarm=False, \
+    def __init__(self, shards_dir=None, out_path=None, keep_all=True, slurm=False, \
                  shard_key_path=None, \
                  preBqsr_path=None, \
                  wgs_metrics_path=None, \
@@ -79,13 +80,13 @@ class WholeGenomeSeqQC:
         self.ref_panel_path = ref_panel_path
 
         # create list of shard filenames
-        self.shard_filenames = list(set([f.split('.')[0] for f in os.listdir(self.shards_dir)]))
+        self.shard_filenames = list(set([f"{self.shards_dir}/{f.split('.')[0]}" for f in os.listdir(self.shards_dir)]))
 
-        self.swarm = swarm
-        self.swarm_scripts = f'{self.out_path}/swarm_scripts'
-        if self.swarm:
-            os.makedirs(f'{self.swarm_scripts}', exist_ok=True)
-            os.makedirs(f'{self.swarm_scripts}/logs', exist_ok=True)
+        self.slurm = slurm
+        self.slurm_scripts = f'{self.out_path}_slurm_scripts'
+        if self.slurm:
+            os.makedirs(f'{self.slurm_scripts}', exist_ok=True)
+            os.makedirs(f'{self.slurm_scripts}/logs', exist_ok=True)
 
     def run_freemix_check(self, geno_path, check_limit=1e6):
         out_path = self.out_path
@@ -255,7 +256,7 @@ class WholeGenomeSeqQC:
         '''
         called within merge_sample_het() on each shard
         '''
-        swarm = self.swarm
+        slurm = self.slurm
 
         step = "het_check"
 
@@ -270,7 +271,7 @@ class WholeGenomeSeqQC:
 
         cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
 
-        if not swarm:
+        if not slurm:
             for cmd in cmds:
                 shell_do(cmd)
 
@@ -298,8 +299,8 @@ class WholeGenomeSeqQC:
         '''
         out_path = self.out_path
         shard_filenames = self.shard_filenames
-        swarm = self.swarm
-        swarm_scripts = self.swarm_scripts
+        slurm = self.slurm
+        slurm_scripts = self.slurm_scripts
         keep_all = self.keep_all
 
         step = "het_check"
@@ -311,25 +312,28 @@ class WholeGenomeSeqQC:
             os.makedirs(f'{het_dir}')
 
         het_out = f'{het_dir}/{out_filename}'
-        if swarm:
-            # TODO: create swarm file for groups of het cmds in sbatch file? and run het
+        if slurm:
+            # TODO: create slurm file for groups of het cmds in sbatch file? and run het
             for shard in shard_filenames:
-                with open(f'{swarm_scripts}/sample_het_{shard}.sh', 'w') as f:
+                shard_name = shard.split('/')[-1]
+                with open(f'{slurm_scripts}/sample_het_{shard_name}.sh', 'w') as f:
                     f.write('#!/usr/bin/env bash\n\n')
                     het_cmds = self.run_het_check(shard, het_out)
                     for cmd in het_cmds:
                         f.write(f'{cmd}\n')
                 f.close()
 
-            with open(f'{swarm_scripts}/sample_het.swarm', 'w') as f:
-                for shard in shard_filenames:
-                    bash_cmd = f'bash {swarm_scripts}/sample_het_{shard}.sh'
-                    f.write(f'{bash_cmd}\n')
-            f.close()
+                slurm_cmd = f''
 
-            swarm_cmd = f'swarm -f {swarm_scripts}/sample_het.swarm -b 100 -g 200 --t 16 \
-                        --time=4:0:0 --logdir {swarm_scripts}/logs --gres=lscratch:20 --partition=norm'
-            shell_do(swarm_cmd)
+            # with open(f'{slurm_scripts}/sample_het.slurm', 'w') as f:
+            #     for shard in shard_filenames:
+            #         bash_cmd = f'bash {slurm_scripts}/sample_het_{shard}.sh'
+            #         f.write(f'{bash_cmd}\n')
+            # f.close()
+
+            # slurm_cmd = f'slurm -f {slurm_scripts}/sample_het.slurm -b 100 -g 200 --t 16 \
+            #             --time=4:0:0 --logdir {slurm_scripts}/logs --gres=lscratch:20 --partition=norm'
+            # shell_do(slurm_cmd)
         else:
             # loop through shards and run het
             for shard in shard_filenames:
@@ -341,7 +345,7 @@ class WholeGenomeSeqQC:
         heterosygosities = defaultdict(list)
         for filename in os.listdir(het_dir):
             if filename.endswith('.het'):
-                het = pd.read_csv(filename, sep='\s+')
+                het = pd.read_csv(f'{callrate_dir}/filename', sep='\s+')
                 het['F'] = het['F'].map(lambda x:[x])
                 shard_hets = pd.Series(het.F.values, index=het.IID).to_dict()
                 for k,v in shard_hets.items():
@@ -384,7 +388,7 @@ class WholeGenomeSeqQC:
         called within merge_callrate_check() on each shard
         '''
         out_path = self.out_path
-        swarm = self.swarm
+        slurm = self.slurm
 
         step = "callrate_check"
 
@@ -393,7 +397,7 @@ class WholeGenomeSeqQC:
 
         plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {callrates}'
 
-        if not swarm:
+        if not slurm:
             shell_do(plink_cmd)
 
             listOfFiles = [f'{callrates}.log']
@@ -402,15 +406,15 @@ class WholeGenomeSeqQC:
         return plink_cmd
 
 
-    def merge_sample_callrate(self):
+    def merge_sample_callrate(self, callrate_threshold=0.95):
         '''
         running callrate on all shards
         merging all the shards' .callrate output for sample callrate qc
         '''
         out_path = self.out_path
         shard_filenames = self.shard_filenames
-        swarm = self.swarm
-        swarm_scripts = self.swarm_scripts
+        slurm = self.slurm
+        slurm_scripts = self.slurm_scripts
         keep_all = self.keep_all
 
         step = "callrate_check"
@@ -422,54 +426,76 @@ class WholeGenomeSeqQC:
             os.makedirs(f'{callrate_dir}')
 
         callrate_out = f'{callrate_dir}/{out_filename}'
-        if swarm:
-            with open(f'{swarm_scripts}/sample_callrate.swarm', 'w') as f:
-                for shard in shard_filenames:
-                    cmd = self.run_check_callrate(shard, callrate_out)
+        if slurm:
+            for shard in shard_filenames:
+                shard_name = shard.split('/')[-1]
+                callrate_outpath = f'{callrate_out}_{shard_name}'
+                with open(f'{slurm_scripts}/sample_callrate_{shard_name}.sh', 'w') as f:
+                    f.write(f'#!/usr/bin/env bash\n\n')
+                    f.write(f'#SBATCH --output={slurm_scripts}/logs/.')
+                    cmd = self.run_check_callrate(shard, callrate_outpath)
                     f.write(f'{cmd}\n')
-            f.close()
+                f.close()
 
-            swarm_cmd = f'swarm -f {swarm_scripts}/sample_callrate.swarm -b 400 -g 200 --t 16 \
-                        --time=4:0:0 --logdir {swarm_scripts}/logs --gres=lscratch:20 --partition=norm'
-            shell_do(swarm_cmd)
+                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
+
+                shell_do(slurm_cmd)
         else:
             # loop through each shard in shards_dir and run callrate check
             for shard in shard_filenames:
-                self.run_check_callrate(shard, callrate_out)
+                shard_name = shard.split('/')[-1]
+                callrate_outpath = f'{callrate_out}_{shard_name}'
+                self.run_check_callrate(shard, callrate_outpath)
 
         # create filenames
         callrate_fails = f'{out_path}.callrate_fails'
 
-        callrates = defaultdict(list)
-        for filename in os.listdir(callrate_dir):
-            if filename.endswith('.smiss'):
-                smiss = pd.read_csv(f'{filename}.smiss', sep='\s+')
-                smiss['CALLRATE'] = smiss['F_MISS'].map(lambda x: [1-x])
-                shard_callrates = pd.Series(smiss.CALLRATE.values, index=smiss.IID).to_dict()
-                for k,v in shard_callrates.items():
-                    callrates[k].extend(v)
+        if len(glob.glob1(callrate_dir,'*.smiss')) > 0:
+            callrates = defaultdict(list)
+            for filename in os.listdir(callrate_dir):
+                if filename.endswith('.smiss'):
+                    smiss = pd.read_csv(f'{callrate_dir}/{filename}', sep='\s+')
+                    smiss['CALLRATE'] = smiss['F_MISS'].map(lambda x: [1-x])
+                    shard_callrates = pd.Series(smiss.CALLRATE.values, index=smiss.IID).to_dict()
+                    for k,v in shard_callrates.items():
+                        callrates[k].extend(v)
 
-        for k,v in callrates.items():
-            callrates[k] = sum(v) / len(v)
+            for k,v in callrates.items():
+                callrates[k] = sum(v) / len(v)
 
-        callrates = pd.DataFrame.from_dict(callrates, orient='index').reset_index()
-        callrates = callrates.rename(columns={'index':'IID', 0:'CALLRATE'})
+            callrates = pd.DataFrame.from_dict(callrates, orient='index').reset_index()
+            callrates = callrates.rename(columns={'index':'IID', 0:'CALLRATE'})
 
-        outliers = callrates[callrates.CALLRATE < 0.95]
-        callrate_fail_ids = outliers['IID']
-        callrate_fail_count = callrate_fail_ids.shape[0]
-        callrate_fail_ids.to_csv(f'{callrate_fails}', sep='\t', header=False, index=False)
+            outliers = callrates[callrates.CALLRATE < callrate_threshold]
+            callrate_fail_ids = outliers['IID']
+            callrate_fail_count = callrate_fail_ids.shape[0]
+            callrate_fail_ids.to_csv(f'{callrate_fails}', sep='\t', header=False, index=False)
 
-        process_complete = True
+            process_complete = True
 
-        outfiles_dict = {
-            'pruned_samples': f'{callrate_fails}',
-            'plink_out': f'{out_path}' # TODO: if removing include plink_out
-        }
+            outfiles_dict = {
+                'pruned_samples': f'{callrate_fails}',
+                'plink_out': 'None' # TODO: if removing include plink_out
+            }
 
-        metrics_dict = {
-            'outlier_count': callrate_fail_count
-        }
+            metrics_dict = {
+                'outlier_count': callrate_fail_count
+            }
+
+        else:
+            print('WGS Callrate Prune Failed!')
+            print(f'Check {out_path}.log for more information')
+
+            process_complete = False
+
+            outfiles_dict = {
+                'pruned_samples': 'WGS Callrate Pruning Failed!',
+                'plink_out': f'{out_path}'
+            }
+
+            metrics_dict = {
+                'outlier_count': 0
+            }
 
         out_dict = {
             'pass': process_complete,
