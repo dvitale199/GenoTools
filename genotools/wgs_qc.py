@@ -289,7 +289,7 @@ class WholeGenomeSeqQC:
                 print(f'Heterozygosity pruning failed!')
                 print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
 
-        return cmds
+        return cmds, [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
 
 
     def merge_sample_het(self, het_filter=[-0.25,0.25]):
@@ -314,26 +314,21 @@ class WholeGenomeSeqQC:
         het_out = f'{het_dir}/{out_filename}'
         if slurm:
             # TODO: create slurm file for groups of het cmds in sbatch file? and run het
+            listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
                 with open(f'{slurm_scripts}/sample_het_{shard_name}.sh', 'w') as f:
                     f.write('#!/usr/bin/env bash\n\n')
-                    het_cmds = self.run_het_check(shard, het_out)
+                    het_cmds, logs = self.run_het_check(shard, het_out)
+                    listOfFiles = listOfFile + logs
                     for cmd in het_cmds:
                         f.write(f'{cmd}\n')
                 f.close()
 
-                slurm_cmd = f''
-
-            # with open(f'{slurm_scripts}/sample_het.slurm', 'w') as f:
-            #     for shard in shard_filenames:
-            #         bash_cmd = f'bash {slurm_scripts}/sample_het_{shard}.sh'
-            #         f.write(f'{bash_cmd}\n')
-            # f.close()
-
-            # slurm_cmd = f'slurm -f {slurm_scripts}/sample_het.slurm -b 100 -g 200 --t 16 \
-            #             --time=4:0:0 --logdir {slurm_scripts}/logs --gres=lscratch:20 --partition=norm'
-            # shell_do(slurm_cmd)
+                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+                              --output={slurm_scripts}/logs/sample_het_{shard_name}.out \
+                              --time=0:30:0 {slurm_scripts}/sample_het_{shard_name}.sh'
+            # concat_logs(step, out_path, listOfFiles)
         else:
             # loop through shards and run het
             for shard in shard_filenames:
@@ -403,7 +398,7 @@ class WholeGenomeSeqQC:
             listOfFiles = [f'{callrates}.log']
             concat_logs(step, out_path, listOfFiles)
 
-        return plink_cmd
+        return plink_cmd, f'{callrates}.log'
 
 
     def merge_sample_callrate(self, callrate_threshold=0.95):
@@ -427,19 +422,23 @@ class WholeGenomeSeqQC:
 
         callrate_out = f'{callrate_dir}/{out_filename}'
         if slurm:
+            listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
                 callrate_outpath = f'{callrate_out}_{shard_name}'
                 with open(f'{slurm_scripts}/sample_callrate_{shard_name}.sh', 'w') as f:
                     f.write(f'#!/usr/bin/env bash\n\n')
-                    f.write(f'#SBATCH --output={slurm_scripts}/logs/.')
-                    cmd = self.run_check_callrate(shard, callrate_outpath)
+                    cmd, log = self.run_check_callrate(shard, callrate_outpath)
+                    listOfFiles.append(log)
                     f.write(f'{cmd}\n')
                 f.close()
 
-                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
+                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+                              --output={slurm_scripts}/logs/sample_callrate_{shard_name}.out \
+                              --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
 
                 shell_do(slurm_cmd)
+            # concat_logs(step, out_path, listOfFiles)
         else:
             # loop through each shard in shards_dir and run callrate check
             for shard in shard_filenames:
@@ -475,7 +474,7 @@ class WholeGenomeSeqQC:
 
             outfiles_dict = {
                 'pruned_samples': f'{callrate_fails}',
-                'plink_out': 'None' # TODO: if removing include plink_out
+                'plink_out': f'{out_path}' # TODO: if removing flagged samples, diff plink_out
             }
 
             metrics_dict = {
@@ -514,7 +513,7 @@ class WholeGenomeSeqQC:
         '''
         shards_dir = self.shards_dir
         shard_key = self.shard_key
-        shard_key = pd.read_csv(shard_key, sep='\s+', dtype={'shard':str})
+        shard_key = pd.read_csv(shard_key, dtype={'shard':str})
         shard_key['start'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[0].astype(int)
         shard_key['end'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[1].astype(int)
         shard_key_x = shard_key[shard_key['chr']=='chrX']
@@ -539,7 +538,7 @@ class WholeGenomeSeqQC:
                 f.write(f'{path}\n')
         f.close()
 
-        plink_merge = f'plink2 --pmerge-list {shards_dir}/x_range/to_merge.txt --make-pgen --out {x_dir}/x_range'
+        plink_merge = f'{plink2_exec} --pmerge-list {shards_dir}/x_range/to_merge.txt --make-pgen --out {x_dir}/x_range'
         shell_do(plink_merge)
 
         # return out path to X chr plink files containing sex check range
@@ -636,6 +635,7 @@ class WholeGenomeSeqQC:
         shard_key = self.shard_key
 
         # format shards key
+        shard_key = pd.read_csv(shard_key, dtype={'shard':str})
         shard_key['start'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[0].astype(int)
         shard_key['end'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[1].astype(int)
 
@@ -741,16 +741,18 @@ class WholeGenomeSeqQC:
         step = "relatedness_check"
 
         preBqsr = pd.read_csv(preBqsr_path, sep='\s+')
-        related_samples = pd.read_csv(related_samples_path, sep='\s+')
+        related_samples = pd.read_csv(related_samples_path)
 
         if related_samples.shape[0] != 0:
-            depth_df = pd.merge(related_samples, preBqsr.rename(columns={"AVG_DP":"AVG_DP1"}), left_on='IID1', right_on='participant_id', how='left')
-            depth_df = pd.merge(depth_df, preBqsr.rename(columns={"AVG_DP":"AVG_DP2"}), left_on='IID2', right_on='participant_id', how='left')
+            depth_df = pd.merge(related_samples, preBqsr.rename(columns={"AVG_DP":"AVG_DP1"}), left_on='IID1', right_on='sample_id', how='left')
+            depth_df = pd.merge(depth_df, preBqsr.rename(columns={"AVG_DP":"AVG_DP2"}), left_on='IID2', right_on='sample_id', how='left')
             related = pd.DataFrame(depth_df, columns=['IID1', 'AVG_DP1', 'IID2', 'AVG_DP2'])
+            # related.to_csv(f'{related_samples_path}.depths', sep='\t', index=False)
+            # TODO: what to do when one of the samples doesn't have depth info?
             related['lower_depth'] = related[['AVG_DP1', 'AVG_DP2']].idxmin(axis=1).str.replace("AVG_DP","")
             related.loc[related['lower_depth']=='1','rel_samples_to_exclude'] = related.loc[related['lower_depth']=='1','IID1']
             related.loc[related['lower_depth']=='2','rel_samples_to_exclude'] = related.loc[related['lower_depth']=='2','IID2']
-            rel_samples_to_exclude = list(related['rel_samples_to_exclude'])
+            rel_samples_to_exclude = set(related['rel_samples_to_exclude'])
 
         with open(f'{out_path}.rel_samples_to_exclude', 'w') as f:
             for sample in rel_samples_to_exclude:
