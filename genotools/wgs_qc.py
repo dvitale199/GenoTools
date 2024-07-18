@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 import os
 import glob
+import time
 from collections import defaultdict
 from genotools.utils import shell_do, concat_logs, bfiles_to_pfiles, count_file_lines
 from genotools.dependencies import check_plink, check_plink2, check_king
@@ -390,9 +391,11 @@ class WholeGenomeSeqQC:
         # create filenames
         callrates = f'{callrate_out}_callrates'
 
-        plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {callrates}'
+        if slurm:
+            plink_cmd = f'{plink2_exec} --pfile {os.path.dirname(geno_path)}/${{shard_name}} --missing --out {callrate_out}_${{shard_name}}_callrates'
 
-        if not slurm:
+        else:
+            plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {callrates}'
             shell_do(plink_cmd)
 
             listOfFiles = [f'{callrates}.log']
@@ -422,23 +425,55 @@ class WholeGenomeSeqQC:
 
         callrate_out = f'{callrate_dir}/{out_filename}'
         if slurm:
+            # TODO: submit jobs as job array
+            # for shard in shard_filenames:
+            #     shard_name = shard.split('/')[-1]
+            #     callrate_outpath = f'{callrate_out}_{shard_name}'
+            #     with open(f'{slurm_scripts}/sample_callrate_{shard_name}.sh', 'w') as f:
+            #         f.write(f'#!/usr/bin/env bash\n\n')
+            #         cmd, log = self.run_check_callrate(shard, callrate_outpath)
+            #         listOfFiles.append(log)
+            #         f.write(f'{cmd}\n')
+            #     f.close()
+
+            #     slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+            #                   --output={slurm_scripts}/logs/sample_callrate_{shard_name}.out \
+            #                   --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
+
+            #     shell_do(slurm_cmd)
+
+            with open(f'{slurm_scripts}/sample_callrate.config', 'w') as f:
+                f.write(f'ArrayTaskID\tshard_name\n')
+                for i in range(len(shard_filenames)):
+                    if i<len(shard_filenames)-1:
+                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
+                    else:
+                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
+            f.close()
+
+            with open(f'{slurm_scripts}/sample_callrate.sh', 'w') as f:
+                f.write(f'#!/usr/bin/env bash\n\n')
+                f.write(f'config={slurm_scripts}/sample_callrate.config\n')
+                f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
+                cmd, log = self.run_check_callrate(geno_path=shard_filenames[0], callrate_out=f'{callrate_out}')
+                f.write(f'{cmd}\n')
+            f.close()
+
+            slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+                            --array=1-{len(shard_filenames)} \
+                            --output={slurm_scripts}/logs/sample_callrate_%A_%a.out \
+                            --time=0:30:0 {slurm_scripts}/sample_callrate.sh'
+
+            job_id = shell_do(slurm_cmd, return_log=True)
+
+            # TODO: grep acct to ensure that all jobs are COMPLETED before concating logs
+            time.sleep(5*60)
             listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
-                callrate_outpath = f'{callrate_out}_{shard_name}'
-                with open(f'{slurm_scripts}/sample_callrate_{shard_name}.sh', 'w') as f:
-                    f.write(f'#!/usr/bin/env bash\n\n')
-                    cmd, log = self.run_check_callrate(shard, callrate_outpath)
-                    listOfFiles.append(log)
-                    f.write(f'{cmd}\n')
-                f.close()
-
-                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
-                              --output={slurm_scripts}/logs/sample_callrate_{shard_name}.out \
-                              --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
-
-                shell_do(slurm_cmd)
-            # concat_logs(step, out_path, listOfFiles)
+                callrate_log = f'{callrate_out}_{shard_name}_callrates.log'
+                listOfFiles.append(callrate_log)
+            concat_logs(step, out_path, listOfFiles)
         else:
             # loop through each shard in shards_dir and run callrate check
             for shard in shard_filenames:
@@ -513,6 +548,7 @@ class WholeGenomeSeqQC:
         '''
         shards_dir = self.shards_dir
         shard_key = self.shard_key
+        out_path = self.out_path
         shard_key = pd.read_csv(shard_key, dtype={'shard':str})
         shard_key['start'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[0].astype(int)
         shard_key['end'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[1].astype(int)
@@ -526,19 +562,23 @@ class WholeGenomeSeqQC:
                                 | ((shard_key_x['start']<=x_start) & (shard_key_x['end']>=x_end))]
 
         # make dir to keep merged X chr
-        x_dir = f'{shards_dir}/x_range'
+        x_dir = f'{out_path}/x_range'
         if not os.path.exists(x_dir):
             os.makedirs(x_dir)
 
-        # merge X chr together to run sex check
+        # convert all X chr shards into bfiles
         x_range_shards = sorted(set(zip(shard_key_x_range.chr, shard_key_x_range.shard)))
+        for chrom, shard in x_range_shards:
+            bfiles_to_pfiles(pfile_path=f'{shards_dir}/{chrom}_{shard}')
+
+        # merge X chr together to run sex check
         with open(f'{x_dir}/to_merge.txt', 'w') as f:
             for chrom, shard in x_range_shards:
                 path = f'{shards_dir}/{chrom}_{shard}'
                 f.write(f'{path}\n')
         f.close()
 
-        plink_merge = f'{plink2_exec} --pmerge-list {shards_dir}/x_range/to_merge.txt --make-pgen --out {x_dir}/x_range'
+        plink_merge = f'{plink_exec} --merge-list {shards_dir}/x_range/to_merge.txt --make-bed --out {x_dir}/x_range'
         shell_do(plink_merge)
 
         # return out path to X chr plink files containing sex check range
@@ -558,10 +598,10 @@ class WholeGenomeSeqQC:
         sex_fails = f'{out_path}.sex_fails'
 
         # convert to bfiles
-        bfiles_to_pfiles(pfile_path=geno_path)
+        # bfiles_to_pfiles(pfile_path=geno_path)
 
-        plink_cmd = f'{plink_exec} --bfile {geno_path} --chr 23 --from-bp2781479 --to-bp 155701383 \
-                    --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  {check_sex[0]} {check_sex[1]} --out {sex_tmp}'
+        plink_cmd = f'{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 \
+                    --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex {check_sex[0]} {check_sex[1]} --out {sex_tmp}'
         shell_do(plink_cmd)
 
         listOfFiles = [f'{sex_tmp}.log']
@@ -633,6 +673,7 @@ class WholeGenomeSeqQC:
         '''
         shards_dir = self.shards_dir
         shard_key = self.shard_key
+        out_path = self.out_path
 
         # format shards key
         shard_key = pd.read_csv(shard_key, dtype={'shard':str})
@@ -651,7 +692,7 @@ class WholeGenomeSeqQC:
         ref_panel_with_shard = ref_shard_interval[['snpID', 'CHR', 'POS', 'shard']]
 
         # make dir for extracted ref panel
-        ref_overlap_dir = f'{shards_dir}/ref_overlap'
+        ref_overlap_dir = f'{out_path}/ref_overlap'
         if not os.path.exists(f'{ref_overlap_dir}'):
             os.makedirs(f'{ref_overlap_dir}')
 
