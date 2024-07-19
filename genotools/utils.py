@@ -253,38 +253,40 @@ def process_log(out_path, concat_log):
             stop += 1
 
 
-def concat_logs(step, out_path, listOfFiles):
+def concat_logs(step, out_path, listOfFiles, default_dir=None):
+    if not os.path.isabs(out_path):
+        out_path = os.path.abspath(out_path)
+
     if '_tmp/' in out_path:
-        # find parent directory for files in temporary directory
         out_dir = os.path.dirname(os.path.dirname(out_path))
     else:
-        # parent directory for out_path outputs
         out_dir = os.path.dirname(out_path)
+    
+    if not out_dir:
+        if default_dir:
+            out_dir = default_dir
+        else:
+            raise ValueError("Output directory is empty and no default directory provided.")
 
-    # find all genotools created logs in out_dir
+    if not os.path.exists(out_dir):
+        raise FileNotFoundError(f"Output directory does not exist: {out_dir}")
+
     log_paths = []
     for file in os.listdir(out_dir):
         if file.endswith("_all_logs.log"):
-            # log_exists = True
             log_paths.append(file)
 
-    # if no genotools logs exist, create one
     if len(log_paths) == 0:
-        log_path = os.path.join(out_dir, os.path.split(out_path)[1])
+        log_path = os.path.join(out_dir, os.path.split(out_path)[1] + "_all_logs.log")
 
-    # if one genotools log exists, point to it
-    if len(log_paths) == 1:
+    elif len(log_paths) == 1:
         log_path = os.path.join(out_dir, log_paths[0])
 
-    # if more than one genotools log exists, point to the one modified most recently
-    if len(log_paths) > 1:
-        mtimes = {}
-        for path in log_paths:
-            mtimes[path] = os.path.getmtime(os.path.join(out_dir, path))
-        most_recent_log = max(zip(mtimes.values(), mtimes.keys()))[1]
+    else:
+        mtimes = {path: os.path.getmtime(os.path.join(out_dir, path)) for path in log_paths}
+        most_recent_log = max(mtimes, key=mtimes.get)
         log_path = os.path.join(out_dir, most_recent_log)
 
-    # combine log files into 1 file
     with open(log_path, "a+") as new_file:
         for name in listOfFiles:
             with open(name) as file:
@@ -293,12 +295,10 @@ def concat_logs(step, out_path, listOfFiles):
                 for line in file:
                     new_file.write(line)
                 new_file.write("\n")
-
-    # remove intermediate log files
+                
     for files in listOfFiles:
         os.remove(files)
 
-    # calls for processing
     with open(log_path, 'r') as file:
         out_path = log_path.replace('_all_logs.log', '')
         process_log(out_path, file.readlines())
