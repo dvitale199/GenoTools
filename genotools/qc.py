@@ -250,7 +250,7 @@ class SampleQC:
         Execute heterozygosity-based pruning on genotype data using PLINK.
 
         Parameters:
-        - het_filter (list of float, optional): Two values indicating the bounds for heterozygosity outlier checks. Default values are [-0.25, 0.25].
+        - het_filter (list of float, optional): Two values indicating the bounds for heterozygosity outlier checks. Default values are [-0.15, 0.15].
 
         Returns:
         - dict: A structured dictionary containing:
