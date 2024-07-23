@@ -61,7 +61,7 @@ class WholeGenomeSeqQC:
                 # extract ref snps, merge, run relatedness
     '''
 
-    def __init__(self, shards_dir=None, out_path=None, keep_all=True, slurm=False, \
+    def __init__(self, shards_dir=None, out_path=None, keep_all=True, slurm=False, slurm_user=None, \
                  shard_key_path=None, \
                  preBqsr_path=None, \
                  wgs_metrics_path=None, \
@@ -84,6 +84,7 @@ class WholeGenomeSeqQC:
         self.shard_filenames = list(set([f"{self.shards_dir}/{f.split('.')[0]}" for f in os.listdir(self.shards_dir)]))
 
         self.slurm = slurm
+        self.slurm_user = slurm_user
         self.slurm_scripts = f'{self.out_path}_slurm_scripts'
         if self.slurm:
             os.makedirs(f'{self.slurm_scripts}', exist_ok=True)
@@ -412,6 +413,7 @@ class WholeGenomeSeqQC:
         out_path = self.out_path
         shard_filenames = self.shard_filenames
         slurm = self.slurm
+        slurm_user = self.slurm_user
         slurm_scripts = self.slurm_scripts
         keep_all = self.keep_all
 
@@ -464,10 +466,24 @@ class WholeGenomeSeqQC:
                             --output={slurm_scripts}/logs/sample_callrate_%A_%a.out \
                             --time=0:30:0 {slurm_scripts}/sample_callrate.sh'
 
-            job_id = shell_do(slurm_cmd, return_log=True)
+            job_id = shell_do(slurm_cmd, return_log=True).strip()
 
             # TODO: grep acct to ensure that all jobs are COMPLETED before concating logs
-            time.sleep(5*60)
+            # time.sleep(5*60)
+
+            sacct_out = list()
+            job_complete = dict()
+            while (not all(status=='COMPLETED' for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
+                sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
+                sacct_out = shell_do(sacct_cmd, return_log=True)
+                sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
+                ids = list()
+                statuses = list()
+                for val in sacct_list:
+                    ids.append(val[0])
+                    statuses.append(val[1])
+                job_complete = dict(zip(ids, statuses))
+
             listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
@@ -484,7 +500,8 @@ class WholeGenomeSeqQC:
         # create filenames
         callrate_fails = f'{out_path}.callrate_fails'
 
-        if len(glob.glob1(callrate_dir,'*.smiss')) > 0:
+        print('num .smiss files?', len(glob.glob1(callrate_dir,'*.smiss')))
+        if len(glob.glob1(callrate_dir,'*.smiss')) == len(shard_filenames):
             callrates = defaultdict(list)
             for filename in os.listdir(callrate_dir):
                 if filename.endswith('.smiss'):
