@@ -408,7 +408,7 @@ class WholeGenomeSeqQC:
             heterozygosities = defaultdict(list)
             for filename in os.listdir(het_dir):
                 if filename.endswith('.het'):
-                    het = pd.read_csv(f'{callrate_dir}/filename', sep='\s+')
+                    het = pd.read_csv(f'{het_dir}/{filename}', sep='\s+')
                     het['F'] = het['F'].map(lambda x:[x])
                     shard_hets = pd.Series(het.F.values, index=het.IID).to_dict()
                     for k,v in shard_hets.items():
