@@ -90,12 +90,16 @@ class WholeGenomeSeqQC:
             os.makedirs(f'{self.slurm_scripts}', exist_ok=True)
             os.makedirs(f'{self.slurm_scripts}/logs', exist_ok=True)
 
-    def run_freemix_check(self, geno_path, check_limit=1e6):
+    def run_freemix_check(self, geno_path=None, check_limit=1e6):
         out_path = self.out_path
         keep_all = self.keep_all
         preBqsr_path = self.preBqsr
+        shard_filenames = self.shard_filenames
 
         step = "wgs_freemix_filter_prune"
+
+        if geno_path is None:
+            geno_path = shard_filenames[0]
 
         # Does ZH manually check something by creating a 'CHECK' col?
         preBqsr = pd.read_csv(preBqsr_path, sep='\s+')
@@ -151,12 +155,16 @@ class WholeGenomeSeqQC:
         return out_dict
 
 
-    def run_coverage_check(self, geno_path, min_mean_coverage=25):
+    def run_coverage_check(self, geno_path=None, min_mean_coverage=25):
         out_path = self.out_path
         keep_all = self.keep_all
         wgs_metrics_path = self.wgs_metrics
+        shard_filenames = self.shard_filenames
 
         step = "coverage_check"
+
+        if geno_path is None:
+            geno_path = shard_filenames[0]
 
         # create filenames
         coverage_fails = f'{out_path}.coverage_fails'
@@ -205,13 +213,17 @@ class WholeGenomeSeqQC:
         return out_dict
 
 
-    def run_titv_check(self, geno_path):
+    def run_titv_check(self, geno_path=None):
         out_path = self.out_path
         variant_calling_summary_metrics_path = self.var_calling_summary_metrics_path
         # titv ratio fails should be removed regardless
         # keep_all = self.keep_all
+        shard_filenames = self.shard_filenames
 
         step = "titv_check"
+
+        if geno_path is None:
+            geno_path = shard_filenames[0]
 
         # create filenames
         titv_ratio_fails = f'{out_path}.titv_ratio_fails'
@@ -258,27 +270,40 @@ class WholeGenomeSeqQC:
         '''
         called within merge_sample_het() on each shard
         '''
+        out_path = self.out_path
         slurm = self.slurm
 
         step = "het_check"
 
-        # create filenames
-        het_tmp = f"{het_out}_tmp"
-        het_tmp2 = f"{het_out}_tmp2"
-        het_tmp3 = f"{het_out}_tmp3"
+        if slurm:
+            # create filenames
+            shard_geno_path = f'{os.path.dirname(geno_path)}/${{shard_name}}'
+            het_tmp = f'{het_out}_${{shard_name}}_tmp'
+            het_tmp2 = f'{het_out}_${{shard_name}}_tmp2'
+            het_tmp3 = f'{het_out}_${{shard_name}}_tmp3'
 
-        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
-        plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {het_tmp2}"
-        plink_cmd3 = f"{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}"
+            plink_cmd1 = f'{plink2_exec} --pfile {shard_geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}'
+            plink_cmd2 = f'{plink2_exec} --pfile {shard_geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {het_tmp2}'
+            plink_cmd3 = f'{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}'
 
-        cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
+            plink_cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
 
-        if not slurm:
-            for cmd in cmds:
+        else:
+            # create filenames
+            het_tmp = f"{het_out}_tmp"
+            het_tmp2 = f"{het_out}_tmp2"
+            het_tmp3 = f"{het_out}_tmp3"
+
+            plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out {het_tmp}"
+            plink_cmd2 = f"{plink2_exec} --pfile {geno_path} --extract {het_tmp}.prune.in --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {het_tmp2}"
+            plink_cmd3 = f"{plink2_exec} --pfile {het_tmp2} --het --out {het_tmp3}"
+            plink_cmds = [plink_cmd1, plink_cmd2, plink_cmd3]
+
+            for cmd in plink_cmds:
                 shell_do(cmd)
 
             listOfFiles = [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
-            concat_logs(step, het_out, listOfFiles)
+            concat_logs(step, out_path, listOfFiles)
 
             hetpath = f'{het_tmp3}.het'
             if os.path.isfile(hetpath):
@@ -287,11 +312,8 @@ class WholeGenomeSeqQC:
                 os.remove(f'{het_tmp2}.pgen')
                 os.remove(f'{het_tmp2}.pvar')
                 os.remove(f'{het_tmp2}.psam')
-            else:
-                print(f'Heterozygosity pruning failed!')
-                print(f'Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for more information')
 
-        return cmds, [f'{het_tmp}.log', f'{het_tmp2}.log', f'{het_tmp3}.log']
+        return plink_cmds
 
 
     def merge_sample_het(self, het_filter=[-0.25,0.25]):
@@ -302,6 +324,7 @@ class WholeGenomeSeqQC:
         out_path = self.out_path
         shard_filenames = self.shard_filenames
         slurm = self.slurm
+        slurm_user = self.slurm_user
         slurm_scripts = self.slurm_scripts
         keep_all = self.keep_all
 
@@ -309,66 +332,122 @@ class WholeGenomeSeqQC:
 
         # create het_out dir
         out_filename = os.path.basename(out_path)
-        het_dir = f'{os.path.dirname(out_path)}/het_out'
+        het_dir = f'{os.path.dirname(out_path)}/{out_filename}_het'
         if not os.path.exists(f'{het_dir}'):
             os.makedirs(f'{het_dir}')
 
         het_out = f'{het_dir}/{out_filename}'
         if slurm:
-            # TODO: create slurm file for groups of het cmds in sbatch file? and run het
+            # create config file for submitting job array
+            with open(f'{slurm_scripts}/sample_het.config', 'w') as f:
+                f.write(f'ArrayTaskID\tshard_name\n')
+                for i in range(len(shard_filenames)):
+                    if i<len(shard_filenames)-1:
+                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
+                    else:
+                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
+            f.close()
+
+            # create sbatch file
+            with open(f'{slurm_scripts}/sample_het.sh', 'w') as f:
+                f.write(f'#!/usr/bin/env bash\n\n')
+                f.write(f'config={slurm_scripts}/sample_het.config\n')
+                f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
+                cmds = self.run_het_check(geno_path=shard_filenames[0], het_out=f'{het_out}')
+                for cmd in cmds:
+                    f.write(f'{cmd}\n\n')
+            f.close()
+
+            # run slurm
+            slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+                            --array=1-{len(shard_filenames)} \
+                            --output={slurm_scripts}/logs/sample_het_%A_%a.out \
+                            --time=0:30:0 {slurm_scripts}/sample_het.sh'
+
+            job_id = shell_do(slurm_cmd, return_log=True).strip()
+
+            # ensure all jobs are 'COMPLETED' before concatting logs
+            sacct_out = list()
+            job_complete = dict()
+
+            # only checks of 'COMPLETED' or 'FAILED' job status
+            while (not all(status in ['COMPLETED', 'FAILED'] for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
+                sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
+                sacct_out = shell_do(sacct_cmd, return_log=True)
+                sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
+                ids = list()
+                statuses = list()
+                for val in sacct_list:
+                    ids.append(val[0])
+                    statuses.append(val[1])
+                job_complete = dict(zip(ids, statuses))
+
+            # concat logs
             listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
-                with open(f'{slurm_scripts}/sample_het_{shard_name}.sh', 'w') as f:
-                    f.write('#!/usr/bin/env bash\n\n')
-                    het_cmds, logs = self.run_het_check(shard, het_out)
-                    listOfFiles = listOfFile + logs
-                    for cmd in het_cmds:
-                        f.write(f'{cmd}\n')
-                f.close()
+                het_log = f'{het_out}_{shard_name}_tmp.log'
+                het_log2 = f'{het_out}_{shard_name}_tmp2.log'
+                het_log3 = f'{het_out}_{shard_name}_tmp3.log'
+                listOfFiles.append(het_log)
+                listOfFiles.append(het_log2)
+                listOfFiles.append(het_log3)
+            concat_logs(step, out_path, listOfFiles)
 
-                slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
-                              --output={slurm_scripts}/logs/sample_het_{shard_name}.out \
-                              --time=0:30:0 {slurm_scripts}/sample_het_{shard_name}.sh'
-            # concat_logs(step, out_path, listOfFiles)
         else:
             # loop through shards and run het
             for shard in shard_filenames:
-                self.run_het_check(shard, het_out)
+                shard_name = shard.split('/')[-1]
+                het_outpath = f'{het_out}_{shard_name}'
+                self.run_het_check(shard, het_outpath)
 
         # create filenames
         het_fails = f'{out_path}.het_fails'
 
-        heterosygosities = defaultdict(list)
-        for filename in os.listdir(het_dir):
-            if filename.endswith('.het'):
-                het = pd.read_csv(f'{callrate_dir}/filename', sep='\s+')
-                het['F'] = het['F'].map(lambda x:[x])
-                shard_hets = pd.Series(het.F.values, index=het.IID).to_dict()
-                for k,v in shard_hets.items():
-                    heterosygosities[k].extend(v)
+        if len(glob.glob1(het_dir,'*.het')) == len(shard_filenames):
+            heterozygosities = defaultdict(list)
+            for filename in os.listdir(het_dir):
+                if filename.endswith('.het'):
+                    het = pd.read_csv(f'{callrate_dir}/filename', sep='\s+')
+                    het['F'] = het['F'].map(lambda x:[x])
+                    shard_hets = pd.Series(het.F.values, index=het.IID).to_dict()
+                    for k,v in shard_hets.items():
+                        heterozygosities[k].extend(v)
 
-        for k,v in heterozygosities.items():
-            heterosygosities[k] = sum(v) / len(v)
+            for k,v in heterozygosities.items():
+                heterozygosities[k] = sum(v) / len(v)
 
-        heterozygosities = pd.DataFrame.from_dict(heterozygosities, orient='index').reset_index()
-        heterozygosities = heterozygosities.rename(columns={'index':'IID', 0:'F'})
+            heterozygosities = pd.DataFrame.from_dict(heterozygosities, orient='index').reset_index()
+            heterozygosities = heterozygosities.rename(columns={'index':'IID', 0:'F'})
 
-        outliers = heterosygosities[((heterosygosities.F <= het_filter[0]) | (heterosygosities.F >= het_filter[1]))]
-        het_fail_ids = outliers['IID']
-        het_fail_count = het_fail_ids.shape[0]
-        het_fail_ids.to_csv(het_fails, sep='\t', header=False, index=False)
+            outliers = heterozygosities[((heterozygosities.F <= het_filter[0]) | (heterozygosities.F >= het_filter[1]))]
+            het_fail_ids = outliers['IID']
+            het_fail_count = het_fail_ids.shape[0]
+            het_fail_ids.to_csv(het_fails, sep='\t', header=False, index=False)
 
-        process_complete = True
+            process_complete = True
 
-        outfiles_dict = {
-            'pruned_samples': f'{het_fails}',
-            'plink_out': f'{out_path}' # TODO: if removing include plink_out
-        }
+            outfiles_dict = {
+                'pruned_samples': f'{het_fails}',
+                'plink_out': f'{out_path}' # TODO: if removing include plink_out
+            }
 
-        metrics_dict = {
-            'outlier_count': het_fail_count
-        }
+            metrics_dict = {
+                'outlier_count': het_fail_count
+            }
+        else:
+            process_complete = False
+            outfiles_dict = {
+                'pruned_samples': 'Heterozygosity Pruning Failed!',
+                'plink_out': f'{out_path}' # TODO: if removing include plink_out
+            }
+
+            metrics_dict = {
+                'outlier_count': 0
+            }
+
+            print(f'At least one file failed WGS heterozygosity pruning!')
+            print(f'Check the {out_path}.log for more information')
 
         out_dict = {
             'pass': process_complete,
@@ -389,20 +468,20 @@ class WholeGenomeSeqQC:
 
         step = "callrate_check"
 
-        # create filenames
-        callrates = f'{callrate_out}_callrates'
-
         if slurm:
             plink_cmd = f'{plink2_exec} --pfile {os.path.dirname(geno_path)}/${{shard_name}} --missing --out {callrate_out}_${{shard_name}}_callrates'
 
         else:
+            # create filenames
+            callrates = f'{callrate_out}_callrates'
+
             plink_cmd = f'{plink2_exec} --pfile {geno_path} --missing --out {callrates}'
             shell_do(plink_cmd)
 
             listOfFiles = [f'{callrates}.log']
             concat_logs(step, out_path, listOfFiles)
 
-        return plink_cmd, f'{callrates}.log'
+        return plink_cmd
 
 
     def merge_sample_callrate(self, callrate_threshold=0.95):
@@ -421,29 +500,13 @@ class WholeGenomeSeqQC:
 
         # create callrate_out dir
         out_filename = os.path.basename(out_path)
-        callrate_dir = f'{os.path.dirname(out_path)}/callrate_dir'
+        callrate_dir = f'{os.path.dirname(out_path)}/{out_filename}_callrate'
         if not os.path.exists(f'{callrate_dir}'):
             os.makedirs(f'{callrate_dir}')
 
         callrate_out = f'{callrate_dir}/{out_filename}'
         if slurm:
-            # TODO: submit jobs as job array
-            # for shard in shard_filenames:
-            #     shard_name = shard.split('/')[-1]
-            #     callrate_outpath = f'{callrate_out}_{shard_name}'
-            #     with open(f'{slurm_scripts}/sample_callrate_{shard_name}.sh', 'w') as f:
-            #         f.write(f'#!/usr/bin/env bash\n\n')
-            #         cmd, log = self.run_check_callrate(shard, callrate_outpath)
-            #         listOfFiles.append(log)
-            #         f.write(f'{cmd}\n')
-            #     f.close()
-
-            #     slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
-            #                   --output={slurm_scripts}/logs/sample_callrate_{shard_name}.out \
-            #                   --time=0:30:0 {slurm_scripts}/sample_callrate_{shard_name}.sh'
-
-            #     shell_do(slurm_cmd)
-
+            # create config file for submitting job array
             with open(f'{slurm_scripts}/sample_callrate.config', 'w') as f:
                 f.write(f'ArrayTaskID\tshard_name\n')
                 for i in range(len(shard_filenames)):
@@ -453,14 +516,16 @@ class WholeGenomeSeqQC:
                         f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
             f.close()
 
+            # create sbatch file
             with open(f'{slurm_scripts}/sample_callrate.sh', 'w') as f:
                 f.write(f'#!/usr/bin/env bash\n\n')
                 f.write(f'config={slurm_scripts}/sample_callrate.config\n')
                 f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
-                cmd, log = self.run_check_callrate(geno_path=shard_filenames[0], callrate_out=f'{callrate_out}')
+                cmd = self.run_check_callrate(geno_path=shard_filenames[0], callrate_out=f'{callrate_out}')
                 f.write(f'{cmd}\n')
             f.close()
 
+            # run slurm
             slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
                             --array=1-{len(shard_filenames)} \
                             --output={slurm_scripts}/logs/sample_callrate_%A_%a.out \
@@ -468,12 +533,10 @@ class WholeGenomeSeqQC:
 
             job_id = shell_do(slurm_cmd, return_log=True).strip()
 
-            # TODO: grep acct to ensure that all jobs are COMPLETED before concating logs
-            # time.sleep(5*60)
-
+            # ensure all jobs are 'COMPLETED' before concatting logs
             sacct_out = list()
             job_complete = dict()
-            while (not all(status=='COMPLETED' for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
+            while (not all(status in ['COMPLETED', 'FAILED'] for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
                 sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
                 sacct_out = shell_do(sacct_cmd, return_log=True)
                 sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
@@ -484,6 +547,7 @@ class WholeGenomeSeqQC:
                     statuses.append(val[1])
                 job_complete = dict(zip(ids, statuses))
 
+            # concat logs
             listOfFiles = list()
             for shard in shard_filenames:
                 shard_name = shard.split('/')[-1]
@@ -500,7 +564,6 @@ class WholeGenomeSeqQC:
         # create filenames
         callrate_fails = f'{out_path}.callrate_fails'
 
-        print('num .smiss files?', len(glob.glob1(callrate_dir,'*.smiss')))
         if len(glob.glob1(callrate_dir,'*.smiss')) == len(shard_filenames):
             callrates = defaultdict(list)
             for filename in os.listdir(callrate_dir):
@@ -534,7 +597,7 @@ class WholeGenomeSeqQC:
             }
 
         else:
-            print('WGS Callrate Prune Failed!')
+            print('At least one file failed WGS callrate pruning!')
             print(f'Check {out_path}.log for more information')
 
             process_complete = False
@@ -579,13 +642,15 @@ class WholeGenomeSeqQC:
                                 | ((shard_key_x['start']<=x_start) & (shard_key_x['end']>=x_end))]
 
         # make dir to keep merged X chr
-        x_dir = f'{out_path}/x_range'
-        if not os.path.exists(x_dir):
-            os.makedirs(x_dir)
+        out_filename = os.path.basename(out_path)
+        x_dir = f'{os.path.dirname(out_path)}/{out_filename}_chrX'
+        if not os.path.exists(f'{x_dir}'):
+            os.makedirs(f'{x_dir}')
 
         # convert all X chr shards into bfiles
         x_range_shards = sorted(set(zip(shard_key_x_range.chr, shard_key_x_range.shard)))
         for chrom, shard in x_range_shards:
+            # requires files to be named 'chr_shard'
             bfiles_to_pfiles(pfile_path=f'{shards_dir}/{chrom}_{shard}')
 
         # merge X chr together to run sex check
@@ -595,8 +660,13 @@ class WholeGenomeSeqQC:
                 f.write(f'{path}\n')
         f.close()
 
-        plink_merge = f'{plink_exec} --merge-list {shards_dir}/x_range/to_merge.txt --make-bed --out {x_dir}/x_range'
+        plink_merge = f'{plink_exec} --merge-list {x_dir}/to_merge.txt --make-bed --out {x_dir}/x_range'
         shell_do(plink_merge)
+
+        for chrom, shard in x_range_shards:
+            os.remove(f'{shards_dir}/{chrom}_{shard}.bed')
+            os.remove(f'{shards_dir}/{chrom}_{shard}.bim')
+            os.remove(f'{shards_dir}/{chrom}_{shard}.fam')
 
         # return out path to X chr plink files containing sex check range
         return f'{x_dir}/x_range'
@@ -613,9 +683,6 @@ class WholeGenomeSeqQC:
         # create filenames
         sex_tmp = f'{out_path}_tmp'
         sex_fails = f'{out_path}.sex_fails'
-
-        # convert to bfiles
-        # bfiles_to_pfiles(pfile_path=geno_path)
 
         plink_cmd = f'{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 \
                     --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex {check_sex[0]} {check_sex[1]} --out {sex_tmp}'
@@ -663,10 +730,6 @@ class WholeGenomeSeqQC:
                 'outlier_count': 0
             }
 
-        os.remove(f'{geno_path}.bed')
-        os.remove(f'{geno_path}.bim')
-        os.remove(f'{geno_path}.fam')
-
         out_dict = {
             'pass': process_complete,
             'step': step,
@@ -709,13 +772,15 @@ class WholeGenomeSeqQC:
         ref_panel_with_shard = ref_shard_interval[['snpID', 'CHR', 'POS', 'shard']]
 
         # make dir for extracted ref panel
-        ref_overlap_dir = f'{out_path}/ref_overlap'
+        out_filename = os.path.basename(out_path)
+        ref_overlap_dir = f'{os.path.dirname(out_path)}/{out_filename}_ref_overlap'
         if not os.path.exists(f'{ref_overlap_dir}'):
             os.makedirs(f'{ref_overlap_dir}')
 
         # extract ref snps from each corresponding shard
         shards_to_extract_from = set(zip(ref_panel_with_shard.CHR, ref_panel_with_shard.shard))
         for chrom, shard in shards_to_extract_from:
+            # requires files to be named 'chr_shard'
             shard_path = f'{shards_dir}/{chrom}_{shard}'
             plink_extract = f'{plink2_exec} --pfile {shard_path} --extract {ref_panel_path} --make-pgen --out {ref_overlap_dir}/{chrom}_{shard}_ref_overlap'
             shell_do(plink_extract)
