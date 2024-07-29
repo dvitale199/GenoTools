@@ -36,7 +36,7 @@ def gt_argparse():
     parser.add_argument('--skip_fails', type=str, nargs='?', default='False', const='True', help='Skip up front check for fails')
     parser.add_argument('--warn', type=str, nargs='?', default='True', const='True', help='Warn of error and continue running pipeline')
 
-    # ancerstry arguments
+    # ancestry arguments
     parser.add_argument('--ancestry', type=str, nargs='?', default='False', const='True', help='Split by ancestry')
     parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='Genotype: (string file path). Path to PLINK format reference genotype file, everything before the *.bed/bim/fam.')
     parser.add_argument('--ref_labels', type=str, nargs='?', default=None, const=None, help='tab-separated plink-style IDs with ancestry label (FID  IID label) with no header')
@@ -79,7 +79,8 @@ def gt_argparse():
     parser.add_argument('--preBqsr', type=str, nargs='?', default=None, const=None, help='String file path to preBqsr file')
     parser.add_argument('--wgs_metrics', type=str, nargs='?', default=None, const=None, help='String file path to wgs metrics')
     parser.add_argument('--variant_calling_summary_metrics', type=str, nargs='?', default=None, const=None, help='String file path to variant calling summary metrics')
-    parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='String file path to ref panel variants')
+    # potentially create a useable ref panel file from the ref_panel arg from angestry args?
+    # parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='String file path to ref panel variants')
 
     # GWAS and PCA argument
     parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')
