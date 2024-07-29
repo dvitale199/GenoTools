@@ -69,6 +69,18 @@ def gt_argparse():
     parser.add_argument('--ld', nargs='*', help='LD prune with window size, step size, r2 threshold')
     parser.add_argument('--all_variant', type=str, nargs='?', default='False', const='True', help='Run all variant-level QC')
 
+    # WGS qc arguments
+    parser.add_argument('--wgs', type=str, nargs='?', default='False', const='True', help='Run WGS level QC')
+    parser.add_argument('--shards_dir', type=str, nargs='?', default=None, const=None, help='Path to directory containing WGS shard files')
+    parser.add_argument('--keep_all', type=str, nargs='?', defaul='False', const='True', help='Keep all samples after each QC step')
+    parser.add_argument('--slurm', type=str, nargs='?', default='False', const='True', help='Utilize slurm to call parallelizable steps')
+    parser.add_argument('--slurm-user', type=str, nargs='?', default=None, const=None, help='User to call slurm from')
+    parser.add_argument('--shard_key', type=str, nargs='?', default=None, const=None, help='String file path to shard key')
+    parser.add_argument('--preBqsr', type=str, nargs='?', default=None, const=None, help='String file path to preBqsr file')
+    parser.add_argument('--wgs_metrics', type=str, nargs='?', default=None, const=None, help='String file path to wgs metrics')
+    parser.add_argument('--variant_calling_summary_metrics', type=str, nargs='?', default=None, const=None, help='String file path to variant calling summary metrics')
+    parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='String file path to ref panel variants')
+
     # GWAS and PCA argument
     parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')
     parser.add_argument('--build', type=str, nargs='?', default='hg38', const='hg38', help='Build for PCA')
