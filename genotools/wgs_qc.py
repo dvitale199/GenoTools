@@ -739,7 +739,7 @@ class WholeGenomeSeqQC:
 
         return out_dict
 
-    def extract_ref_snps(self, ref_panel_path):
+    def extract_ref_snps(self):
         '''
         get chr:pos of all snps in ref panel
         use snp map to get chr:pos range of each shard
@@ -754,6 +754,7 @@ class WholeGenomeSeqQC:
         shards_dir = self.shards_dir
         shard_key = self.shard_key
         out_path = self.out_path
+        ref_panel_path = self.ref_panel_path
 
         # format shards key
         shard_key = pd.read_csv(shard_key, dtype={'shard':str})
@@ -761,10 +762,12 @@ class WholeGenomeSeqQC:
         shard_key['end'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[1].astype(int)
 
         # load in ref panel snps
-        # TODO: assume ref panel snps in repo?
-        ref_panel = pd.read_csv(f'{ref_panel_path}', sep='\s+', header=None, names=['snpID'])
-        ref_panel['CHR'] = ref_panel['snpID'].str.split(':', expand=True)[0]
-        ref_panel['POS'] = ref_panel['snpID'].str.split(':', expand=True)[1].astype(int)
+        ref_panel = pd.read_csv(f'{ref_panel_path}.bim', sep='\s+', header=None, names=['CHR', 'snpID', 'DIST', 'POS', 'A1', 'A2'])
+
+        # # load in ref panel snps
+        # ref_panel = pd.read_csv(f'{ref_panel_path}', sep='\s+', header=None, names=['snpID'])
+        # ref_panel['CHR'] = ref_panel['snpID'].str.split(':', expand=True)[0]
+        # ref_panel['POS'] = ref_panel['snpID'].str.split(':', expand=True)[1].astype(int)
 
         # find shard that contains each ref snp
         ref_shard_merge = ref_panel.merge(shard_key, left_on='CHR', right_on='chr', how='outer')
