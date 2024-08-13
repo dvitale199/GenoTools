@@ -79,8 +79,7 @@ def gt_argparse():
     parser.add_argument('--preBqsr', type=str, nargs='?', default=None, const=None, help='String file path to preBqsr file')
     parser.add_argument('--wgs_metrics', type=str, nargs='?', default=None, const=None, help='String file path to wgs metrics')
     parser.add_argument('--variant_calling_summary_metrics', type=str, nargs='?', default=None, const=None, help='String file path to variant calling summary metrics')
-    # potentially create a useable ref panel file from the ref_panel arg from angestry args?
-    # parser.add_argument('--ref_panel', type=str, nargs='?', default=None, const=None, help='String file path to ref panel variants')
+    parser.add_argument('--ref_variants', type=str, nargs='?', default=None, const=None, help='String file path to ref panel variants')
 
     # GWAS and PCA argument
     parser.add_argument('--pca', type=int, nargs='?', default=None, const=10, help='PCA and number of PCs')

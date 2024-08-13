@@ -66,7 +66,7 @@ class WholeGenomeSeqQC:
                  preBqsr_path=None, \
                  wgs_metrics_path=None, \
                  variant_calling_summary_metrics_path=None, \
-                 ref_panel_path=None):
+                 ref_variants_path=None):
 
         self.shards_dir = shards_dir
         self.out_path = out_path
@@ -78,7 +78,7 @@ class WholeGenomeSeqQC:
         self.wgs_metrics = wgs_metrics_path
         self.var_calling_summary_metrics_path = variant_calling_summary_metrics_path
 
-        self.ref_panel_path = ref_panel_path
+        self.ref_variants_path = ref_variants_path
 
         # create list of shard filenames
         self.shard_filenames = list(set([f"{self.shards_dir}/{f.split('.')[0]}" for f in os.listdir(self.shards_dir)]))
@@ -739,7 +739,7 @@ class WholeGenomeSeqQC:
 
         return out_dict
 
-    def extract_ref_snps(self):
+    def extract_ref_snps(self, ref_variants_path=None):
         '''
         get chr:pos of all snps in ref panel
         use snp map to get chr:pos range of each shard
@@ -754,7 +754,6 @@ class WholeGenomeSeqQC:
         shards_dir = self.shards_dir
         shard_key = self.shard_key
         out_path = self.out_path
-        ref_panel_path = self.ref_panel_path
 
         # format shards key
         shard_key = pd.read_csv(shard_key, dtype={'shard':str})
@@ -762,12 +761,12 @@ class WholeGenomeSeqQC:
         shard_key['end'] = shard_key['interval'].str.split(':', expand=True)[1].str.split('-', expand=True)[1].astype(int)
 
         # load in ref panel snps
-        ref_panel = pd.read_csv(f'{ref_panel_path}.bim', sep='\s+', header=None, names=['CHR', 'snpID', 'DIST', 'POS', 'A1', 'A2'])
+        # ref_panel = pd.read_csv(f'{ref_panel_path}.bim', sep='\s+', header=None, names=['CHR', 'snpID', 'DIST', 'POS', 'A1', 'A2'])
 
-        # # load in ref panel snps
-        # ref_panel = pd.read_csv(f'{ref_panel_path}', sep='\s+', header=None, names=['snpID'])
-        # ref_panel['CHR'] = ref_panel['snpID'].str.split(':', expand=True)[0]
-        # ref_panel['POS'] = ref_panel['snpID'].str.split(':', expand=True)[1].astype(int)
+        # load in ref snps
+        ref_panel = pd.read_csv(f'{ref_variants_path}', sep='\s+', header=None, names=['snpID'])
+        ref_panel['CHR'] = ref_panel['snpID'].str.split(':', expand=True)[0]
+        ref_panel['POS'] = ref_panel['snpID'].str.split(':', expand=True)[1].astype(int)
 
         # find shard that contains each ref snp
         ref_shard_merge = ref_panel.merge(shard_key, left_on='CHR', right_on='chr', how='outer')
@@ -785,7 +784,7 @@ class WholeGenomeSeqQC:
         for chrom, shard in shards_to_extract_from:
             # requires files to be named 'chr_shard'
             shard_path = f'{shards_dir}/{chrom}_{shard}'
-            plink_extract = f'{plink2_exec} --pfile {shard_path} --extract {ref_panel_path} --make-pgen --out {ref_overlap_dir}/{chrom}_{shard}_ref_overlap'
+            plink_extract = f'{plink2_exec} --pfile {shard_path} --extract {ref_variants_path} --make-pgen --out {ref_overlap_dir}/{chrom}_{shard}_ref_overlap'
             shell_do(plink_extract)
 
         # merge all the extracted ref_panel snps
@@ -807,11 +806,11 @@ class WholeGenomeSeqQC:
         check for both duplicates and relatedness
         '''
         out_path = self.out_path
-        ref_panel_path = self.ref_panel_path
+        ref_variants_path = self.ref_variants_path
 
         step = "relatedness_check"
 
-        subset_geno = self.extract_ref_snps(ref_panel_path)
+        subset_geno = self.extract_ref_snps(ref_variants_path)
         sampleQC = SampleQC(subset_geno, out_path)
         related_out_dict = sampleQC.run_related_prune(prune_related=False, prune_duplicated=False)
         related_out_files = related_out_dict['output']
