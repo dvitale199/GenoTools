@@ -17,8 +17,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='the_real_genotools', 
-    version='1.2.1', 
+    name='the_real_genotools',
+    version='1.2.1',
     packages=find_packages(),
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',
@@ -42,6 +42,7 @@ setup(
         'console_scripts': [
             'genotools=genotools.__main__:handle_main',
             'genotools-download=genotools.download_refs:handle_download',
+            'genotools-wgs=genotools.main_wgs:handle_wgs'
         ]
     },
     install_requires = [
