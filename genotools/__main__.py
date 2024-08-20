@@ -67,7 +67,7 @@ def handle_main():
             args_dict['het'] = [-0.15, 0.15]
 
         else:
-            args_dict['het'] = [float(i) for i in args_dict['sex']]
+            args_dict['het'] = [float(i) for i in args_dict['het']]
 
     if args_dict['ld'] is not None:
         if len(args_dict['ld']) == 0:
@@ -228,7 +228,7 @@ def handle_main():
                     clean_out_dict[df] = full_labeled_pruned_df.to_dict()
                 else:
                     clean_out_dict[df] = output_dfs[df].to_dict()
-            
+
             else:
                 clean_out_dict[df] = output_dfs[df].to_dict()
 
