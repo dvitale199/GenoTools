@@ -26,7 +26,7 @@ Following ancestry analysis, the pipeline undergoes these sample-level and varia
 - **Callrate**: Default threshold: 0.05
 - **Sex Check**: Default cutoffs: [0.25, 0.75]
 - **Relatedness Check**: Enabled by default
-- **Heterozygosity Rate (Het)**: Default range: [-0.25, 0.25]
+- **Heterozygosity Rate (Het)**: Default range: [-0.15, 0.15]
 
 ### Variant-Level QC Steps
 - **Case-Control Check**: Default threshold: 1e-4
