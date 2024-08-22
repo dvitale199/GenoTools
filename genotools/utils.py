@@ -111,6 +111,20 @@ def vcf_to_pfiles(vcf_path):
         raise FileNotFoundError(f'{prefix} pgen/pvar/psam files do not exist. Conversion from bed/bim/fam failed.')
 
 
+def read_pvar(pvar_path):
+    with open(pvar_path, 'r') as f:
+        header = None
+        for line in f:
+            if line.startswith('##'):
+                continue
+            elif line.startswith('#'):
+                header = line.strip().split('\t')
+                break
+
+    var = pd.read_csv(pvar_path, delimiter='\t', comment='#', names=header, dtype={'#CHROM':str})
+    
+    return var
+
 
 def upfront_check(geno_path, args):
     if not os.path.isfile(f'{geno_path}.pgen'):
@@ -122,7 +136,8 @@ def upfront_check(geno_path, args):
         bfiles_to_pfiles(bfile_path=geno_path)
 
     sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
-    var = pd.read_csv(f'{geno_path}.pvar', delimiter='\t', comment='#', header=None, names=['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'FILTER', 'INFO'], low_memory=False)
+    # var = pd.read_csv(f'{geno_path}.pvar', delimiter='\t', comment='#', header=None, names=['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'FILTER', 'INFO'], low_memory=False)
+    var = read_pvar(f'{geno_path}.pvar')
 
     if 'SEX' not in sam.columns:
         raise KeyError(f'{geno_path}.psam is missing SEX column. Even if no SEX information is present, GenoTools requires a SEX column.')
@@ -136,7 +151,7 @@ def upfront_check(geno_path, args):
 
     # print breakdown of data
     print("Your data has the following breakdown:")
-    print("- Genetic Sex:")
+    print("- Sex:")
     for sex in sex_counts.keys():
         if sex == 1:
             print(f'{sex_counts[sex]} Males \n')
@@ -406,26 +421,19 @@ def get_common_snps(geno_path1, geno_path2, out_name):
 
     print('Getting Common SNPs')
 
-    # read both bim files
-    bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
-    bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-    bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
-    bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
+    bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None, names=['chr', 'rsid', 'kb', 'pos', 'a1', 'a2'], dtype={'chr':str})
+    bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None, names=['chr', 'rsid', 'kb', 'pos', 'a1', 'a2'], dtype={'chr':str})
 
-    # write bim 1 ids to snplist
     bim1['rsid'].to_csv(f'{geno_path1}.snplist', sep='\t', header=None, index=None)
 
-    # creating merge ids
     bim1['merge_id'] = bim1['chr'].astype(str) + ':' + bim1['pos'].astype(str) + ':' + bim1['a2'] + ':' + bim1['a1']
     bim2['merge_id1'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a2'] + ':' + bim2['a1']
     bim2['merge_id2'] = bim2['chr'].astype(str) + ':' + bim2['pos'].astype(str) + ':' + bim2['a1'] + ':' + bim2['a2']
 
-    # two merges and concatenation
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1, how='inner', left_on=['merge_id2'], right_on=['merge_id'])
     common_snps = pd.concat([common_snps1, common_snps2], axis=0)
 
-    # flip and merge again
     flip_cmd = f'{plink_exec} --bfile {geno_path1} --flip {geno_path1}.snplist --make-bed --out {geno_path1}_flip'
     shell_do(flip_cmd)
 
@@ -436,18 +444,15 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     common_snps1 = bim2[['rsid','merge_id1','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id1'], right_on=['merge_id'])
     common_snps2 = bim2[['rsid','merge_id2','a1','a2']].merge(bim1_flip, how='inner', left_on=['merge_id2'], right_on=['merge_id'])
 
-    # concat merges and drop duplicates
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
     common_snps = common_snps.drop_duplicates(subset=['chr','pos'], ignore_index=True)
 
-    # write snps to txt and extract
     common_snps_file = f'{out_name}.common_snps'
     common_snps['rsid_y'].to_csv(f'{common_snps_file}', sep='\t', header=False, index=False)
 
     ext_snps_cmd = f'{plink2_exec} --bfile {geno_path1} --extract {common_snps_file} --make-bed --out {out_name}'
     shell_do(ext_snps_cmd)
 
-    # return outfiles
     outfiles = {
         'common_snps': common_snps_file,
         'bed': out_name
