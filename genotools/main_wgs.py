@@ -19,6 +19,8 @@ import pandas as pd
 import json
 from genotools.pipeline import gt_argparse
 
+
+# rough pipeline for sample-level QC for WGS data
 def handle_wgs():
 
     args = gt_argparse()
@@ -36,31 +38,48 @@ def handle_wgs():
     from genotools.gwas import Assoc
     from genotools.pipeline import execute_pipeline, build_metrics_pruned_df
 
-    # initialize classes
+    # initialize class
     wgs_qc = WholeGenomeSeqQC()
-    ancestry = Ancestry()
-    assoc = Assoc()
 
     # ordered steps with their methods to be called
-    ordered_steps =  {'ancestry':ancestry.run_ancestry,'freemix':wgs_qc.run_freemix_check,'coverage':wgs_qc.run_coverage_check,
+    ordered_steps =  {'freemix':wgs_qc.run_freemix_check,'coverage':wgs_qc.run_coverage_check,
                     'titv':wgs_qc.run_titv_check,'wgs_het':wgs_qc.merge_sample_het,'wgs_callrate':wgs_qc.merge_sample_callrate,
-                    'wgs_sex':wgs_qc.run_sex_check,'wgs_relatedness':wgs_qc.run_relatedness,'assoc':assoc.run_association}
+                    'wgs_sex':wgs_qc.run_sex_check,'wgs_relatedness':wgs_qc.run_relatedness}
 
     # some up-front editing of pipeline arguments (booleans and lists)
     for step in args_dict:
         if (args_dict[step] == 'True') or (args_dict[step] == 'False'):
             args_dict[step] = bool(args_dict[step] == 'True')
 
-    if args_dict['wgs_sex'] is not None:
-        if len(args_dict['wgs_sex']) == 0:
-            args_dict['wgs_sex'] = [0.25, 0.75]
+    if args_dict['wgs']:
+        args_dict['freemix'] = True
+        args_dict['coverage'] = True
+        args_dict['titv'] = True
+        args_dict['wgs_het'] = [-0.25, 0.25]
+        args_dict['wgs_callrate'] = True
+        args_dict['wgs_sex'] = [0.25, 0.75]
+        args_dict['wgs_relatedness'] = True
 
-        else:
-            args_dict['wgs_sex'] = [float(i) for i in args_dict['wgs_sex']]
+    # currently just assuming that files in shard_dir is in plink2.0 format
+    if args_dict['shards_dir'] is None:
+        raise KeyError('No input directory was provided!')
 
-    if args_dict['wgs_het'] is not None:
-        if len(args_dict['wgs_het']) == 0:
-            args_dict['wgs_het'] = [-0.25, 0.25]
+    # clear log files if repeated out path
+    if os.path.exists(f"{args_dict['out']}_all_logs.log"):
+        os.remove(f"{args_dict['out']}_all_logs.log")
+    if os.path.exists(f"{args_dict['out']}_cleaned_logs.log"):
+        os.remove(f"{args_dict['out']}_cleaned_logs.log")
 
-        else:
-            args_dict['wgs_het'] = [float(i) for i in args_dict['wgs_het']]
+    # create empty log files in output directory
+    header = gt_header()
+    with open(f"{args_dict['out']}_all_logs.log", "w") as fp:
+        fp.write(header)
+        fp.write("\n")
+    with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp:
+        pass
+
+    # assuming all steps of wgs sample qc are being run
+    steps = ['freemix', 'coverage', 'titv', 'wgs_het', 'wgs_callrate', 'wgs_sex', 'wgs_relatedness']
+
+    # do freemix check
+    ordered_steps['freemix']()
