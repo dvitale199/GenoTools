@@ -123,15 +123,37 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
     else:
         out_path_pathlib = pathlib.PurePath(out_path)
         out_path_name = out_path_pathlib.name
-        step_paths = [f'{tmp_dir.name}/{out_path_name}']
+        out = f'{tmp_dir.name}/{out_path_name}'
+        step_paths = [out]
 
+    # initialize pass/fail and out dicts
+    pass_fail = dict()
     out_dict = dict()
 
     # loop through steps
     for step in steps:
-        # use geno_path for first step, out_path for last step
-        step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
-        step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
+        if args['warn']:
+            # find last passed step
+            last_passed = None
+            for completed_step in pass_fail:
+                if pass_fail[completed_step]['status']:
+                    last_passed = completed_step
+            # if the last passed step exists, point to its output
+            if last_passed:
+                step_input = pass_fail[last_passed]['output']
+                step_output = f'{step_input}_{step}'
+            # otherwise no steps have passed so go back to geno path
+            else:
+                step_input = geno_path
+                step_output = f'{out_path}_{step}' if args['full_output'] else f'{out}_{step}'
+            # last step case
+            if step == steps[-1]:
+                step_output = f'{out_path}'
+        
+        else:
+            step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
+            step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
+        
         print(f'Running: {step} with input {step_input} and output: {step_output}')
         step_paths.append(step_output)
 
@@ -181,6 +203,8 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
             assoc.covar_path = args['covars']
             assoc.covar_names = args['covar_names']
             out_dict[step] = steps_dict[step]()
+        
+        pass_fail[step] = {'status':out_dict[step]['pass'], 'input':step_input, 'output':step_output}
 
         # remove old files when appropriate
         if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
@@ -189,15 +213,23 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
                 remove = False
             else:
                 remove = True
-                remove_step_index = step_paths.index(step_output) - 1
+                # remove_step_index = step_paths.index(step_output) - 1
+                remove_path = pass_fail[step]['input']
 
             if remove:
-                remove_path = step_paths[remove_step_index]
+                # remove_path = step_paths[remove_step_index]
                 # make sure we're not removing the output
-                if os.path.isfile(f'{remove_path}.pgen') and (remove_path != out_path):
+                if os.path.isfile(f'{remove_path}.pgen') and (remove_path != out_path) and (remove_path != geno_path):
                     os.remove(f'{remove_path}.pgen')
                     os.remove(f'{remove_path}.psam')
                     os.remove(f'{remove_path}.pvar')
+    
+    # if the pipeline has more than one step, warn is on, and the last step of the pipeline fails, move the files to output
+    if args['warn'] and (len(steps) > 1) and (not pass_fail[steps[-1]]['status']):
+        if os.path.isfile(f"{pass_fail[steps[-1]]['input']}.pgen"):
+            os.rename(f"{pass_fail[steps[-1]]['input']}.pgen", f"{out_path}.pgen")
+            os.rename(f"{pass_fail[steps[-1]]['input']}.psam", f"{out_path}.psam")
+            os.rename(f"{pass_fail[steps[-1]]['input']}.pvar", f"{out_path}.pvar")
 
     out_dict['paths'] = step_paths
 

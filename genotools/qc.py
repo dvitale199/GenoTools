@@ -1180,14 +1180,24 @@ class VariantQC:
         listOfFiles = [f'{ld_temp}.log', f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        # ld pruned count
-        ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        ld_rm_count = initial_snp_count - ld_snp_count
+        if os.path.isfile(f'{out_path}.pvar'):
+            # ld pruned count
+            ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+            ld_rm_count = initial_snp_count - ld_snp_count
+            os.remove(f'{ld_temp}.prune.in')
+            os.remove(f'{ld_temp}.prune.out')
+            process_complete = True
 
-        process_complete = True
+        else:
+            print(f'LD pruning failed!')
+            print(f'Check {ld_temp}.log or {out_path}.log for more information')
+            process_complete = False
+            ld_rm_count = 0
 
-        os.remove(f'{ld_temp}.prune.in')
-        os.remove(f'{ld_temp}.prune.out')
+        # process_complete = True
+
+        # os.remove(f'{ld_temp}.prune.in')
+        # os.remove(f'{ld_temp}.prune.out')
 
         outfiles_dict = {
             'plink_out': out_path
