@@ -447,10 +447,10 @@ class SampleQC:
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{king1}.king.cutoff.out.id',f'{king1}.related')
-            related_count = sum(1 for line in open(f'{king1}.related'))
+            related_count = sum(1 for line in open(f'{king1}.related'))-1
 
             shutil.copy(f'{king2}.king.cutoff.out.id',f'{king2}.duplicated')
-            duplicated_count = sum(1 for line in open(f'{king2}.duplicated'))
+            duplicated_count = sum(1 for line in open(f'{king2}.duplicated'))-1
 
             related_count = related_count - duplicated_count
             duplicated = pd.read_csv(f'{king2}.duplicated', sep = '\s+')
@@ -486,6 +486,7 @@ class SampleQC:
                 grm_pruned.drop_duplicates(subset=['#FID','IID'], keep='last', inplace=True)
                 grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
                 process_complete = True
+                related_count = 0
 
             if not prune_related and not prune_duplicated:
                 plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
