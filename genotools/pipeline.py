@@ -113,11 +113,13 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
 
     # if full output requested, go to out path
     if args['full_output']:
-        out = out_path
-        step_paths = [out]
+        step_paths = [out_path]
 
     # otherwise tmpdir
     else:
+        geno_path_pathlib = pathlib.PurePath(geno_path)
+        geno_path_name = geno_path_pathlib.name
+        geno = f'{tmp_dir.name}/{geno_path_name}'
         out_path_pathlib = pathlib.PurePath(out_path)
         out_path_name = out_path_pathlib.name
         out = f'{tmp_dir.name}/{out_path_name}'
@@ -141,7 +143,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
                 step_output = f'{step_input}_{step}'
             # otherwise no steps have passed so go back to geno path
             else:
-                step_input = geno_path
+                step_input = geno_path if ((args['full_output']) or (not args['ancestry'])) else geno
                 step_output = f'{out_path}_{step}' if args['full_output'] else f'{out}_{step}'
             
             # last step case
@@ -149,7 +151,14 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
                 step_output = f'{out_path}'
         
         else:
-            step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
+            if step != steps[0]:
+                step_input = f'{step_paths[-1]}'
+            elif args['full_output'] or (not args['ancestry']):
+                step_input = geno_path
+            else:
+                step_input = geno
+
+            # step_input = f'{step_paths[-1]}' if step != steps[0] else geno_path
             step_output = f'{step_paths[-1]}_{step}' if step != steps[-1] else out_path
         
         print(f'Running: {step} with input {step_input} and output: {step_output}')
