@@ -447,10 +447,10 @@ class SampleQC:
 
             # create .related and .duplicated single sample files
             shutil.copy(f'{king1}.king.cutoff.out.id',f'{king1}.related')
-            related_count = sum(1 for line in open(f'{king1}.related'))
+            related_count = sum(1 for line in open(f'{king1}.related'))-1
 
             shutil.copy(f'{king2}.king.cutoff.out.id',f'{king2}.duplicated')
-            duplicated_count = sum(1 for line in open(f'{king2}.duplicated'))
+            duplicated_count = sum(1 for line in open(f'{king2}.duplicated'))-1
 
             related_count = related_count - duplicated_count
             duplicated = pd.read_csv(f'{king2}.duplicated', sep = '\s+')
@@ -486,6 +486,7 @@ class SampleQC:
                 grm_pruned.drop_duplicates(subset=['#FID','IID'], keep='last', inplace=True)
                 grm_pruned.to_csv(related_pruned_out, sep='\t', header=True, index=False)
                 process_complete = True
+                related_count = 0
 
             if not prune_related and not prune_duplicated:
                 plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
@@ -1180,14 +1181,24 @@ class VariantQC:
         listOfFiles = [f'{ld_temp}.log', f'{out_path}.log']
         concat_logs(step, out_path, listOfFiles)
 
-        # ld pruned count
-        ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
-        ld_rm_count = initial_snp_count - ld_snp_count
+        if os.path.isfile(f'{out_path}.pvar'):
+            # ld pruned count
+            ld_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+            ld_rm_count = initial_snp_count - ld_snp_count
+            os.remove(f'{ld_temp}.prune.in')
+            os.remove(f'{ld_temp}.prune.out')
+            process_complete = True
 
-        process_complete = True
+        else:
+            print(f'LD pruning failed!')
+            print(f'Check {ld_temp}.log or {out_path}.log for more information')
+            process_complete = False
+            ld_rm_count = 0
 
-        os.remove(f'{ld_temp}.prune.in')
-        os.remove(f'{ld_temp}.prune.out')
+        # process_complete = True
+
+        # os.remove(f'{ld_temp}.prune.in')
+        # os.remove(f'{ld_temp}.prune.out')
 
         outfiles_dict = {
             'plink_out': out_path
