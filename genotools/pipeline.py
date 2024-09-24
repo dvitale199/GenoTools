@@ -84,11 +84,7 @@ def gt_argparse():
 
 
 def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
-    if args['full_output']:
-        step_paths = [out_path]
-
-    # otherwise tmpdir
-    else:
+    if not args['full_output']:
         out_path_pathlib = pathlib.PurePath(out_path)
         out_path_name = out_path_pathlib.name
         out_path = f'{tmp_dir.name}/{out_path_name}'
@@ -117,7 +113,8 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
 
     # if full output requested, go to out path
     if args['full_output']:
-        step_paths = [out_path]
+        out = out_path
+        step_paths = [out]
 
     # otherwise tmpdir
     else:
@@ -146,6 +143,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
             else:
                 step_input = geno_path
                 step_output = f'{out_path}_{step}' if args['full_output'] else f'{out}_{step}'
+            
             # last step case
             if step == steps[-1]:
                 step_output = f'{out_path}'
