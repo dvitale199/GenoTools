@@ -1083,6 +1083,7 @@ class VariantQC:
         concat_logs(step, out_path, listOfFiles)
 
         if os.path.isfile(f'{out_path}.pvar'):
+            process_complete = True
             # hwe pruned count
             final_snp_count = count_file_lines(f'{out_path}.pvar') - 1
             hwe_rm_count = initial_snp_count - final_snp_count
@@ -1099,8 +1100,6 @@ class VariantQC:
         metrics_dict = {
             'hwe_removed_count': hwe_rm_count
         }
-
-        process_complete = True
 
         for file in [f'{hwe_tmp}.hh',f'{hwe_tmp}.snplist']:
             if os.path.isfile(file):
