@@ -45,7 +45,7 @@ def handle_main():
 
     # ordered steps with their methods to be called
     ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
-                    'related':samp_qc.run_related_prune,'het':samp_qc.run_alt_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
+                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
                     'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
                     'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
                     'ld':var_qc.run_ld_prune,'assoc':assoc.run_association}
@@ -160,6 +160,9 @@ def handle_main():
             for label in out_dict['ancestry']['data']['labels_list']:
                 geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
                 out = f'{args_dict["out"]}_{label}'
+
+                if args_dict['amr_het'] and (label =='AMR'):
+                    ordered_steps['het'] = samp_qc.run_alt_het_prune
 
                 out_dict[label] = execute_pipeline(run_steps_list, ordered_steps, geno_path, out, samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
 

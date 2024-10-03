@@ -57,6 +57,7 @@ def gt_argparse():
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='True', help='Relatedness prune')
     parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
+    parser.add_arguement('--amr_het', type=str, nargs='?', default='False', const='True', help='Custom het prune for GP2 AMR samples')
     parser.add_argument('--kinship_check', type=str, nargs='?', default='False', const='True', help='Confirming familial labels')
     parser.add_argument('--all_sample', type=str, nargs='?', default='False', const='True', help='Run all sample-level QC')
 
