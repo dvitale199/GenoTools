@@ -45,7 +45,7 @@ def handle_main():
 
     # ordered steps with their methods to be called
     ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
-                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
+                    'related':samp_qc.run_related_prune,'het':samp_qc.run_alt_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
                     'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
                     'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
                     'ld':var_qc.run_ld_prune,'assoc':assoc.run_association}
