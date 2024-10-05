@@ -155,7 +155,10 @@ def handle_main():
         if len(run_steps_list) == 0:
             out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], args_dict['out'], args_dict, ancestry, tmp_dir)
         else:
-            out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], f'{args_dict["geno_path"]}_ancestry', args_dict, ancestry, tmp_dir)
+            out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], f'{args_dict["out"]}_ancestry', args_dict, ancestry, tmp_dir)
+
+            # store passed het_prune value
+            het_prune_value = args_dict['het']
 
             for label in out_dict['ancestry']['data']['labels_list']:
                 geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
@@ -163,6 +166,8 @@ def handle_main():
 
                 if args_dict['amr_het'] and (label =='AMR'):
                     ordered_steps['het'] = samp_qc.run_alt_het_prune
+                else:
+                    ordered_steps['het'] = samp_qc.run_het_prune
 
                 out_dict[label] = execute_pipeline(run_steps_list, ordered_steps, geno_path, out, samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
 
