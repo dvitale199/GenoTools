@@ -164,12 +164,11 @@ def handle_main():
                 geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
                 out = f'{args_dict["out"]}_{label}'
 
+                # set new het values if AMR  het is being run
                 if args_dict['amr_het'] and (label =='AMR'):
                     args_dict['het'] = [-1.0,-1.0]
-                    # ordered_steps['het'] = samp_qc.run_alt_het_prune
                 else:
                     args_dict['het'] = het_prune_value
-                    # ordered_steps['het'] = samp_qc.run_het_prune
 
                 out_dict[label] = execute_pipeline(run_steps_list, ordered_steps, geno_path, out, samp_qc=samp_qc, var_qc=var_qc, assoc=assoc, args=args_dict, tmp_dir=tmp_dir)
 
