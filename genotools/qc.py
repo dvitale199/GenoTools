@@ -305,7 +305,18 @@ class SampleQC:
         hetpath = f'{het_tmp3}.het'
         if os.path.isfile(hetpath):
             het = pd.read_csv(hetpath, sep='\s+')
-            het_outliers = het[((het.F <= het_filter[0]) | (het.F >= het_filter[1]))]
+
+            if (het_filter[0] == -1) and (het_filter[1] == -1):
+                het['HET'] = (het['OBS_CT']-het['O(HOM)'])/het['OBS_CT']
+                het_mean = het['HET'].mean()
+                het_std = het['HET'].std()
+                het_low = het_mean - (3*het_std)
+                het_high = het_mean + (3*het_std)
+                het_outliers = het[(het['HET'] < het_low) | (het['HET'] > het_high)]
+            
+            else:
+                het_outliers = het[((het.F <= het_filter[0]) | (het.F >= het_filter[1]))]
+
             outlier_count = het_outliers.shape[0]
             het_outliers.to_csv(f'{outliers_out}', sep='\t', header=True, index=False)
 
