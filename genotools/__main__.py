@@ -16,6 +16,7 @@
 import os
 import tempfile
 import pandas as pd
+import pathlib
 import json
 from genotools.pipeline import gt_argparse
 
@@ -150,10 +151,22 @@ def handle_main():
     # create empty output dictionary
     out_dict = dict()
 
-    # if ancestry is called, run ancestry
+    # if ancestry is called, check if post-ancestry steps need to be run and then run ancestry
     if args_dict['ancestry']:
         if len(run_steps_list) == 0:
             out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], args_dict['out'], args_dict, ancestry, tmp_dir)
+            
+            # if running ancestry-only in tmpdir, move final ancestry files to out dir
+            if not args_dict['full_output']:
+                out_path_pathlib = pathlib.PurePath(args_dict['out'])
+                out_path_name = out_path_pathlib.name
+                
+                for label in out_dict['ancestry']['data']['labels_list']:
+                    if os.path.isfile(f'{tmp_dir.name}/{out_path_name}_{label}.pgen'):
+                        os.rename(f'{tmp_dir.name}/{out_path_name}_{label}.pgen', f'{out_dir}/{out_path_name}_{label}.pgen')
+                        os.rename(f'{tmp_dir.name}/{out_path_name}_{label}.psam', f'{out_dir}/{out_path_name}_{label}.psam')
+                        os.rename(f'{tmp_dir.name}/{out_path_name}_{label}.pvar', f'{out_dir}/{out_path_name}_{label}.pvar')
+
         else:
             out_dict['ancestry'] = execute_ancestry_predictions(args_dict['geno_path'], f'{args_dict["out"]}_ancestry', args_dict, ancestry, tmp_dir)
 
