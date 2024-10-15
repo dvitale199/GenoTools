@@ -243,17 +243,24 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
     
     # if the pipeline has more than one step, warn is on, and the last step of the pipeline fails, move the last passed files to output
     if args['warn'] and (len(steps) > 1) and (not pass_fail[steps[-1]]['status']):
-        if os.path.isfile(f"{pass_fail[last_passed]['output']}.pgen"):
-            os.rename(f"{pass_fail[last_passed]['output']}.pgen", f"{out_path}.pgen")
-            os.rename(f"{pass_fail[last_passed]['output']}.psam", f"{out_path}.psam")
-            os.rename(f"{pass_fail[last_passed]['output']}.pvar", f"{out_path}.pvar")
-        # cases when step is passed but all samples or vars get pruned
+        if last_passed:
+            if os.path.isfile(f"{pass_fail[last_passed]['output']}.pgen"):
+                os.rename(f"{pass_fail[last_passed]['output']}.pgen", f"{out_path}.pgen")
+                os.rename(f"{pass_fail[last_passed]['output']}.psam", f"{out_path}.psam")
+                os.rename(f"{pass_fail[last_passed]['output']}.pvar", f"{out_path}.pvar")
+            # cases when step is passed but all samples or vars get pruned
+            else:
+                os.rename(f"{pass_fail[last_passed]['input']}.pgen", f"{out_path}.pgen")
+                os.rename(f"{pass_fail[last_passed]['input']}.psam", f"{out_path}.psam")
+                os.rename(f"{pass_fail[last_passed]['input']}.pvar", f"{out_path}.pvar")
+        # cases when no steps are passed
         else:
-            os.rename(f"{pass_fail[last_passed]['input']}.pgen", f"{out_path}.pgen")
-            os.rename(f"{pass_fail[last_passed]['input']}.psam", f"{out_path}.psam")
-            os.rename(f"{pass_fail[last_passed]['input']}.pvar", f"{out_path}.pvar")
+            os.rename(f"{geno_path}.pgen", f"{out_path}.pgen")
+            os.rename(f"{geno_path}.psam", f"{out_path}.psam")
+            os.rename(f"{geno_path}.pvar", f"{out_path}.pvar")
 
     out_dict['paths'] = step_paths
+    out_dict['pass_fail'] = pass_fail
 
     return out_dict
 

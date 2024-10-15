@@ -327,7 +327,6 @@ class SampleQC:
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
 
-            # if os.path.isfile(f'{out_path}.pgen'):
             outfiles_dict = {
                 'pruned_samples': outliers_out,
                 'plink_out': out_path
@@ -346,21 +345,6 @@ class SampleQC:
             os.remove(f'{het_tmp2}.pvar')
             os.remove(f'{het_tmp2}.psam')
             os.remove(f'{het_tmp3}.het')
-
-            # else:
-            #     print(f'Heterozygosity pruning failed!')
-            #     print(f'Check {out_path}.log for more information')
-
-            #     outfiles_dict = {
-            #         'pruned_samples': 'Heterozygosity Pruning Failed!',
-            #         'plink_out': [het_tmp, het_tmp2, het_tmp3, out_path]
-            #     }
-
-            #     metrics_dict = {
-            #         'outlier_count': 0
-            #     }
-
-            #     process_complete = False
 
         else:
             print(f'Heterozygosity pruning failed!')
