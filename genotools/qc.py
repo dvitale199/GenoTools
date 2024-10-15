@@ -327,40 +327,40 @@ class SampleQC:
             listOfFiles = [f'{out_path}.log']
             concat_logs(step, out_path, listOfFiles)
 
-            if os.path.isfile(f'{out_path}.pgen'):
-                outfiles_dict = {
-                    'pruned_samples': outliers_out,
-                    'plink_out': out_path
-                }
+            # if os.path.isfile(f'{out_path}.pgen'):
+            outfiles_dict = {
+                'pruned_samples': outliers_out,
+                'plink_out': out_path
+            }
 
-                metrics_dict = {
-                    'outlier_count': outlier_count
-                }
+            metrics_dict = {
+                'outlier_count': outlier_count
+            }
 
-                process_complete = True
+            process_complete = True
 
-                # remove intermediate files
-                os.remove(f'{het_tmp}.prune.in')
-                os.remove(f'{het_tmp}.prune.out')
-                os.remove(f'{het_tmp2}.pgen')
-                os.remove(f'{het_tmp2}.pvar')
-                os.remove(f'{het_tmp2}.psam')
-                os.remove(f'{het_tmp3}.het')
+            # remove intermediate files
+            os.remove(f'{het_tmp}.prune.in')
+            os.remove(f'{het_tmp}.prune.out')
+            os.remove(f'{het_tmp2}.pgen')
+            os.remove(f'{het_tmp2}.pvar')
+            os.remove(f'{het_tmp2}.psam')
+            os.remove(f'{het_tmp3}.het')
 
-            else:
-                print(f'Heterozygosity pruning failed!')
-                print(f'Check {out_path}.log for more information')
+            # else:
+            #     print(f'Heterozygosity pruning failed!')
+            #     print(f'Check {out_path}.log for more information')
 
-                outfiles_dict = {
-                    'pruned_samples': 'Heterozygosity Pruning Failed!',
-                    'plink_out': [het_tmp, het_tmp2, het_tmp3, out_path]
-                }
+            #     outfiles_dict = {
+            #         'pruned_samples': 'Heterozygosity Pruning Failed!',
+            #         'plink_out': [het_tmp, het_tmp2, het_tmp3, out_path]
+            #     }
 
-                metrics_dict = {
-                    'outlier_count': 0
-                }
+            #     metrics_dict = {
+            #         'outlier_count': 0
+            #     }
 
-                process_complete = False
+            #     process_complete = False
 
         else:
             print(f'Heterozygosity pruning failed!')
