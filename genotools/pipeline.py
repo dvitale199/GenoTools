@@ -168,7 +168,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
         step_paths.append(step_output)
 
         # if warn is on and input doesn't exist, all samples or variants were pruned in a previous step
-        if args['warn'] and (not os.path.ispath(f'{step_input}.pgen')):
+        if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')):
             print(f'Step {step} cannot be run! All samples or variants were pruned in a previous step!')
             pass_fail[step] = {'status':False, 'input':step_input, 'output':step_output}
         
