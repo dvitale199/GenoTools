@@ -174,7 +174,7 @@ def handle_main():
             het_prune_value = args_dict['het']
 
             for label in out_dict['ancestry']['data']['labels_list']:
-                geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
+                geno_path = f'{args_dict["out"]}_ancestry_{label}'
                 out = f'{args_dict["out"]}_{label}'
 
                 # set new het values if AMR  het is being run
