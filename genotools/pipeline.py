@@ -224,7 +224,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
             pass_fail[step] = {'status':out_dict[step]['pass'], 'input':step_input, 'output':step_output}
 
             # remove old files when appropriate
-            if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
+            if (not args['full_output']) and (not args['warn']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
                 # when warn is True and step fails, don't remove old file
                 if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):
                     remove = False
