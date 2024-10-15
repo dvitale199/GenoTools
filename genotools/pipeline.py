@@ -255,9 +255,10 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
                 os.rename(f"{pass_fail[last_passed]['input']}.pvar", f"{out_path}.pvar")
         # cases when no steps are passed
         else:
-            os.rename(f"{geno_path}.pgen", f"{out_path}.pgen")
-            os.rename(f"{geno_path}.psam", f"{out_path}.psam")
-            os.rename(f"{geno_path}.pvar", f"{out_path}.pvar")
+            move_path = geno_path if ((args['full_output']) or (not args['ancestry'])) else geno
+            os.rename(f"{move_path}.pgen", f"{out_path}.pgen")
+            os.rename(f"{move_path}.psam", f"{out_path}.psam")
+            os.rename(f"{move_path}.pvar", f"{out_path}.pvar")
 
     out_dict['paths'] = step_paths
     out_dict['pass_fail'] = pass_fail
