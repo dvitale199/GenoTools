@@ -113,6 +113,10 @@ def vcf_to_pfiles(vcf_path):
 
 
 def upfront_check(geno_path, args):
+    if os.path.isfile(f'{args["out"]}_all_logs.log') and not args['skip_fails']:
+        raise ValueError(f'{args["out"]}_all_logs.log, which means the pipeline has previously been run on this output file!\n \
+                         Please rerun with "--skip_fails" True flag to ignore this, or write output to a new file name.')
+
     if not os.path.isfile(f'{geno_path}.pgen'):
         raise FileNotFoundError(f"{geno_path} does not exist.")
 

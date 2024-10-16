@@ -132,6 +132,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
 
     # loop through steps
     for step in steps:
+        # if warn is true, find last passed step
         if args['warn']:
             # find last passed step
             last_passed = None
@@ -151,6 +152,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
             if step == steps[-1]:
                 step_output = f'{out_path}'
         
+        # otherwise just go in order
         else:
             if step != steps[0]:
                 step_input = f'{step_paths[-1]}'
@@ -165,81 +167,101 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
         print(f'Running: {step} with input {step_input} and output: {step_output}')
         step_paths.append(step_output)
 
-        # samp qc setup and call
-        if step in samp_steps:
-            samp_qc.geno_path = step_input
-            samp_qc.out_path = step_output
-
-            # related has more than one parameter
-            if step == 'related':
-                out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicated_cutoff=args['duplicated_cutoff'],
-                                 prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
-
-            elif step == 'kinship_check':
-                # check that OS is not macOS
-                if platform.system() != 'Linux':
-                    print('Relatedness Assessment can only run on a linux or windows OS!')
-                    out_dict.pop(step, None)
-                elif platform.system() == 'Linux':
-                    out_dict[step] = steps_dict[step]()
-
-            else:
-                out_dict[step] = steps_dict[step](args[step])
-
-        # var qc setup and call
-        if step in var_steps:
-            var_qc.geno_path = step_input
-            var_qc.out_path = step_output
-
-            # hwe and ld have extra parameters
-            if step == 'hwe':
-                out_dict[step] = steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
-
-            elif step == 'ld':
-                out_dict[step] = steps_dict[step](window_size=args['ld'][0], step_size=args['ld'][1], r2_threshold=args['ld'][2])
-
-            else:
-                out_dict[step] = steps_dict[step](args[step])
-
-        # assoc setup and call
-        if step == 'assoc':
-            assoc.geno_path = step_input
-            assoc.out_path = step_output
-            assoc.pca = args['pca']
-            assoc.build = args['build']
-            assoc.gwas = args['gwas']
-            assoc.covar_path = args['covars']
-            assoc.covar_names = args['covar_names']
-            out_dict[step] = steps_dict[step]()
+        # if warn is on and input doesn't exist, all samples or variants were pruned in a previous step
+        if args['warn'] and (not os.path.isfile(f'{step_input}.pgen')):
+            print(f'Step {step} cannot be run! All samples or variants were pruned in a previous step!')
+            pass_fail[step] = {'status':False, 'input':step_input, 'output':step_output}
         
-        pass_fail[step] = {'status':out_dict[step]['pass'], 'input':step_input, 'output':step_output}
+        # otherwise run the qc step
+        else:
+            # samp qc setup and call
+            if step in samp_steps:
+                samp_qc.geno_path = step_input
+                samp_qc.out_path = step_output
 
-        # remove old files when appropriate
-        if (not args['full_output']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
-            # when warn is True and step fails, don't remove old file
-            if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):
-                remove = False
-            else:
-                remove = True
-                # remove_step_index = step_paths.index(step_output) - 1
-                remove_path = pass_fail[step]['input']
+                # related has more than one parameter
+                if step == 'related':
+                    out_dict[step] = steps_dict[step](related_cutoff=args['related_cutoff'], duplicated_cutoff=args['duplicated_cutoff'],
+                                    prune_related=args['prune_related'], prune_duplicated=args['prune_duplicated'])
 
-            if remove:
-                # remove_path = step_paths[remove_step_index]
-                # make sure we're not removing the output
-                if os.path.isfile(f'{remove_path}.pgen') and (remove_path != out_path) and (remove_path != geno_path):
-                    os.remove(f'{remove_path}.pgen')
-                    os.remove(f'{remove_path}.psam')
-                    os.remove(f'{remove_path}.pvar')
+                elif step == 'kinship_check':
+                    # check that OS is not macOS
+                    if platform.system() != 'Linux':
+                        print('Relatedness Assessment can only run on a linux or windows OS!')
+                        out_dict.pop(step, None)
+                    elif platform.system() == 'Linux':
+                        out_dict[step] = steps_dict[step]()
+
+                else:
+                    out_dict[step] = steps_dict[step](args[step])
+
+            # var qc setup and call
+            if step in var_steps:
+                var_qc.geno_path = step_input
+                var_qc.out_path = step_output
+
+                # hwe and ld have extra parameters
+                if step == 'hwe':
+                    out_dict[step] = steps_dict[step](hwe_threshold=args['hwe'], filter_controls=args['filter_controls'])
+
+                elif step == 'ld':
+                    out_dict[step] = steps_dict[step](window_size=args['ld'][0], step_size=args['ld'][1], r2_threshold=args['ld'][2])
+
+                else:
+                    out_dict[step] = steps_dict[step](args[step])
+
+            # assoc setup and call
+            if step == 'assoc':
+                assoc.geno_path = step_input
+                assoc.out_path = step_output
+                assoc.pca = args['pca']
+                assoc.build = args['build']
+                assoc.gwas = args['gwas']
+                assoc.covar_path = args['covars']
+                assoc.covar_names = args['covar_names']
+                out_dict[step] = steps_dict[step]()
+            
+            pass_fail[step] = {'status':out_dict[step]['pass'], 'input':step_input, 'output':step_output}
+
+            # remove old files when appropriate
+            if (not args['full_output']) and (not args['warn']) and (step != 'assoc') and (step != 'ancestry') and (step != 'kinship_check'):
+                # when warn is True and step fails, don't remove old file
+                if args['warn'] and ('pass' in out_dict[step].keys()) and (not out_dict[step]['pass']):
+                    remove = False
+                else:
+                    remove = True
+                    # remove_step_index = step_paths.index(step_output) - 1
+                    remove_path = pass_fail[step]['input']
+
+                if remove:
+                    # remove_path = step_paths[remove_step_index]
+                    # make sure we're not removing the output
+                    if os.path.isfile(f'{remove_path}.pgen') and (remove_path != out_path) and (remove_path != geno_path):
+                        os.remove(f'{remove_path}.pgen')
+                        os.remove(f'{remove_path}.psam')
+                        os.remove(f'{remove_path}.pvar')
     
-    # if the pipeline has more than one step, warn is on, and the last step of the pipeline fails, move the files to output
+    # if the pipeline has more than one step, warn is on, and the last step of the pipeline fails, move the last passed files to output
     if args['warn'] and (len(steps) > 1) and (not pass_fail[steps[-1]]['status']):
-        if os.path.isfile(f"{pass_fail[steps[-1]]['input']}.pgen"):
-            os.rename(f"{pass_fail[steps[-1]]['input']}.pgen", f"{out_path}.pgen")
-            os.rename(f"{pass_fail[steps[-1]]['input']}.psam", f"{out_path}.psam")
-            os.rename(f"{pass_fail[steps[-1]]['input']}.pvar", f"{out_path}.pvar")
+        if last_passed:
+            if os.path.isfile(f"{pass_fail[last_passed]['output']}.pgen"):
+                os.rename(f"{pass_fail[last_passed]['output']}.pgen", f"{out_path}.pgen")
+                os.rename(f"{pass_fail[last_passed]['output']}.psam", f"{out_path}.psam")
+                os.rename(f"{pass_fail[last_passed]['output']}.pvar", f"{out_path}.pvar")
+            # cases when step is passed but all samples or vars get pruned
+            else:
+                os.rename(f"{pass_fail[last_passed]['input']}.pgen", f"{out_path}.pgen")
+                os.rename(f"{pass_fail[last_passed]['input']}.psam", f"{out_path}.psam")
+                os.rename(f"{pass_fail[last_passed]['input']}.pvar", f"{out_path}.pvar")
+        # cases when no steps are passed
+        else:
+            move_path = geno_path if ((args['full_output']) or (not args['ancestry'])) else geno
+            os.rename(f"{move_path}.pgen", f"{out_path}.pgen")
+            os.rename(f"{move_path}.psam", f"{out_path}.psam")
+            os.rename(f"{move_path}.pvar", f"{out_path}.pvar")
 
     out_dict['paths'] = step_paths
+    out_dict['pass_fail'] = pass_fail
 
     return out_dict
 

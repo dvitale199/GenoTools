@@ -174,7 +174,7 @@ def handle_main():
             het_prune_value = args_dict['het']
 
             for label in out_dict['ancestry']['data']['labels_list']:
-                geno_path = f'{args_dict["geno_path"]}_ancestry_{label}'
+                geno_path = f'{args_dict["out"]}_ancestry_{label}'
                 out = f'{args_dict["out"]}_{label}'
 
                 # set new het values if AMR  het is being run
@@ -227,9 +227,10 @@ def handle_main():
         for ancestry in out_dict['ancestry']['data']['labels_list']:
             if ancestry in out_dict.keys():
                 metrics_df, pruned_df, gwas_df, related_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, related_df=related_df, dictionary=out_dict[ancestry], out=args_dict['out'], ancestry=ancestry)
-
+                clean_out_dict[f'{ancestry}_pass_fail'] = out_dict[ancestry]['pass_fail']
     else:
         metrics_df, pruned_df, gwas_df, related_df = build_metrics_pruned_df(metrics_df=metrics_df, pruned_df=pruned_df, gwas_df=gwas_df, related_df=related_df, dictionary=out_dict, out=args_dict['out'])
+        clean_out_dict['pass_fail'] = out_dict['pass_fail']
 
     # for weird error with the first sample in pruned file showing up twice when run in tmp file
     pruned_df = pruned_df.drop_duplicates(subset=['#FID','IID'], ignore_index=True)
