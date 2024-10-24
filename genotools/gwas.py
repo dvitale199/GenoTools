@@ -381,19 +381,10 @@ class Assoc:
         
         # create an overall assoc pass flag
         if self.pca and self.gwas:
-            if assoc['pca']['pass'] and assoc['gwas']['pass']:
-                assoc['pass'] = True
-            else:
-                assoc['pass'] = False
+            assoc['pass'] = True if ((assoc['pca']['pass']) and (assoc['gwas']['pass'])) else False
         elif self.pca:
-            if assoc['pca']['pass']:
-                assoc['pass'] = True
-            else:
-                assoc['pass'] = False
+            assoc['pass'] = True if (assoc['pca']['pass']) else False
         else:
-            if assoc['gwas']['pass']:
-                assoc['pass'] = True
-            else:
-                assoc['pass'] = False
+            assoc['pass'] = True if (assoc['gwas']['pass']) else False
 
         return assoc
