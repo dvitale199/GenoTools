@@ -278,7 +278,8 @@ class Assoc:
             gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
 
             if self.maf_lambdas:
-                gwas_df_maf = gwas_df_add[gwas_df_add['A1_FREQ']>=0.01 | gwas_df_add['A1_FREQ']<=0.99]
+                gwas_df_maf = gwas_df_add[gwas_df_add['A1_FREQ']>=0.01] 
+                gwas_df_maf = gwas_df_maf[gwas_df_maf['A1_FREQ']<=0.99]
                 gwas_df_maf = gwas_df_maf[~gwas_df_maf['P'].isna()]
 
                 lambda_maf_dict = Assoc.calculate_inflation(gwas_df_maf.P, normalize=False)
