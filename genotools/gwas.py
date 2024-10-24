@@ -27,7 +27,7 @@ plink_exec = check_plink()
 plink2_exec = check_plink2()
 
 class Assoc:
-    def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None):
+    def __init__(self, geno_path=None, out_path=None, pca=10, build='hg38', gwas=True, pheno_name='PHENO1', covar_path=None, covar_names=None, maf_lambdas=False):
         self.geno_path = geno_path
         self.out_path = out_path
         self.pca = pca
@@ -36,6 +36,7 @@ class Assoc:
         self.pheno_name = pheno_name
         self.covar_path = covar_path
         self.covar_names = covar_names
+        self.maf_lambdas = maf_lambdas
 
 
     def write_exclusion_file(self):
@@ -276,16 +277,33 @@ class Assoc:
             # add pruning step here (pre lambdas)
             gwas_df_add = gwas_df.loc[gwas_df.TEST=='ADD']
 
+            if self.maf_lambdas:
+                gwas_df_maf = gwas_df_add[gwas_df_add['A1_FREQ']>=0.01 | gwas_df_add['A1_FREQ']<=0.99]
+                gwas_df_maf = gwas_df_maf[~gwas_df_maf['P'].isna()]
+
+                lambda_maf_dict = Assoc.calculate_inflation(gwas_df_maf.P, normalize=False)
+                lambda1000_maf_dict = Assoc.calculate_inflation(gwas_df_maf.P, normalize=True, ncases=ncases, ncontrols=ncontrols)
+
             # calculate inflation
             lambda_dict = Assoc.calculate_inflation(gwas_df_add.P, normalize=False)
             lambda1000_dict = Assoc.calculate_inflation(gwas_df_add.P, normalize=True, ncases=ncases, ncontrols=ncontrols)
 
-            metrics_dict = {
-                'lambda': lambda_dict['metrics']['inflation'],
-                'lambda1000': lambda1000_dict['metrics']['inflation'],
-                'cases': ncases,
-                'controls': ncontrols
+            if self.maf_lambdas:
+                metrics_dict = {
+                    'lambda': lambda_dict['metrics']['inflation'],
+                    'lambda1000': lambda1000_dict['metrics']['inflation'],
+                    'lambda_maf': lambda_maf_dict['metrics']['inflation'],
+                    'lambda1000_maf': lambda1000_maf_dict['metrics']['inflation'],
+                    'cases': ncases,
+                    'controls': ncontrols
                 }
+            else:
+                metrics_dict = {
+                    'lambda': lambda_dict['metrics']['inflation'],
+                    'lambda1000': lambda1000_dict['metrics']['inflation'],
+                    'cases': ncases,
+                    'controls': ncontrols
+                    }
 
             process_complete = True
 
