@@ -378,5 +378,22 @@ class Assoc:
             # otherwise run GWAS with no covars
             else:
                 assoc['gwas'] = self.run_gwas(covars=False)
+        
+        # create an overall assoc pass flag
+        if self.pca and self.gwas:
+            if assoc['pca']['pass'] and assoc['gwas']['pass']:
+                assoc['pass'] = True
+            else:
+                assoc['pass'] = False
+        elif self.pca:
+            if assoc['pca']['pass']:
+                assoc['pass'] = True
+            else:
+                assoc['pass'] = False
+        else:
+            if assoc['gwas']['pass']:
+                assoc['pass'] = True
+            else:
+                assoc['pass'] = False
 
         return assoc
