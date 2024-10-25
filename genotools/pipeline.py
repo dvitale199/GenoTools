@@ -76,6 +76,7 @@ def gt_argparse():
     parser.add_argument('--gwas', type=str, nargs='?', default='False', const='True', help='Run GWAS')
     parser.add_argument('--covars', type=str, nargs='?', default=None, const=None, help='Path to external covars')
     parser.add_argument('--covar_names', type=str, nargs='?', default=None, const=None, help='Covar names to use from external file')
+    parser.add_argument('--maf_lambdas', type=str, nargs='?', default='False', const='True', help='MAF prune before lambda calculations')
 
 
     # parse args and turn into dict
@@ -219,6 +220,7 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
                 assoc.gwas = args['gwas']
                 assoc.covar_path = args['covars']
                 assoc.covar_names = args['covar_names']
+                assoc.maf_lambdas = args['maf_lambdas']
                 out_dict[step] = steps_dict[step]()
             
             pass_fail[step] = {'status':out_dict[step]['pass'], 'input':step_input, 'output':step_output}
