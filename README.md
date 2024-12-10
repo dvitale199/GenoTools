@@ -1,6 +1,10 @@
 # GenoTools
 ## Published in G3: [https://www.biorxiv.org/content/10.1101/2024.03.26.586362v1.full.pdf](https://doi.org/10.1093/g3journal/jkae268)
 [![DOI](https://zenodo.org/badge/337965715.svg)](https://zenodo.org/doi/10.5281/zenodo.10443257)
+[![PyPI version](https://badge.fury.io/py/the-real-genotools.svg)](https://badge.fury.io/py/the-real-genotools)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+![GitHub License](https://img.shields.io/github/license/dvitale199/GenoTools)
+
 
 ## Documentation
 You can find the full documentation with the following links:
