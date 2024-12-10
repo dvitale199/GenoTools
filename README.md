@@ -22,7 +22,7 @@ GenoTools is a suite of automated genotype data processing steps written in Pyth
 
 To download the most current version from pip:
 ```
-pip install the_real_genotools
+pip install the-real-genotools
 ```
 Alternatively, if you'd like to download from github:
 ```
