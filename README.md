@@ -4,6 +4,9 @@
 [![PyPI version](https://badge.fury.io/py/the-real-genotools.svg)](https://badge.fury.io/py/the-real-genotools)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 ![GitHub License](https://img.shields.io/github/license/dvitale199/GenoTools)
+![Python](https://img.shields.io/badge/python-3.8-blue.svg)
+![Python](https://img.shields.io/badge/python-3.9-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10-blue.svg)
 
 
 ## Documentation
