@@ -72,9 +72,9 @@ def gt_argparse():
     # WGS qc arguments
     parser.add_argument('--wgs', type=str, nargs='?', default='False', const='True', help='Run WGS level QC')
     parser.add_argument('--shards_dir', type=str, nargs='?', default=None, const=None, help='Path to directory containing WGS shard files')
-    parser.add_argument('--keep_all', type=str, nargs='?', defaul='False', const='True', help='Keep all samples after each QC step')
+    parser.add_argument('--keep_all', type=str, nargs='?', default='False', const='True', help='Keep all samples after each QC step')
     parser.add_argument('--slurm', type=str, nargs='?', default='False', const='True', help='Utilize slurm to call parallelizable steps')
-    parser.add_argument('--slurm-user', type=str, nargs='?', default=None, const=None, help='User to call slurm from')
+    parser.add_argument('--slurm_user', type=str, nargs='?', default=None, const=None, help='User to call slurm from')
     parser.add_argument('--shard_key', type=str, nargs='?', default=None, const=None, help='String file path to shard key')
     parser.add_argument('--preBqsr', type=str, nargs='?', default=None, const=None, help='String file path to preBqsr file')
     parser.add_argument('--wgs_metrics', type=str, nargs='?', default=None, const=None, help='String file path to wgs metrics')

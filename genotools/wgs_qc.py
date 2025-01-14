@@ -90,6 +90,65 @@ class WholeGenomeSeqQC:
             os.makedirs(f'{self.slurm_scripts}', exist_ok=True)
             os.makedirs(f'{self.slurm_scripts}/logs', exist_ok=True)
 
+    def slurm_do(self, step, method, out_path):
+        slurm_scripts = self.slurm_scripts
+        shard_filenames = self.shard_filenames
+        slurm_user = self.slurm_user
+
+        # NOTE: only configured to be used for sample het and sample callrate for now
+
+        # create config file for submitting job array
+        with open(f'{slurm_scripts}/sample_{step}.config', 'w') as f:
+            f.write(f'ArrayTaskID\tshard_name\n')
+            for i in range(len(shard_filenames)):
+                # if i<len(shard_filenames)-1:
+                #     f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
+                # else:
+                #     f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
+                f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
+        f.close()
+
+        # create sbatch file
+        with open(f'{slurm_scripts}/sample_{step}.sh', 'w') as f:
+            f.write(f'#!/usr/bin/env bash\n\n')
+            f.write(f'config={slurm_scripts}/sample_{step}.config\n')
+            f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
+            cmds = method(shard_filenames[0], f'{out_path}')
+            for cmd in cmds:
+                f.write(f'{cmd}\n\n')
+        f.close()
+
+        # run slurm
+        slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
+                        --array=1-{len(shard_filenames)} \
+                        --output={slurm_scripts}/logs/sample_{step}_%A_%a.out \
+                        --time=0:30:0 {slurm_scripts}/sample_{step}.sh'
+
+        job_id = shell_do(slurm_cmd, return_log=True).strip()
+
+        # ensure all jobs are 'COMPLETED' before concatting logs
+        sacct_out = list()
+        job_complete = dict()
+
+        # only checks of 'COMPLETED' or 'FAILED' job status
+        while (not all(status in ['COMPLETED', 'FAILED'] for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
+            sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
+            sacct_out = shell_do(sacct_cmd, return_log=True)
+            sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
+            ids = list()
+            statuses = list()
+            for val in sacct_list:
+                ids.append(val[0])
+                statuses.append(val[1])
+            job_complete = dict(zip(ids, statuses))
+
+        all_complete = False
+        if (all(status == 'COMPLETED' for status in job_complete.values())):
+            all_complete = True
+
+        return all_complete
+
+
     def run_freemix_check(self, geno_path=None, check_limit=1e6):
         out_path = self.out_path
         keep_all = self.keep_all
@@ -338,49 +397,7 @@ class WholeGenomeSeqQC:
 
         het_out = f'{het_dir}/{out_filename}'
         if slurm:
-            # create config file for submitting job array
-            with open(f'{slurm_scripts}/sample_het.config', 'w') as f:
-                f.write(f'ArrayTaskID\tshard_name\n')
-                for i in range(len(shard_filenames)):
-                    if i<len(shard_filenames)-1:
-                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
-                    else:
-                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
-            f.close()
-
-            # create sbatch file
-            with open(f'{slurm_scripts}/sample_het.sh', 'w') as f:
-                f.write(f'#!/usr/bin/env bash\n\n')
-                f.write(f'config={slurm_scripts}/sample_het.config\n')
-                f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
-                cmds = self.run_het_check(geno_path=shard_filenames[0], het_out=f'{het_out}')
-                for cmd in cmds:
-                    f.write(f'{cmd}\n\n')
-            f.close()
-
-            # run slurm
-            slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
-                            --array=1-{len(shard_filenames)} \
-                            --output={slurm_scripts}/logs/sample_het_%A_%a.out \
-                            --time=0:30:0 {slurm_scripts}/sample_het.sh'
-
-            job_id = shell_do(slurm_cmd, return_log=True).strip()
-
-            # ensure all jobs are 'COMPLETED' before concatting logs
-            sacct_out = list()
-            job_complete = dict()
-
-            # only checks of 'COMPLETED' or 'FAILED' job status
-            while (not all(status in ['COMPLETED', 'FAILED'] for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
-                sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
-                sacct_out = shell_do(sacct_cmd, return_log=True)
-                sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
-                ids = list()
-                statuses = list()
-                for val in sacct_list:
-                    ids.append(val[0])
-                    statuses.append(val[1])
-                job_complete = dict(zip(ids, statuses))
+            self.slurm_do('het', self.run_het_check, het_out)
 
             # concat logs
             listOfFiles = list()
@@ -481,7 +498,7 @@ class WholeGenomeSeqQC:
             listOfFiles = [f'{callrates}.log']
             concat_logs(step, out_path, listOfFiles)
 
-        return plink_cmd
+        return [plink_cmd]
 
 
     def merge_sample_callrate(self, callrate_threshold=0.95):
@@ -506,46 +523,7 @@ class WholeGenomeSeqQC:
 
         callrate_out = f'{callrate_dir}/{out_filename}'
         if slurm:
-            # create config file for submitting job array
-            with open(f'{slurm_scripts}/sample_callrate.config', 'w') as f:
-                f.write(f'ArrayTaskID\tshard_name\n')
-                for i in range(len(shard_filenames)):
-                    if i<len(shard_filenames)-1:
-                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
-                    else:
-                        f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
-            f.close()
-
-            # create sbatch file
-            with open(f'{slurm_scripts}/sample_callrate.sh', 'w') as f:
-                f.write(f'#!/usr/bin/env bash\n\n')
-                f.write(f'config={slurm_scripts}/sample_callrate.config\n')
-                f.write(f"shard_name=$(awk -v ArrayTaskID=$SLURM_ARRAY_TASK_ID '$1==ArrayTaskID {{print $2}}' $config)\n\n")
-                cmd = self.run_check_callrate(geno_path=shard_filenames[0], callrate_out=f'{callrate_out}')
-                f.write(f'{cmd}\n')
-            f.close()
-
-            # run slurm
-            slurm_cmd = f'sbatch --cpus-per-task=4 --mem=32g \
-                            --array=1-{len(shard_filenames)} \
-                            --output={slurm_scripts}/logs/sample_callrate_%A_%a.out \
-                            --time=0:30:0 {slurm_scripts}/sample_callrate.sh'
-
-            job_id = shell_do(slurm_cmd, return_log=True).strip()
-
-            # ensure all jobs are 'COMPLETED' before concatting logs
-            sacct_out = list()
-            job_complete = dict()
-            while (not all(status in ['COMPLETED', 'FAILED'] for status in job_complete.values())) or len(job_complete)!=len(shard_filenames):
-                sacct_cmd = f'sacct --user {slurm_user} -X -b -j {job_id}'
-                sacct_out = shell_do(sacct_cmd, return_log=True)
-                sacct_list = [val.split() for val in sacct_out.split('\n') if job_id in val]
-                ids = list()
-                statuses = list()
-                for val in sacct_list:
-                    ids.append(val[0])
-                    statuses.append(val[1])
-                job_complete = dict(zip(ids, statuses))
+            self.slurm_do('callrate', self.run_check_callrate, callrate_out)
 
             # concat logs
             listOfFiles = list()
@@ -884,3 +862,84 @@ class WholeGenomeSeqQC:
                 f.write(f'{sample}\n')
 
         return f'{out_path}.rel_samples_to_exclude'
+
+
+    def run_depth_prune(self, depth_min=10):
+        """
+        Prunes SNPs based on depth.
+        Parameters:
+        - depth_min (int, optional): Depth threshold where all genotype calls below are excluded.
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('wgs_depth_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'depth_rm_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+        geno_path = self.geno_path
+        out_path = self.out_path
+        step = "wgs_depth_prune"
+        # get initial snps count
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
+        # remove variants where DP field is less than desired depth
+        plink_cmd = f"{plink2_exec} --pfile {geno_path} --extract-if-info DP >= {depth_min} --make-pgen --out {out_path}"
+        # plink_cmd = f"{plink2_exec} --pfile {geno_path} --vcf-min-dp {depth_min} --out {out_path}"
+        shell_do(plink_cmd)
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+        # filter depth count
+        depth_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        depth_rm_count = initial_snp_count - depth_snp_count
+        process_complete = True
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+        metrics_dict = {
+            'depth_rm_count': depth_rm_count
+        }
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+        return out_dict
+
+
+    def run_filter_prune(self):
+        """
+        Prunes SNPs based on whether or not they PASS all input filters.
+        Returns:
+        - dict: A structured dictionary containing:
+            * 'pass': Boolean indicating the successful completion of the process.
+            * 'step': The label for this procedure ('wgs_filter_prune').
+            * 'metrics': Metrics associated with the pruning, such as 'filter_rm_count'.
+            * 'output': Dictionary containing paths to the generated output files.
+        """
+        geno_path = self.geno_path
+        out_path = self.out_path
+        step = "wgs_filter_prune"
+        # get initial snp count
+        initial_snp_count = count_file_lines(f'{geno_path}.pvar') - 1
+        # variants that failed one or more filters tracked by FILTER field
+        plink_cmd1 = f"{plink2_exec} --pfile {geno_path} --var-filter --make-pgen --out {out_path}"
+        shell_do(plink_cmd1)
+        listOfFiles = [f'{out_path}.log']
+        concat_logs(step, out_path, listOfFiles)
+        # filter pruned count
+        filter_snp_count = count_file_lines(f'{out_path}.pvar') - 1
+        filter_rm_count = initial_snp_count - filter_snp_count
+        process_complete = True
+        outfiles_dict = {
+            'plink_out': out_path
+        }
+        metrics_dict = {
+            'filter_rm_count': filter_rm_count
+        }
+        out_dict = {
+            'pass': process_complete,
+            'step': step,
+            'metrics': metrics_dict,
+            'output': outfiles_dict
+        }
+        return out_dict

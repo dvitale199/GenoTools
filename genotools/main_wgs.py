@@ -38,14 +38,6 @@ def handle_wgs():
     from genotools.gwas import Assoc
     from genotools.pipeline import execute_pipeline, build_metrics_pruned_df
 
-    # initialize class
-    wgs_qc = WholeGenomeSeqQC()
-
-    # ordered steps with their methods to be called
-    ordered_steps =  {'freemix':wgs_qc.run_freemix_check,'coverage':wgs_qc.run_coverage_check,
-                    'titv':wgs_qc.run_titv_check,'wgs_het':wgs_qc.merge_sample_het,'wgs_callrate':wgs_qc.merge_sample_callrate,
-                    'wgs_sex':wgs_qc.run_sex_check,'wgs_relatedness':wgs_qc.run_relatedness}
-
     # some up-front editing of pipeline arguments (booleans and lists)
     for step in args_dict:
         if (args_dict[step] == 'True') or (args_dict[step] == 'False'):
@@ -78,8 +70,41 @@ def handle_wgs():
     with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp:
         pass
 
+
+    # initialize class
+    wgs_qc = WholeGenomeSeqQC(shards_dir=args_dict['shards_dir'], out_path=args_dict['out'], \
+                                keep_all=args_dict['keep_all'], slurm=args_dict['slurm'], slurm_user=args_dict['slurm_user'], \
+                                shard_key_path=args_dict['shard_key'], \
+                                preBqsr_path=args_dict['preBqsr'], \
+                                wgs_metrics_path=args_dict['wgs_metrics'], \
+                                variant_calling_summary_metrics_path=args_dict['variant_calling_summary_metrics'], \
+                                ref_variants_path=args_dict['ref_variants'])
+
+    # ordered steps with their methods to be called
+    ordered_steps =  {'freemix':wgs_qc.run_freemix_check,'coverage':wgs_qc.run_coverage_check,
+                    'titv':wgs_qc.run_titv_check,'wgs_het':wgs_qc.merge_sample_het,'wgs_callrate':wgs_qc.merge_sample_callrate,
+                    'wgs_sex':wgs_qc.run_sex_check,'wgs_relatedness':wgs_qc.run_relatedness}
+
     # assuming all steps of wgs sample qc are being run
     steps = ['freemix', 'coverage', 'titv', 'wgs_het', 'wgs_callrate', 'wgs_sex', 'wgs_relatedness']
 
     # do freemix check
     ordered_steps['freemix']()
+
+    # do coverage check
+    ordered_steps['coverage']()
+
+    # do titv ratio check
+    ordered_steps['titv']()
+
+    # do wgs het check
+    ordered_steps['wgs_het']()
+
+    # do wgs callrate check
+    ordered_steps['wgs_callrate']()
+
+    # do wgs sex check
+    ordered_steps['wgs_sex']()
+
+    # do wgs relatedness check
+    ordered_steps['wgs_relatedness']()
