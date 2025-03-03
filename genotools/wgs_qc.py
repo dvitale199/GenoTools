@@ -17,6 +17,7 @@
 import pandas as pd
 import numpy as np
 import os
+import shutil
 import glob
 import time
 from collections import defaultdict
@@ -81,7 +82,7 @@ class WholeGenomeSeqQC:
         self.ref_variants_path = ref_variants_path
 
         # create list of shard filenames
-        self.shard_filenames = list(set([f"{self.shards_dir}/{f.split('.')[0]}" for f in os.listdir(self.shards_dir)]))
+        self.shard_filenames = list(set([f"{self.shards_dir}/{f.split('.')[0]}" for f in os.listdir(self.shards_dir) if not f.startswith('.')]))
 
         self.slurm = slurm
         self.slurm_user = slurm_user
@@ -100,12 +101,16 @@ class WholeGenomeSeqQC:
         # create config file for submitting job array
         with open(f'{slurm_scripts}/sample_{step}.config', 'w') as f:
             f.write(f'ArrayTaskID\tshard_name\n')
-            for i in range(len(shard_filenames)):
-                # if i<len(shard_filenames)-1:
-                #     f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
-                # else:
-                #     f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}')
-                f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
+            if step=='het':
+                no_autosomes = list()
+                for i in range(len(shard_filenames)):
+                    if not any(sex_chr in shard_filenames[i] for sex_chr in ['chrX','chrY']):
+                        no_autosomes.append(shard_filenames[i])
+                for i in range(len(no_autosomes)):
+                    f.write(f'{i+1}\t{os.path.basename(no_autosomes[i])}\n')
+            else:
+                for i in range(len(shard_filenames)):
+                    f.write(f'{i+1}\t{os.path.basename(shard_filenames[i])}\n')
         f.close()
 
         # create sbatch file
@@ -163,6 +168,8 @@ class WholeGenomeSeqQC:
         # Does ZH manually check something by creating a 'CHECK' col?
         preBqsr = pd.read_csv(preBqsr_path, sep='\s+')
         geno_samples = pd.read_csv(f'{geno_path}.psam', sep='\s+')
+        if '#IID' in geno_samples:
+            geno_samples.rename(columns={'#IID':'IID'}, inplace=True)
         preBqsr['CHECK'] = preBqsr.FREELK1 - preBqsr.FREELK0
         preBqsr = pd.merge(preBqsr, geno_samples, how='inner', left_on='sample_id', right_on='IID')
         if preBqsr.shape[0] != geno_samples.shape[0]:
@@ -230,6 +237,8 @@ class WholeGenomeSeqQC:
 
         wgs_metrics = pd.read_csv(f'{wgs_metrics_path}', sep='\s+')
         geno_samples = pd.read_csv(f'{geno_path}.psam', sep='\s+')
+        if '#IID' in geno_samples:
+            geno_samples.rename(columns={'#IID':'IID'}, inplace=True)
         wgs_metrics = pd.merge(wgs_metrics, geno_samples, how='inner', left_on='sample_id', right_on='IID')
         if wgs_metrics.shape[0] != geno_samples.shape[0]:
             print('Warning: metrics file does not contain info for all samples in geno files!')
@@ -289,6 +298,8 @@ class WholeGenomeSeqQC:
 
         vc_summary_metrics = pd.read_csv(variant_calling_summary_metrics_path, sep='\s+')
         geno_samples = pd.read_csv(f'{geno_path}.psam', sep='\s+')
+        if '#IID' in geno_samples:
+            geno_samples.rename(columns={'#IID':'IID'}, inplace=True)
         vc_summary_metrics = pd.merge(vc_summary_metrics, geno_samples, how='inner', left_on='sample_id', right_on='IID')
         if vc_summary_metrics.shape[0] != geno_samples.shape[0]:
             print('Warning: metrics file does not contain info for all samples in geno files!')
@@ -395,13 +406,19 @@ class WholeGenomeSeqQC:
         if not os.path.exists(f'{het_dir}'):
             os.makedirs(f'{het_dir}')
 
+        # het can't be run on shards with only sex chr?
+        no_autosomes = list()
+        for i in range(len(shard_filenames)):
+            if not any(sex_chr in shard_filenames[i] for sex_chr in ['chrX','chrY']):
+                no_autosomes.append(shard_filenames[i])
+
         het_out = f'{het_dir}/{out_filename}'
         if slurm:
             self.slurm_do('het', self.run_het_check, het_out)
 
             # concat logs
             listOfFiles = list()
-            for shard in shard_filenames:
+            for shard in no_autosomes:
                 shard_name = shard.split('/')[-1]
                 het_log = f'{het_out}_{shard_name}_tmp.log'
                 het_log2 = f'{het_out}_{shard_name}_tmp2.log'
@@ -413,7 +430,7 @@ class WholeGenomeSeqQC:
 
         else:
             # loop through shards and run het
-            for shard in shard_filenames:
+            for shard in no_autosomes:
                 shard_name = shard.split('/')[-1]
                 het_outpath = f'{het_out}_{shard_name}'
                 self.run_het_check(shard, het_outpath)
@@ -421,7 +438,7 @@ class WholeGenomeSeqQC:
         # create filenames
         het_fails = f'{out_path}.het_fails'
 
-        if len(glob.glob1(het_dir,'*.het')) == len(shard_filenames):
+        if len(glob.glob1(het_dir,'*.het')) == len(no_autosomes):
             heterozygosities = defaultdict(list)
             for filename in os.listdir(het_dir):
                 if filename.endswith('.het'):
@@ -464,7 +481,7 @@ class WholeGenomeSeqQC:
             }
 
             print(f'At least one file failed WGS heterozygosity pruning!')
-            print(f'Check the {out_path}.log for more information')
+            print(f'Check {out_path}.log for more information')
 
         out_dict = {
             'pass': process_complete,
@@ -631,15 +648,23 @@ class WholeGenomeSeqQC:
             # requires files to be named 'chr_shard'
             bfiles_to_pfiles(pfile_path=f'{shards_dir}/{chrom}_{shard}')
 
-        # merge X chr together to run sex check
-        with open(f'{x_dir}/to_merge.txt', 'w') as f:
-            for chrom, shard in x_range_shards:
-                path = f'{shards_dir}/{chrom}_{shard}'
-                f.write(f'{path}\n')
-        f.close()
+        if len(x_range_shards) > 1:
+            # merge X chr together to run sex check
+            with open(f'{x_dir}/to_merge.txt', 'w') as f:
+                for chrom, shard in x_range_shards:
+                    path = f'{shards_dir}/{chrom}_{shard}'
+                    f.write(f'{path}\n')
+            f.close()
 
-        plink_merge = f'{plink_exec} --merge-list {x_dir}/to_merge.txt --make-bed --out {x_dir}/x_range'
-        shell_do(plink_merge)
+            plink_merge = f'{plink_exec} --merge-list {x_dir}/to_merge.txt --make-bed --out {x_dir}/x_range'
+            shell_do(plink_merge)
+
+        else:
+            chrom, shard = x_range_shards[0]
+            x_fn = f'{shards_dir}/{chrom}_{shard}'
+            shutil.copy(f'{x_fn}.bed', f'{x_dir}/x_range.bed')
+            shutil.copy(f'{x_fn}.bim', f'{x_dir}/x_range.bim')
+            shutil.copy(f'{x_fn}.fam', f'{x_dir}/x_range.fam')
 
         for chrom, shard in x_range_shards:
             os.remove(f'{shards_dir}/{chrom}_{shard}.bed')
@@ -836,7 +861,11 @@ class WholeGenomeSeqQC:
 
     def drop_related(self, related_samples_path):
         '''
-        drop duplicates (and related pairs) with less coverage
+        Helper that finds sample in duplicates (and related pairs) with less coverage.
+        Parameters:
+        - related_samples_path (string): Path to file containing relatedness information
+        Returns:
+        - string: Path to file containing IDs of samples to exclude
         '''
         preBqsr_path = self.preBqsr
         out_path = self.out_path
@@ -876,6 +905,7 @@ class WholeGenomeSeqQC:
             * 'metrics': Metrics associated with the pruning, such as 'depth_rm_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
+        # NOTE: not part of ZH's analysis
         geno_path = self.geno_path
         out_path = self.out_path
         step = "wgs_depth_prune"
@@ -916,6 +946,7 @@ class WholeGenomeSeqQC:
             * 'metrics': Metrics associated with the pruning, such as 'filter_rm_count'.
             * 'output': Dictionary containing paths to the generated output files.
         """
+        # NOTE: not part of ZH's analysis
         geno_path = self.geno_path
         out_path = self.out_path
         step = "wgs_filter_prune"

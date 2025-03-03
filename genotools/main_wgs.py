@@ -70,7 +70,6 @@ def handle_wgs():
     with open(f"{args_dict['out']}_cleaned_logs.log", "w") as fp:
         pass
 
-
     # initialize class
     wgs_qc = WholeGenomeSeqQC(shards_dir=args_dict['shards_dir'], out_path=args_dict['out'], \
                                 keep_all=args_dict['keep_all'], slurm=args_dict['slurm'], slurm_user=args_dict['slurm_user'], \
