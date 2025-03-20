@@ -51,13 +51,13 @@ def gt_argparse():
     # sample-level qc arguments
     parser.add_argument('--callrate', type=float, nargs='?', default=None, const=0.02, help='Minimum Callrate threshold for QC')
     parser.add_argument('--sex', nargs='*', help='Sex prune with cutoffs')
+    parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
+    parser.add_argument('--amr_het', type=str, nargs='?', default='False', const='True', help='Custom het prune for GP2 AMR samples')
     parser.add_argument('--related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--related_cutoff', type=float, nargs='?', default=0.0884, const=0.0884, help='Relatedness cutoff')
     parser.add_argument('--duplicated_cutoff', type=float, nargs='?', default=0.354, const=0.354, help='Relatedness cutoff')
     parser.add_argument('--prune_related', type=str, nargs='?', default='False', const='True', help='Relatedness prune')
     parser.add_argument('--prune_duplicated', type=str, nargs='?', default='True', const='True', help='Relatedness prune')
-    parser.add_argument('--het', nargs='*', help='Het prune with cutoffs')
-    parser.add_argument('--amr_het', type=str, nargs='?', default='False', const='True', help='Custom het prune for GP2 AMR samples')
     parser.add_argument('--kinship_check', type=str, nargs='?', default='False', const='True', help='Confirming familial labels')
     parser.add_argument('--all_sample', type=str, nargs='?', default='False', const='True', help='Run all sample-level QC')
 
@@ -110,7 +110,7 @@ def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
 
 def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, assoc, args, tmp_dir):
     # to know which class to call
-    samp_steps = ['callrate','sex','related','het','kinship_check']
+    samp_steps = ['callrate','sex','het','related','kinship_check']
     var_steps = ['case_control','haplotype','hwe','geno','ld']
 
     # if full output requested, go to out path
@@ -269,12 +269,12 @@ def execute_pipeline(steps, steps_dict, geno_path, out_path, samp_qc, var_qc, as
 
 
 def build_metrics_pruned_df(metrics_df, pruned_df, gwas_df, related_df, dictionary, out, ancestry='all'):
-    for step in ['callrate', 'sex', 'related', 'het', 'case_control', 'haplotype', 'hwe', 'geno','ld']:
+    for step in ['callrate','sex','het','related','case_control','haplotype','hwe','geno','ld']:
         if step in dictionary.keys():
             qc_step = dictionary[step]['step']
             pf = dictionary[step]['pass']
 
-            if step in ['callrate', 'sex', 'related', 'het']:
+            if step in ['callrate','sex','het','related']:
                 level = 'sample'
                 samplefile = dictionary[step]['output']['pruned_samples']
                 if (samplefile is not None) and os.path.isfile(samplefile):

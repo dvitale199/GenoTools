@@ -45,8 +45,8 @@ def handle_main():
     assoc = Assoc()
 
     # ordered steps with their methods to be called
-    ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,
-                    'related':samp_qc.run_related_prune,'het':samp_qc.run_het_prune,'kinship_check':samp_qc.run_confirming_kinship,
+    ordered_steps =  {'callrate':samp_qc.run_callrate_prune,'sex':samp_qc.run_sex_prune,'het':samp_qc.run_het_prune,
+                    'related':samp_qc.run_related_prune,'kinship_check':samp_qc.run_confirming_kinship,
                     'case_control':var_qc.run_case_control_prune, 'haplotype':var_qc.run_haplotype_prune,
                     'hwe':var_qc.run_hwe_prune,'geno':var_qc.run_geno_prune,
                     'ld':var_qc.run_ld_prune,'assoc':assoc.run_association}
@@ -81,8 +81,8 @@ def handle_main():
     if args_dict['all_sample']:
         args_dict['callrate'] = 0.05
         args_dict['sex'] = [0.25, 0.75]
-        args_dict['related'] = True
         args_dict['het'] = [-0.15, 0.15]
+        args_dict['related'] = True
 
     if args_dict['all_variant']:
         args_dict['geno'] = 0.05
