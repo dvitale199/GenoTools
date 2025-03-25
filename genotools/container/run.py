@@ -13,7 +13,7 @@ if __name__=='__main__':
     y_test = pd.read_csv(f'/app/y_test.txt', sep='\t', header=None)
     projected = pd.read_csv(f'/app/projected.txt', sep='\t')
 
-    pkl_path = f'/app/GP2_merge_APRIL_2023_ready_genotools_callrate_sex_ancestry_umap_linearsvc_ancestry_model.pkl'
+    pkl_path = f'/app/GP2_merge_release6_NOVEMBER_ready_genotools_qc_umap_linearsvc_ancestry_model.pkl'
     pkl_in = open(pkl_path, 'rb')
     pipe_clf = pkl.load(pkl_in)
     pkl_in.close()

@@ -668,12 +668,12 @@ class Ancestry:
         projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
 
         if self.singularity:
-            shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.11')
             shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
             os.remove(f'{container_dir}/get_predictions.sif')
         else:
-            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.8')
-            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.11')
+            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.11')
             shell_do(f'docker rm get_predictions')
 
         # test accuracy
