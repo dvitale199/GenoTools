@@ -486,6 +486,8 @@ class SampleQC:
             if not prune_related and not prune_duplicated:
                 plink_cmd1 = f'echo prune_related and prune_duplicated set to False. Pruning passed'
                 shell_do(plink_cmd1)
+                for ext in ['pgen','psam','pvar']:
+                    shutil.copy(f'{geno_path}.{ext}', f'{out_path}.{ext}')
 
                 process_complete = True
                 related_pruned_out = None
