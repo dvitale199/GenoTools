@@ -111,8 +111,8 @@ class Ancestry:
             # if running in container, look for downloaded NBA model
             if self.containerized:
                 model_destination = os.path.expanduser("~/.genotools/ref")
-                nba_model_dir = f'{model_destination}/models/nba_v1'
-                nba_model_prefix = 'nba_v1'
+                nba_model_dir = f'{model_destination}/models/nba_v2'
+                nba_model_prefix = 'nba_v2'
 
                 ref_common_snps = f'{outdir}/{nba_model_prefix}'
                 common_snps_file = f'{nba_model_dir}/{nba_model_prefix}.common_snps'
@@ -668,12 +668,12 @@ class Ancestry:
         projected.to_csv(f'{container_dir}/projected.txt', sep='\t', index=False)
 
         if self.singularity:
-            shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'singularity pull {container_dir}/get_predictions.sif docker://mkoretsky1/genotools_ancestry:python3.11')
             shell_do(f'singularity run --bind {container_dir}:/app {container_dir}/get_predictions.sif')
             os.remove(f'{container_dir}/get_predictions.sif')
         else:
-            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.8')
-            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.8')
+            shell_do(f'docker pull mkoretsky1/genotools_ancestry:python3.11')
+            shell_do(f'docker run -v {container_dir}:/app --name get_predictions mkoretsky1/genotools_ancestry:python3.11')
             shell_do(f'docker rm get_predictions')
 
         # test accuracy

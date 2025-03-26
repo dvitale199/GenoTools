@@ -100,10 +100,11 @@ def handle_download():
     if download_model:
         checksums_dict = {
             'nba_v1': 'e167af2a192bd7460f23a0868be4d7bd',
+            'nba_v2': '7c6660013999cbb90378d45d5d5d1dd3',
             'neurochip_v1': '8f46bab3bb1226a36f8d3b9b7dab4b1a'
         }
 
-        model = args.model if args.model else "nba_v1"
+        model = args.model if args.model else "nba_v2"
         url = f"{url_base}/models/{model}.zip"
         checksum = checksums_dict[model]
         model_path = f'{args.destination}/models'

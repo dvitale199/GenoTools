@@ -1,7 +1,11 @@
-FROM python:3.8.15
+FROM python:3.11-slim
 
-RUN apt update
-RUN apt install git
+RUN apt-get update && apt-get install -y \
+    gcc \
+    build-essential \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . /app
 
