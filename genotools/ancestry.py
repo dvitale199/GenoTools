@@ -111,8 +111,8 @@ class Ancestry:
             # if running in container, look for downloaded NBA model
             if self.containerized:
                 model_destination = os.path.expanduser("~/.genotools/ref")
-                nba_model_dir = f'{model_destination}/models/nba_v1'
-                nba_model_prefix = 'nba_v1'
+                nba_model_dir = f'{model_destination}/models/nba_v2'
+                nba_model_prefix = 'nba_v2'
 
                 ref_common_snps = f'{outdir}/{nba_model_prefix}'
                 common_snps_file = f'{nba_model_dir}/{nba_model_prefix}.common_snps'
