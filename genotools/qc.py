@@ -165,8 +165,8 @@ class SampleQC:
         bfiles_to_pfiles(pfile_path=geno_path)
 
         # check sex 2 methods
-        plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex 0.25 0.75 --maf 0.05 --out {sex_tmp1}"
-        plink_cmd2 = f"{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex  0.25 0.75 --out {sex_tmp2}"
+        plink_cmd1 = f"{plink_exec} --bfile {geno_path} --check-sex {check_sex[0]} {check_sex[1]} --maf 0.05 --out {sex_tmp1}"
+        plink_cmd2 = f"{plink_exec} --bfile {geno_path} --chr 23 --from-bp 2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex {check_sex[0]} {check_sex[1]} --out {sex_tmp2}"
 
         cmds = [plink_cmd1, plink_cmd2]
         for cmd in cmds:
