@@ -23,7 +23,7 @@ Designed for robustness and versatility, the `Ancestry` class is a key component
 Following ancestry analysis, the pipeline undergoes these sample-level and variant-level QC procedures:
 
 ### Sample-Level QC Steps
-- **Callrate**: Default threshold: 0.05
+- **Callrate**: Default threshold: 0.02
 - **Sex Check**: Default cutoffs: [0.25, 0.75]
 - **Relatedness Check**: Enabled by default
 - **Heterozygosity Rate (Het)**: Default range: [-0.15, 0.15]
