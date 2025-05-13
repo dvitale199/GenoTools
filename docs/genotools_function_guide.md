@@ -63,7 +63,7 @@ Initializes the `SampleQC` class with paths to genotype data and output path.
 ## run_callrate_prune
 
 ```python
-run_callrate_prune(self, mind=0.02)
+run_callrate_prune(self, mind=0.05)
 ```
 
 ### Description
@@ -72,7 +72,7 @@ Executes call rate pruning on genotype data using PLINK. Removes individuals bas
 
 ### Parameters
 
-- **mind**: Threshold for permissible missing genotype rate. Defaults to 0.02 (2%).
+- **mind**: Threshold for permissible missing genotype rate. Defaults to 0.05 (5%).
 
 ### Returns
 
