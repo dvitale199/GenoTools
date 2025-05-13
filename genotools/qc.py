@@ -32,7 +32,7 @@ class SampleQC:
         self.geno_path = geno_path
         self.out_path = out_path
 
-    def run_callrate_prune(self, mind=0.02):
+    def run_callrate_prune(self, mind=0.05):
 
         """
         Execute call rate pruning on genotype data using PLINK.
@@ -42,7 +42,7 @@ class SampleQC:
         given threshold, the individual will be excluded from the dataset.
 
         Parameters:
-        - mind (float, optional): Threshold for permissible missing genotype rate. Default is set to 0.02, which corresponds to 2%.
+        - mind (float, optional): Threshold for permissible missing genotype rate. Default is set to 0.05, which corresponds to 5%.
 
         Returns:
         - dict: A structured dictionary containing:
