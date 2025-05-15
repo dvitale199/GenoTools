@@ -85,6 +85,8 @@ Note: add the ```--singularity``` flag to run containerized ancestry predictions
 
 genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 
+Note: multiallelic pfiles will be converted to biallelic format by excluding multiallelic variants before running '--ancestry' steps.
+
 Please consult the docs links listed at the top of the README for the full argument guide, function guide, Default pipeline overview, and guide for navigating the output JSON.
 
 ## Acknowledgements
