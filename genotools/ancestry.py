@@ -77,8 +77,9 @@ class Ancestry:
         out_paths = {}
 
         # variant prune geno before getting common snps
+        #pfiles will be converted to bfiles which requires removal of multialellic snps
         geno_prune_path = f'{self.out_path}_variant_pruned'
-        geno_prune_cmd = f'{plink2_exec} --pfile {self.geno_path} --geno 0.1 --make-bed --out {geno_prune_path}'
+        geno_prune_cmd = f'{plink2_exec} --pfile {self.geno_path} --geno 0.1 --max-alleles 2 --make-bed --out {geno_prune_path}'
         shell_do(geno_prune_cmd)
         out_paths['geno_pruned_bed'] = geno_prune_path
 
