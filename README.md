@@ -83,7 +83,9 @@ genotools \
 ```
 Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
 
-genotools accept `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
+genotools accepts `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
+
+Note: multiallelic pfiles will be converted to biallelic format by excluding multiallelic variants before running '--ancestry' steps. If you would prefer to not remove multiallelic snps, please pre-split the SNPs using bcftools prior to running genotools.  
 
 Please consult the docs links listed at the top of the README for the full argument guide, function guide, Default pipeline overview, and guide for navigating the output JSON.
 
