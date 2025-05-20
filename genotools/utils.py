@@ -126,7 +126,7 @@ def upfront_check(geno_path, args):
         bfiles_to_pfiles(bfile_path=geno_path)
 
     sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
-    var = pd.read_csv(f'{geno_path}.pvar', delimiter='\t', comment='#', header=None, names=['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'FILTER', 'INFO'], low_memory=False)
+    var = pd.read_csv(f'{geno_path}.pvar', delimiter='\t', comment='#', header=None, usecols=range(5), names=['#CHROM', 'POS', 'ID', 'REF', 'ALT'], low_memory=False)
 
     if 'SEX' not in sam.columns:
         raise KeyError(f'{geno_path}.psam is missing SEX column. Even if no SEX information is present, GenoTools requires a SEX column.')
