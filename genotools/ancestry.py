@@ -592,7 +592,7 @@ class Ancestry:
         return out_dict
 
 
-    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca):
+    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca, ref_common_snps):
         """
         Predict ancestry labels for new samples based on their projected principal components.
 
@@ -601,6 +601,7 @@ class Ancestry:
         pipe_clf: Trained classifier pipeline.
         label_encoder: Label encoder used for encoding ancestry labels.
         train_pca: Labeled PCs for training data.
+        ref_common_snps: Path to ref_common_snps file
 
         Returns:
         dict: Dictionary containing predicted labels, output data, and metrics.
@@ -619,6 +620,10 @@ class Ancestry:
         projected.loc[:,'label'] = ancestry_pred
 
         projected = self.predict_admixed_samples(projected, train_pca)
+
+        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
+
+        projected = self.get_eur_admixed(projected, admixture_results)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -943,8 +948,6 @@ class Ancestry:
         6. find any sample labeled EUR whose EUR admixture proportion is > 6 SDs away from the EUR average
         """
 
-        step = 'run_neural_admixture'
-
         train_save_dir = os.path.dirname(ref_common_snps)
         train_base_path = os.path.basename(ref_common_snps)
         train_out_path = f'{ref_common_snps}_train_samples'
@@ -1004,6 +1007,29 @@ class Ancestry:
         labeled_geno_admixture = labeled_geno_admixture.rename(ancestry_dict, axis=1)
         labeled_geno_admixture.to_csv(f'{self.out_path}_common_snps_neural_admixture.txt', sep='\t', header=None)
 
+        return labeled_geno_admixture
+
+    def get_eur_admixed(self, projected, admixture):
+        """
+        1. merge
+        2. isolate EUR samples
+        3. calculate z scores
+        4. change labels for samples with z-score > 6
+        """
+
+        labeled_admixture = admixture[['FID','IID','EUR']].merge(projected, how='inner', on=['FID','IID'])
+
+        eur_samples = labeled_admixture[labeled_admixture['label'] == 'EUR']
+        non_eur_samples = labeled_admixture[labeled_admixture['label'] != 'EUR']
+
+        eur_samples['z_scores'] = (eur_samples['EUR'] - np.mean(eur_samples['EUR'])) / np.std(eur_samples['EUR'])
+        eur_samples['label'] = np.where(np.abs(eur_samples['z_scores']) > 6, 'CAH', eur_samples['label']) 
+        eur_samples = eur_samples.drop(columns=['z_scores'])
+
+        projected = pd.concat([eur_samples, non_eur_samples], axis=0)
+        projected = projected.drop(columns=['EUR'])
+
+        return projected
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
         """
@@ -1205,7 +1231,8 @@ class Ancestry:
                 projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 pipe_clf=trained_clf['classifier'],
                 label_encoder=train_split['label_encoder'],
-                train_pca=calc_pcs['labeled_train_pca']
+                train_pca=calc_pcs['labeled_train_pca'],
+                ref_common_snps=raw['out_paths']['bed']
             )
 
         umap_transforms = self.umap_transform_with_fitted(
