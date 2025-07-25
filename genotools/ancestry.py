@@ -929,6 +929,80 @@ class Ancestry:
         projected = projected[projected_cols]
 
         return projected
+    
+    def run_neural_admixture(self, ref_common_snps, train_pca):
+        """
+        Needed: f'{self.out_path}_common_snps', out_paths['bed'] from get_raw_files, train_pca, 
+
+        1. Extract training data from {out_path['bed']} genotypes using IDs form train_pca
+        2. Train neural admixture on training samples
+        3. Infer neural admixture on {self.out_path}_common_snps
+        4. label columns using training results
+        5. apply labels to inference results
+        6. merge with projected
+        6. find any sample labeled EUR whose EUR admixture proportion is > 6 SDs away from the EUR average
+        """
+
+        step = 'run_neural_admixture'
+
+        train_save_dir = os.path.dirname(ref_common_snps)
+        train_base_path = os.path.basename(ref_common_snps)
+        train_out_path = f'{ref_common_snps}_train_samples'
+
+        inference_out_dir = os.path.dirname(self.out_path)
+        inference_base_path = os.path.basename(self.out_path)
+
+        # write training ids to txt file
+        train_pca[['FID','IID']].to_csv(f'{train_out_path}.txt', index=False, header=False, sep='\t')
+
+        # keep only training samples from ref
+        keep_cmd = f'plink2 --pfile {ref_common_snps} --keep {train_out_path}.txt --make-bed --out {train_out_path}'
+        shell_do(keep_cmd)
+
+        # write training labels to .pop file
+        train_pca[['label']].to_csv(f'{train_out_path}.pop', sep='\t', index=False, header=False)
+
+        # run neural-admixture training
+        train_cmd = f'neural-admixture train --k 10 --supervised --populations_path {train_out_path}.pop --name {train_base_path}_train_samples --data_path {train_out_path}.bed --save_dir {train_save_dir}'
+        shell_do(train_cmd)
+
+        # run neural-admixture inference
+        infer_cmd = f'neural-admixture infer --name {train_base_path}_train_samples --save_dir {inference_out_dir} --out_name {inference_base_path}_common_snps_neural_admixture --data_path {self.out_path}_common_snps.bed'
+        shell_do(infer_cmd)
+
+        # read in train samples and merge with labels
+        train_fam = pd.read_csv(f'{train_out_path}.fam', sep='\s+', header=None)
+        train_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+        train_fam_labeled = train_fam.merge(train_pca[['FID','IID','label']], how='left', on=['FID','IID'])
+
+        # read in train admixture
+        train_admixture = pd.read_csv(f'{train_base_path}_training_samples.10.Q', sep='\s+', header=None)
+
+        # concatenate to apply labels
+        labeled_train_admixture = pd.concat([train_fam_labeled[['FID','IID','label']], train_admixture], axis=1)
+
+        # loop through ancestries to get the correct column names
+        admixture_cols = [i for i in range(10)]
+        ancestry_dict = {}
+
+        for ancestry in labeled_train_admixture['label'].unique():
+            train_ancestry = labeled_train_admixture[labeled_train_admixture['label'] == ancestry]
+            train_ancestry_admixture = train_ancestry[admixture_cols]
+
+            ancestry_dict[train_ancestry_admixture.mean().idxmax()] = ancestry
+            admixture_cols.remove(train_ancestry_admixture.mean().idxmax())
+
+        labeled_train_admixture = labeled_train_admixture.rename(ancestry_dict, axis=1)
+
+        # apply labels to geno samples
+        geno_admixture = pd.read_csv(f'{self.out_path}_common_snps_neural_admixture.10.Q', sep='\s+', header=None)
+
+        geno_fam = pd.read_csv(f'{self.out_path}_common_snps.fam', sep='\s+', header=None)
+        geno_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+
+        labeled_geno_admixture = pd.concat([geno_fam[['FID','IID']], geno_admixture], axis=1)
+        labeled_geno_admixture = labeled_geno_admixture.rename(ancestry_dict, axis=1)
+        labeled_geno_admixture.to_csv(f'{self.out_path}_common_snps_neural_admixture.txt', sep='\t', header=None)
 
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
