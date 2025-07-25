@@ -58,6 +58,23 @@ class Ancestry:
                                  'NeuroChip':{'region':'europe-west2','endpoint_id':'6480987727041921024','bucket':'neurochip_common_snps',
                                  'params':{'umap__a':0.75,'umap__b':0.25,'umap__n_components':15,'umap__n_neighbors':5}}}
     
+    def clean_up(self, files):
+        """
+        Helper function to remove files.
+
+        Args:
+        files (list): list of file prefixes to remove
+
+        Returns:
+        None
+        """
+        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw']
+
+        for file in files:
+            for ext in extensions:
+                file_ext = f'{file}.{ext}'
+                if os.path.exists(file_ext):
+                    os.remove(file_ext)
 
     def get_raw_files(self):
         """
@@ -257,15 +274,9 @@ class Ancestry:
         concat_logs(step, self.out_path, listOfFiles)
         
         # remove intermediate files
-        extensions = ['bim', 'bed', 'fam', 'hh', 'snplist', 'ref_allele', 'alleles', 'raw']
         files = [geno_prune_path, ref_common_snps, f'{geno_prune_path}_flip', f'{self.out_path}_common_snps',
                  f'{self.out_path}_common_snps_switch']
-
-        for file in files:
-            for ext in extensions:
-                file_ext = f'{file}.{ext}'
-                if os.path.exists(file_ext):
-                    os.remove(file_ext)
+        self.clean_up(files)
 
         out_dict = {
             'raw_ref': labeled_ref_raw,
@@ -592,7 +603,7 @@ class Ancestry:
         return out_dict
 
 
-    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca):
+    def predict_ancestry_from_pcs(self, projected, pipe_clf, label_encoder, train_pca, ref_common_snps):
         """
         Predict ancestry labels for new samples based on their projected principal components.
 
@@ -601,6 +612,7 @@ class Ancestry:
         pipe_clf: Trained classifier pipeline.
         label_encoder: Label encoder used for encoding ancestry labels.
         train_pca: Labeled PCs for training data.
+        ref_common_snps: Path to ref_common_snps file
 
         Returns:
         dict: Dictionary containing predicted labels, output data, and metrics.
@@ -619,6 +631,10 @@ class Ancestry:
         projected.loc[:,'label'] = ancestry_pred
 
         projected = self.predict_admixed_samples(projected, train_pca)
+
+        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
+
+        projected = self.get_eur_admixed(projected, admixture_results)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -646,7 +662,7 @@ class Ancestry:
         return out_dict
 
 
-    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
+    def get_containerized_predictions(self, X_test, y_test, projected, label_encoder, train_pca, ref_common_snps):
         """
         Get predictions using a containerized environment for UMAP and XGBoost classifier.
 
@@ -718,6 +734,10 @@ class Ancestry:
 
         projected = self.predict_admixed_samples(projected, train_pca)
 
+        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
+
+        projected = self.get_eur_admixed(projected, admixture_results)
+
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -750,7 +770,7 @@ class Ancestry:
         return trained_clf_out_dict, pred_out_dict
 
     
-    def get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca):
+    def get_cloud_predictions(self, X_test, y_test, projected, label_encoder, train_pca, ref_common_snps):
         """
         Get predictions using a cloud environment for UMAP and XGBoost classifier.
 
@@ -833,6 +853,10 @@ class Ancestry:
         projected.loc[:,'label'] = ancestry_pred
     
         projected = self.predict_admixed_samples(projected, train_pca)
+
+        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
+
+        projected = self.get_eur_admixed(projected, admixture_results)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -929,7 +953,114 @@ class Ancestry:
         projected = projected[projected_cols]
 
         return projected
+    
+    def run_neural_admixture(self, ref_common_snps, train_pca):
+        """
+        Run neural admixture. Easier now that its in the pipeline and makes relabeling problematic EUR easy.
 
+        Args:
+        ref_common_snps (str): path to reference genotypes with common SNPs extracted
+        train_pca (DataFrame): PCA projections from training samples
+
+        Returns:
+        labeled_geno_admixture (DataFrame): labeled admixture proportions
+        """
+
+        # define some variable based on paths to make command building easier
+        train_save_dir = os.path.dirname(ref_common_snps)
+        train_base_path = os.path.basename(ref_common_snps)
+        train_out_path = f'{ref_common_snps}_train_samples'
+        inference_out_dir = os.path.dirname(self.out_path)
+        inference_base_path = os.path.basename(self.out_path)
+
+        # write training ids to txt file
+        train_pca[['FID','IID']].to_csv(f'{train_out_path}.txt', index=False, header=False, sep='\t')
+
+        # extract SNPs just in case of a mismatch
+        bim = pd.read_csv(f'{self.out_path}_common_snps.bim', sep='\s+', header=None)
+        bim.columns = ['chr','id','cm','pos','ref','alt']
+        bim[['chr']].to_csv(f'{train_out_path}_variants.txt', index=False, header=False, sep='\t')
+
+        # keep only training samples from ref
+        keep_cmd = f'plink2 --bfile {ref_common_snps} --keep {train_out_path}.txt --extract {train_out_path}_variants.txt --make-bed --out {train_out_path}'
+        shell_do(keep_cmd)
+
+        # write training labels to .pop file
+        train_pca[['label']].to_csv(f'{train_out_path}.pop', sep='\t', index=False, header=False)
+
+        # run neural-admixture training
+        train_cmd = f'neural-admixture train --k 10 --supervised --populations_path {train_out_path}.pop --name {train_base_path}_train_samples --data_path {train_out_path}.bed --save_dir {train_save_dir}'
+        shell_do(train_cmd)
+
+        # run neural-admixture inference
+        infer_cmd = f'neural-admixture infer --name {train_base_path}_train_samples --save_dir {inference_out_dir} --out_name {inference_base_path}_common_snps_neural_admixture --data_path {self.out_path}_common_snps.bed'
+        shell_do(infer_cmd)
+
+        # read in train samples and merge with labels
+        train_fam = pd.read_csv(f'{train_out_path}.fam', sep='\s+', header=None)
+        train_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+        train_fam_labeled = train_fam.merge(train_pca[['FID','IID','label']], how='left', on=['FID','IID'])
+
+        # read in train admixture
+        train_admixture = pd.read_csv(f'{train_base_path}_train_samples.10.Q', sep='\s+', header=None)
+
+        # concatenate to apply labels
+        labeled_train_admixture = pd.concat([train_fam_labeled[['FID','IID','label']], train_admixture], axis=1)
+
+        # loop through ancestries to get the correct column names
+        admixture_cols = [i for i in range(10)]
+        ancestry_dict = {}
+
+        for ancestry in labeled_train_admixture['label'].unique():
+            train_ancestry = labeled_train_admixture[labeled_train_admixture['label'] == ancestry]
+            train_ancestry_admixture = train_ancestry[admixture_cols]
+
+            ancestry_dict[train_ancestry_admixture.mean().idxmax()] = ancestry
+            admixture_cols.remove(train_ancestry_admixture.mean().idxmax())
+
+        labeled_train_admixture = labeled_train_admixture.rename(ancestry_dict, axis=1)
+
+        # apply labels to geno samples
+        geno_admixture = pd.read_csv(f'{self.out_path}_common_snps_neural_admixture.10.Q', sep='\s+', header=None)
+
+        geno_fam = pd.read_csv(f'{self.out_path}_common_snps.fam', sep='\s+', header=None)
+        geno_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
+
+        labeled_geno_admixture = pd.concat([geno_fam[['FID','IID']], geno_admixture], axis=1)
+        labeled_geno_admixture = labeled_geno_admixture.rename(ancestry_dict, axis=1)
+        labeled_geno_admixture.to_csv(f'{self.out_path}_common_snps_neural_admixture.txt', sep='\t', header=None)
+
+        # clean up
+        files = [train_out_path]
+        self.clean_up(files)
+
+        return labeled_geno_admixture
+
+    def get_eur_admixed(self, projected, admixture):
+        """
+        Use neural admixture results to relabel EUR samples that are > 6 SDs from the mean.
+
+        Args:
+        projected (DataFrame): labeled PCA projections for genotypes
+        admixture (DataFrame): admixture proportion for genotypes
+
+        Returns:
+        projected (DataFramne): labeled PCA projections for genotypes with updated labels
+        """
+
+        labeled_admixture = admixture[['FID','IID','EUR']].merge(projected, how='inner', on=['FID','IID'])
+
+        eur_samples = labeled_admixture[labeled_admixture['label'] == 'EUR']
+        non_eur_samples = labeled_admixture[labeled_admixture['label'] != 'EUR']
+
+        eur_samples['z_scores'] = (eur_samples['EUR'] - np.mean(eur_samples['EUR'])) / np.std(eur_samples['EUR'])
+        eur_samples['label'] = np.where(np.abs(eur_samples['z_scores']) > 6, 'CAH', eur_samples['label']) 
+        eur_samples = eur_samples.drop(columns=['z_scores'])
+
+        projected = pd.concat([eur_samples, non_eur_samples], axis=0)
+        projected = projected.drop(columns=['EUR'])
+
+        return projected
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
         """
@@ -1099,7 +1230,8 @@ class Ancestry:
                 y_test=train_split['y_test'],
                 projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 label_encoder=train_split['label_encoder'],
-                train_pca=calc_pcs['labeled_train_pca']
+                train_pca=calc_pcs['labeled_train_pca'],
+                ref_common_snps=raw['out_paths']['bed']
             )
         
         elif self.cloud:
@@ -1108,7 +1240,8 @@ class Ancestry:
                 y_test=train_split['y_test'],
                 projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 label_encoder=train_split['label_encoder'],
-                train_pca=calc_pcs['labeled_train_pca']
+                train_pca=calc_pcs['labeled_train_pca'],
+                ref_common_snps=raw['out_paths']['bed']
             )
         
         else:
@@ -1131,7 +1264,8 @@ class Ancestry:
                 projected=calc_pcs['new_samples_projected'].copy(deep=True),
                 pipe_clf=trained_clf['classifier'],
                 label_encoder=train_split['label_encoder'],
-                train_pca=calc_pcs['labeled_train_pca']
+                train_pca=calc_pcs['labeled_train_pca'],
+                ref_common_snps=raw['out_paths']['bed']
             )
 
         umap_transforms = self.umap_transform_with_fitted(
@@ -1173,5 +1307,9 @@ class Ancestry:
             'metrics': metrics_dict,
             'output': outfiles_dict
         }
+
+        # final cleanup
+        files = [raw['out_paths']['bed'], f'{self.out_path}_common_snps']
+        self.clean_up(files)
 
         return out_dict

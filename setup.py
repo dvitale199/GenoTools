@@ -63,7 +63,8 @@ setup(
         'umap_learn==0.5.3',
         'xgboost>=1.7.6',
         'google-cloud-aiplatform',
-        'google-cloud-storage'
+        'google-cloud-storage',
+        'neural-admixture'
     ],
     package_data={
       'genotools': ['container/*.pkl','container/*.txt','container/Dockerfile']
