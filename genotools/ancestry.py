@@ -978,7 +978,7 @@ class Ancestry:
         # extract SNPs just in case of a mismatch
         bim = pd.read_csv(f'{self.out_path}_common_snps.bim', sep='\s+', header=None)
         bim.columns = ['chr','id','cm','pos','ref','alt']
-        bim[['chr']].to_csv(f'{train_out_path}_variants.txt', index=False, header=False, sep='\t')
+        bim[['id']].to_csv(f'{train_out_path}_variants.txt', index=False, header=False, sep='\t')
 
         # keep only training samples from ref
         keep_cmd = f'plink2 --bfile {ref_common_snps} --keep {train_out_path}.txt --extract {train_out_path}_variants.txt --make-bed --out {train_out_path}'
