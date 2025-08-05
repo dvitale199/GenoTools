@@ -274,7 +274,7 @@ class Ancestry:
         concat_logs(step, self.out_path, listOfFiles)
         
         # remove intermediate files
-        files = [geno_prune_path, ref_common_snps, f'{geno_prune_path}_flip',f'{self.out_path}_common_snps_switch']
+        files = [geno_prune_path, f'{geno_prune_path}_flip',f'{self.out_path}_common_snps_switch']
         self.clean_up(files)
 
         out_dict = {
