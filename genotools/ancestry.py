@@ -981,7 +981,7 @@ class Ancestry:
         bim[['id']].to_csv(f'{train_out_path}_variants.txt', index=False, header=False, sep='\t')
 
         # keep only training samples from ref
-        keep_cmd = f'plink2 --bfile {ref_common_snps} --keep {train_out_path}.txt --extract {train_out_path}_variants.txt --make-bed --out {train_out_path}'
+        keep_cmd = f'{plink2_exec} --bfile {ref_common_snps} --keep {train_out_path}.txt --extract {train_out_path}_variants.txt --make-bed --out {train_out_path}'
         shell_do(keep_cmd)
 
         # write training labels to .pop file
