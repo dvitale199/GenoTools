@@ -1001,7 +1001,7 @@ class Ancestry:
         train_fam_labeled = train_fam.merge(train_pca[['FID','IID','label']], how='left', on=['FID','IID'])
 
         # read in train admixture
-        train_admixture = pd.read_csv(f'{train_base_path}_train_samples.10.Q', sep='\s+', header=None)
+        train_admixture = pd.read_csv(f'{train_save_dir}/{train_base_path}_train_samples.10.Q', sep='\s+', header=None)
 
         # concatenate to apply labels
         labeled_train_admixture = pd.concat([train_fam_labeled[['FID','IID','label']], train_admixture], axis=1)
