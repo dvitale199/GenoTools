@@ -989,11 +989,11 @@ class Ancestry:
 
         # run neural-admixture training
         train_cmd = f'neural-admixture train --k 10 --supervised --populations_path {train_out_path}.pop --name {train_base_path}_train_samples --data_path {train_out_path}.bed --save_dir {train_save_dir}'
-        shell_do(train_cmd)
+        shell_do(train_cmd, log=True)
 
         # run neural-admixture inference
         infer_cmd = f'neural-admixture infer --name {train_base_path}_train_samples --save_dir {inference_out_dir} --out_name {inference_base_path}_common_snps_neural_admixture --data_path {self.out_path}_common_snps.bed'
-        shell_do(infer_cmd)
+        shell_do(infer_cmd, log=True)
 
         # read in train samples and merge with labels
         train_fam = pd.read_csv(f'{train_out_path}.fam', sep='\s+', header=None)
