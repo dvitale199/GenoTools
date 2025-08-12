@@ -633,8 +633,6 @@ class Ancestry:
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
 
-        projected = self.get_eur_admixed(projected, admixture_results)
-
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -645,7 +643,8 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le
+            'label_encoder': le,
+            'admixture': admixture_results
         }
 
         outfiles_dict = {
@@ -735,8 +734,6 @@ class Ancestry:
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
 
-        projected = self.get_eur_admixed(projected, admixture_results)
-
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -753,7 +750,8 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le
+            'label_encoder': le,
+            'admixture': admixture_results
         }
 
         outfiles_dict = {
@@ -855,8 +853,6 @@ class Ancestry:
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
 
-        projected = self.get_eur_admixed(projected, admixture_results)
-
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -867,7 +863,8 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le
+            'label_encoder': le,
+            'admixture': admixture_results
         }
 
         outfiles_dict = {
