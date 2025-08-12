@@ -643,8 +643,7 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le,
-            'admixture': admixture_results
+            'label_encoder': le
         }
 
         outfiles_dict = {
@@ -750,8 +749,7 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le,
-            'admixture': admixture_results
+            'label_encoder': le
         }
 
         outfiles_dict = {
@@ -863,8 +861,7 @@ class Ancestry:
             'ids': projected.loc[:,['FID','IID','label']],
             'X_new': X_new,
             'y_pred': ancestry_pred,
-            'label_encoder': le,
-            'admixture': admixture_results
+            'label_encoder': le
         }
 
         outfiles_dict = {
