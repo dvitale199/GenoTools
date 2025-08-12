@@ -633,8 +633,6 @@ class Ancestry:
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
 
-        projected = self.get_eur_admixed(projected, admixture_results)
-
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -734,8 +732,6 @@ class Ancestry:
         projected = self.predict_admixed_samples(projected, train_pca)
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
-
-        projected = self.get_eur_admixed(projected, admixture_results)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -854,8 +850,6 @@ class Ancestry:
         projected = self.predict_admixed_samples(projected, train_pca)
 
         admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
-
-        projected = self.get_eur_admixed(projected, admixture_results)
 
         print()
         print('predicted:\n', projected.label.value_counts())
