@@ -966,10 +966,16 @@ class VariantQC:
 
         if os.path.isfile(f'{hap_tmp}.missing.hap'):
 
-            # read .missing.hap file and grab flanking snps for P <= 0.0001. write flanking snps to file to exclude w bash
+            # read .missing.hap file and grab flanking snps and reference snps for P <= 0.0001. write all snps to file to exclude w bash
             mis_hap = pd.read_csv(f'{hap_tmp}.missing.hap', sep='\s+')
+            # Get reference SNPs (central variants) for significant associations
+            ref_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:,'SNP'])
+            # Get flanking SNPs for significant associations
             mis_hap_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:,'FLANKING'].str.split('|'))
-            snp_ls_df = pd.DataFrame({'snp':[rsid for ls in mis_hap_snps for rsid in ls]})
+            flanking_snps = [rsid for ls in mis_hap_snps for rsid in ls]
+            # Combine reference and flanking SNPs
+            all_snps = ref_snps + flanking_snps
+            snp_ls_df = pd.DataFrame({'snp': all_snps})
             snp_ls_df['snp'].to_csv(f'{hap_tmp}.exclude',sep='\t', header=False, index=False)
 
             plink_cmd2 = f"{plink2_exec} --bfile {geno_path} --exclude {hap_tmp}.exclude --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {out_path}"
