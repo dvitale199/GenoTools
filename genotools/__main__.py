@@ -75,7 +75,7 @@ def handle_main():
             args_dict['ld'] = [50, 5, 0.5]
 
         else:
-            args_dict['ld'] = [int(args_dict['ld'][0]), int(args_dict['ld'][1]), float(args_dict['ld'][2])]
+            args_dict['ld'] = [args_dict['ld'][0], args_dict['ld'][1], args_dict['ld'][2]]
 
     # if all sample or all variant called, replace necessary items with defaults
     if args_dict['all_sample']:
