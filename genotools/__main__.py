@@ -110,10 +110,6 @@ def handle_main():
     # run model-side error catching
     if args_dict['model'] and args_dict['container']:
         raise KeyError('Cannot pass a pre-trained model and run predictions using the NeuroBooster array model in a container! Please choose one of the two.')
-    elif args_dict['model'] and args_dict['cloud']:
-        raise KeyError('Cannot pass a pre-trained model and run predictions in the cloud! Please choose one of the two.')
-    elif args_dict['container'] and args_dict['cloud']:
-        raise KeyError('Cannot run predictions using the NeuroBooster array model in a container and run predictions in the cloud! Please choose one of the two.')
 
     args_dict = upfront_check(args_dict['geno_path'], args_dict)
 

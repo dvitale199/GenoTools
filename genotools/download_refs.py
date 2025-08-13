@@ -77,7 +77,7 @@ def handle_download():
 
     if download_ref:
         checksums_dict = {
-            "1kg_30x_hgdp_ashk_ref_panel": "e97728c6cc0e672cf783cb4ca338b184"
+            "1kg_30x_hgdp_ashk_ref_panel": "6cf0764ae6e99f60127e42b12b4af5d7"
         }
 
         ref = args.ref if args.ref else "1kg_30x_hgdp_ashk_ref_panel"
@@ -99,9 +99,9 @@ def handle_download():
 
     if download_model:
         checksums_dict = {
-            'nba_v1': 'e167af2a192bd7460f23a0868be4d7bd',
-            'nba_v2': '7c6660013999cbb90378d45d5d5d1dd3',
-            'neurochip_v1': '8f46bab3bb1226a36f8d3b9b7dab4b1a'
+            'nba_v1': '755042b6a1e600a06b10352d42c57d20',
+            'nba_v2': '7618cd9be74a6f8da96ae99016851cce',
+            'neurochip_v1': '8825d8b490bab62d91752ba64e960c2d'
         }
 
         model = args.model if args.model else "nba_v2"
