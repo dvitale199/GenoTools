@@ -607,8 +607,6 @@ class Ancestry:
 
         projected = self.predict_admixed_samples(projected, train_pca)
 
-        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
-
         print()
         print('predicted:\n', projected.label.value_counts())
         print()
@@ -706,8 +704,6 @@ class Ancestry:
         projected.loc[:,'label'] = ancestry_pred
 
         projected = self.predict_admixed_samples(projected, train_pca)
-
-        admixture_results = self.run_neural_admixture(ref_common_snps, train_pca)
 
         print()
         print('predicted:\n', projected.label.value_counts())
@@ -811,115 +807,6 @@ class Ancestry:
 
         return projected
     
-    def run_neural_admixture(self, ref_common_snps, train_pca):
-        """
-        Run neural admixture. Easier now that its in the pipeline and makes relabeling problematic EUR easy.
-
-        Args:
-        ref_common_snps (str): path to reference genotypes with common SNPs extracted
-        train_pca (DataFrame): PCA projections from training samples
-
-        Returns:
-        labeled_geno_admixture (DataFrame): labeled admixture proportions
-        """
-
-        # define some variable based on paths to make command building easier
-        train_save_dir = os.path.dirname(ref_common_snps)
-        train_base_path = os.path.basename(ref_common_snps)
-        train_out_path = f'{ref_common_snps}_train_samples'
-        inference_out_dir = os.path.dirname(self.out_path)
-        inference_base_path = os.path.basename(self.out_path)
-
-        # write training ids to txt file
-        train_pca[['FID','IID']].to_csv(f'{train_out_path}.txt', index=False, header=False, sep='\t')
-
-        # extract SNPs just in case of a mismatch
-        bim = pd.read_csv(f'{self.out_path}_common_snps.bim', sep='\s+', header=None)
-        bim.columns = ['chr','id','cm','pos','ref','alt']
-        bim[['id']].to_csv(f'{train_out_path}_variants.txt', index=False, header=False, sep='\t')
-
-        # keep only training samples from ref
-        keep_cmd = f'{plink2_exec} --bfile {ref_common_snps} --keep {train_out_path}.txt --extract {train_out_path}_variants.txt --make-bed --out {train_out_path}'
-        shell_do(keep_cmd)
-
-        # write training labels to .pop file
-        train_pca[['label']].to_csv(f'{train_out_path}.pop', sep='\t', index=False, header=False)
-
-        # run neural-admixture training
-        train_cmd = f'neural-admixture train --k 10 --supervised --populations_path {train_out_path}.pop --name {train_base_path}_train_samples --data_path {train_out_path}.bed --save_dir {train_save_dir}'
-        err_train = shell_do(train_cmd, log=True, err=True)
-        print(err_train)
-
-        # run neural-admixture inference
-        infer_cmd = f'neural-admixture infer --name {train_base_path}_train_samples --save_dir {inference_out_dir} --out_name {inference_base_path}_common_snps_neural_admixture --data_path {self.out_path}_common_snps.bed'
-        err_infer = shell_do(infer_cmd, log=True, err=True)
-        print(err_infer)
-
-        # read in train samples and merge with labels
-        train_fam = pd.read_csv(f'{train_out_path}.fam', sep='\s+', header=None)
-        train_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
-        train_fam_labeled = train_fam.merge(train_pca[['FID','IID','label']], how='left', on=['FID','IID'])
-
-        # read in train admixture
-        train_admixture = pd.read_csv(f'{train_save_dir}/{train_base_path}_train_samples.10.Q', sep='\s+', header=None)
-
-        # concatenate to apply labels
-        labeled_train_admixture = pd.concat([train_fam_labeled[['FID','IID','label']], train_admixture], axis=1)
-
-        # loop through ancestries to get the correct column names
-        admixture_cols = [i for i in range(10)]
-        ancestry_dict = {}
-
-        for ancestry in labeled_train_admixture['label'].unique():
-            train_ancestry = labeled_train_admixture[labeled_train_admixture['label'] == ancestry]
-            train_ancestry_admixture = train_ancestry[admixture_cols]
-
-            ancestry_dict[train_ancestry_admixture.mean().idxmax()] = ancestry
-            admixture_cols.remove(train_ancestry_admixture.mean().idxmax())
-
-        labeled_train_admixture = labeled_train_admixture.rename(ancestry_dict, axis=1)
-
-        # apply labels to geno samples
-        geno_admixture = pd.read_csv(f'{self.out_path}_common_snps_neural_admixture.10.Q', sep='\s+', header=None)
-
-        geno_fam = pd.read_csv(f'{self.out_path}_common_snps.fam', sep='\s+', header=None)
-        geno_fam.columns = ['FID','IID','PAT','MAT','SEX','PHENO']
-
-        labeled_geno_admixture = pd.concat([geno_fam[['FID','IID']], geno_admixture], axis=1)
-        labeled_geno_admixture = labeled_geno_admixture.rename(ancestry_dict, axis=1)
-        labeled_geno_admixture.to_csv(f'{self.out_path}_common_snps_neural_admixture.txt', sep='\t', header=None)
-
-        # clean up
-        files = [train_out_path]
-        self.clean_up(files)
-
-        return labeled_geno_admixture
-
-    def get_eur_admixed(self, projected, admixture):
-        """
-        Use neural admixture results to relabel EUR samples that are > 6 SDs from the mean.
-
-        Args:
-        projected (DataFrame): labeled PCA projections for genotypes
-        admixture (DataFrame): admixture proportion for genotypes
-
-        Returns:
-        projected (DataFramne): labeled PCA projections for genotypes with updated labels
-        """
-
-        labeled_admixture = admixture[['FID','IID','EUR']].merge(projected, how='inner', on=['FID','IID'])
-
-        eur_samples = labeled_admixture[labeled_admixture['label'] == 'EUR']
-        non_eur_samples = labeled_admixture[labeled_admixture['label'] != 'EUR']
-
-        eur_samples['z_scores'] = (eur_samples['EUR'] - np.mean(eur_samples['EUR'])) / np.std(eur_samples['EUR'])
-        eur_samples['label'] = np.where(np.abs(eur_samples['z_scores']) > 6, 'CAH', eur_samples['label']) 
-        eur_samples = eur_samples.drop(columns=['z_scores'])
-
-        projected = pd.concat([eur_samples, non_eur_samples], axis=0)
-        projected = projected.drop(columns=['EUR'])
-
-        return projected
 
     def umap_transform_with_fitted(self, ref_pca, X_new, y_pred, params=None):
         """
