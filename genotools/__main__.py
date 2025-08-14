@@ -71,7 +71,7 @@ def handle_main():
             args_dict['het'] = [float(i) for i in args_dict['het']]
 
     if args_dict['ld'] is not None:
-        if len(args_dict['ld']) == 0:
+        if len(args_dict['ld']) != 3:
             args_dict['ld'] = [50, 5, 0.5]
 
         else:

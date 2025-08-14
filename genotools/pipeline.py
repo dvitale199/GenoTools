@@ -65,7 +65,7 @@ def gt_argparse():
     parser.add_argument('--haplotype', type=float, nargs='?', default=None, const=1e-4, help='Haplotype prune')
     parser.add_argument('--hwe', type=float, nargs='?', default=None, const=1e-4, help='HWE pruning')
     parser.add_argument('--filter_controls', type=str, nargs='?', default='False', const='True', help='Control filter for HWE prune')
-    parser.add_argument('--ld', nargs=3, type=float, help='LD prune with window size, step size, r2 threshold')
+    parser.add_argument('--ld', nargs=3, type=float, default=None, help='LD prune with window size, step size, r2 threshold')
     parser.add_argument('--all_variant', type=str, nargs='?', default='False', const='True', help='Run all variant-level QC')
 
     # GWAS and PCA argument
