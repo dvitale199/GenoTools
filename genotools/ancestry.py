@@ -361,6 +361,27 @@ class Ancestry:
         train_mean = X_train.mean(axis=0)
         train_flash_sd = np.sqrt((train_mean/2)*(1-(train_mean/2)))
 
+        # drop zero/small SD SNPs
+        eps = 1e-12  # guard against numerical underflow
+        keep_mask = train_flash_sd > eps
+        dropped = (~keep_mask).sum()
+    
+        if dropped > 0:
+            # Filter training/test matrices
+            X_train = X_train[:, keep_mask]
+            X_test = X_test[:,  keep_mask]
+    
+            # Filter the scaling stats to match kept columns
+            train_mean = train_mean[keep_mask]
+            train_flash_sd = train_flash_sd[keep_mask]
+
+        # Re-check we still have enough SNPs after filtering
+        if X_train.shape[1] < 50:
+            raise ValueError(
+                f'After removing {dropped} zero-SD SNPs, only {X_train.shape[1]} SNPs remain; '
+                'insufficient for PCA. Consider relaxing filters or increasing overlap.'
+            )
+
         # set up pca
         n_pcs = 50
         sk_pca = PCA(n_components=n_pcs, svd_solver='full')
@@ -396,6 +417,8 @@ class Ancestry:
         geno_snps = raw_geno.drop(columns=['FID','IID','label'], axis=1)
 
         geno_snps = mean_imp.transform(geno_snps)
+        if dropped > 0:
+            geno_snps = geno_snps[:, keep_mask]
 
         # transform new samples
         projected = self.transform(geno_snps, train_mean, train_flash_sd, sk_pca, col_names)
