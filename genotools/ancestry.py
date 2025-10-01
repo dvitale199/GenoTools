@@ -17,6 +17,7 @@
 import os
 import pandas as pd
 import numpy as np
+import psutil
 from umap import UMAP
 from sklearn import preprocessing, metrics
 from sklearn.impute import SimpleImputer
@@ -507,14 +508,22 @@ class Ancestry:
 
         le = label_encoder
 
+        # Calculate optimal number of parallel jobs based on available resources
+        available_ram_gb = psutil.virtual_memory().total / (1024**3)
+        gb_per_worker = 3  # Conservative estimate for ~4k samples
+        max_workers_by_ram = max(1, int((available_ram_gb * 0.8) / gb_per_worker))
+        n_jobs = min(os.cpu_count(), max_workers_by_ram)
+
+        print(f"Using {n_jobs} parallel workers for GridSearchCV (RAM: {available_ram_gb:.1f}GB, CPUs: {os.cpu_count()})")
+
         # Transformation with UMAP followed by classification with svc
         umap = UMAP(random_state=123)
-        
+
         xgb = XGBClassifier(booster='gblinear', random_state=123)
         pipeline = Pipeline([("umap", umap), ("xgb", xgb)])
-        
+
         cross_validation = StratifiedKFold(n_splits=5, shuffle=True, random_state=123)
-        pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy')
+        pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy', n_jobs=n_jobs, verbose=2)
         pipe_grid.fit(X_train, y_train)
 
         results_df = pd.DataFrame(pipe_grid.cv_results_)
@@ -540,9 +549,13 @@ class Ancestry:
 
         # dump best estimator to pkl
         self.model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
-        model_file = open(self.model_path, 'wb')
-        pkl.dump(pipe_clf, model_file)
-        model_file.close()
+        try:
+            with open(self.model_path, 'wb') as model_file:
+                pkl.dump(pipe_clf, model_file)
+            print(f"Model saved to: {self.model_path}")
+        except Exception as e:
+            print(f"ERROR: Failed to save model to {self.model_path}: {e}")
+            raise
 
         out_dict = {
             'classifier': pipe_clf,
