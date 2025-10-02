@@ -411,9 +411,9 @@ def get_common_snps(geno_path1, geno_path2, out_name):
     print('Getting Common SNPs')
 
     # read both bim files
-    bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None)
+    bim1 = pd.read_csv(f'{geno_path1}.bim', sep='\t', header=None, dtype={0: str}, low_memory=False)
     bim1.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
-    bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None)
+    bim2 = pd.read_csv(f'{geno_path2}.bim', sep='\t', header=None, dtype={0: str}, low_memory=False)
     bim2.columns = ['chr', 'rsid', 'kb', 'pos', 'a1', 'a2']
 
     # write bim 1 ids to snplist
