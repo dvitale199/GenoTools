@@ -84,6 +84,9 @@ def gt_argparse():
 
 
 def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
+    # Store the original output path for permanent files like model
+    final_out_path = out_path
+
     if not args['full_output']:
         out_path_pathlib = pathlib.PurePath(out_path)
         out_path_name = out_path_pathlib.name
@@ -91,6 +94,7 @@ def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
 
     ancestry.geno_path = geno_path
     ancestry.out_path = out_path
+    ancestry.final_out_path = final_out_path  # For model file
     ancestry.ref_panel = args['ref_panel']
     ancestry.ref_labels = args['ref_labels']
     ancestry.model_path = args['model']
@@ -98,7 +102,7 @@ def execute_ancestry_predictions(geno_path, out_path, args, ancestry, tmp_dir):
     ancestry.singularity = args['singularity']
     ancestry.subset = args['subset_ancestry']
     ancestry.min_samples = args['min_samples']
-    
+
     ancestry_dict = ancestry.run_ancestry()
 
     return ancestry_dict

@@ -44,6 +44,7 @@ class Ancestry:
         self.ref_panel = ref_panel
         self.ref_labels = ref_labels
         self.out_path = out_path
+        self.final_out_path = None  # Will be set by pipeline for permanent files
         self.model_path = model_path
         self.containerized = containerized
         self.singularity = singularity
@@ -523,7 +524,7 @@ class Ancestry:
         pipeline = Pipeline([("umap", umap), ("xgb", xgb)])
 
         cross_validation = StratifiedKFold(n_splits=5, shuffle=True, random_state=123)
-        pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy', n_jobs=n_jobs, verbose=2)
+        pipe_grid = GridSearchCV(pipeline, param_grid, cv=cross_validation, scoring='balanced_accuracy', n_jobs=n_jobs, verbose=1)
         pipe_grid.fit(X_train, y_train)
 
         results_df = pd.DataFrame(pipe_grid.cv_results_)
@@ -548,7 +549,9 @@ class Ancestry:
         pipe_clf_c_matrix = metrics.confusion_matrix(y_test, pipe_clf_pred)
 
         # dump best estimator to pkl
-        self.model_path = f'{self.out_path}_umap_linearsvc_ancestry_model.pkl'
+        # Use final_out_path if set (for permanent storage), otherwise use out_path
+        model_out_path = self.final_out_path if self.final_out_path else self.out_path
+        self.model_path = f'{model_out_path}_umap_linearsvc_ancestry_model.pkl'
         try:
             with open(self.model_path, 'wb') as model_file:
                 pkl.dump(pipe_clf, model_file)
