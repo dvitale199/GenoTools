@@ -63,7 +63,7 @@ def __check_exec(exec_path, *args, absolute_path=False):
 
 
 def __install_exec(url, exec_path):
-    r = requests.get(url, verify=False, stream=True)
+    r = requests.get(url, verify=False, stream=True, headers=_HEADERS)
 
     if '.zip' in url:
         try:
@@ -210,4 +210,12 @@ __DEPENDENCIES = {
             'url': 'https://www.kingrelatedness.com/executables/Windows-king232.zip'
         }
     }
+}
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
 }
