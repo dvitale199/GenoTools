@@ -35,6 +35,66 @@ GenoTools currently suffers from tight coupling, mutable state, and mixed concer
 
 ---
 
+## Current Conventions to Preserve
+
+These patterns from the existing codebase (documented in CLAUDE.md) must be maintained during the refactor.
+
+### Standard Return Dictionary Format
+
+Every QC method currently returns this structure:
+```python
+{
+    'pass': bool,           # True if step completed successfully
+    'step': str,            # Step identifier (e.g., 'callrate_prune')
+    'metrics': {
+        'outlier_count': int,  # Number of samples/variants pruned
+        # ... other step-specific metrics
+    },
+    'output': {
+        'pruned_samples': str,  # Path to pruned sample IDs (or None)
+        'plink_out': str,       # Path to output pfiles (without extension)
+        # ... other output files
+    }
+}
+```
+
+The new `FilterResult` dataclass must provide a `.to_dict()` method for backward compatibility.
+
+### PLINK2 psam Column Preservation
+
+**Critical:** All `--make-pgen` commands must preserve sample metadata:
+```bash
+--make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+```
+
+### File Path Conventions
+
+- Input/output paths never include extensions: `/path/to/data` → `data.pgen`, `data.pvar`, `data.psam`
+- Intermediate files use step suffix: `{out_path}_{step}`
+- Outlier files use `.outliers` extension
+
+### Outlier File Format
+
+Outlier files must be tab-separated with `#FID` header:
+```python
+df = df.rename({'FID': '#FID'}, axis=1)
+df.to_csv(outliers_out, sep='\t', header=True, index=False)
+```
+
+### Platform Constraints
+
+- **KING**: Linux only. Must check `platform.system() == 'Linux'` before use.
+
+### Pinned Dependencies
+
+- `umap-learn==0.5.3` - Required for model compatibility
+
+### Utility Functions
+
+Current code uses `shell_do()` and `concat_logs()` from `genotools.utils`. The new `run_command()` in `core/executors.py` should wrap these patterns.
+
+---
+
 ## Phase 0: Regression Testing Framework
 
 ### Goal
@@ -593,6 +653,7 @@ class GenotypeData:
 ```python
 import shlex
 import subprocess
+import platform
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -608,11 +669,24 @@ _plink: Optional[Path] = None
 _plink2: Optional[Path] = None
 _king: Optional[Path] = None
 
+# CRITICAL: Always use this flag to preserve sample metadata
+PLINK2_PSAM_COLS = "psam-cols=fid,parents,sex,pheno1,phenos"
+
 def get_plink() -> Path:
     global _plink
     if _plink is None:
         _plink = _find_or_download("plink")
     return _plink
+
+def get_king() -> Optional[Path]:
+    """Get KING executable. Returns None on non-Linux platforms."""
+    global _king
+    if platform.system() != "Linux":
+        logger.warning("KING is only available on Linux")
+        return None
+    if _king is None:
+        _king = _find_or_download("king")
+    return _king
 
 @dataclass
 class CommandResult:
@@ -626,7 +700,10 @@ def run_command(
     tool_name: str = "command",
     check: bool = True
 ) -> CommandResult:
-    """Run external command with proper error handling."""
+    """Run external command with proper error handling.
+
+    This wraps the existing shell_do() pattern with structured return.
+    """
     logger.debug(f"Running: {' '.join(command)}")
 
     result = subprocess.run(
@@ -650,6 +727,25 @@ def run_command(
         )
 
     return cmd_result
+
+def run_plink2_make_pgen(
+    input_path: Path,
+    output_path: Path,
+    input_format: str = "pfile",
+    extra_args: list[str] = None
+) -> CommandResult:
+    """Run PLINK2 --make-pgen with required psam column preservation."""
+    input_flag = "--pfile" if input_format == "pfile" else "--bfile"
+    command = [
+        str(get_plink2()),
+        input_flag, str(input_path),
+        "--make-pgen", PLINK2_PSAM_COLS,
+        "--out", str(output_path)
+    ]
+    if extra_args:
+        # Insert extra args before --out
+        command = command[:-2] + extra_args + command[-2:]
+    return run_command(command, tool_name="plink2")
 
 @contextmanager
 def temp_files(*paths: Path):
@@ -691,7 +787,8 @@ Replace mutable SampleQC/VariantQC classes with pure functions composed into a p
 #### 2.1 `qc/results.py`
 ```python
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 from ..core.genotypes import GenotypeData
 
 @dataclass(frozen=True)
@@ -702,6 +799,31 @@ class FilterResult:
     variants_removed: int
     metrics: dict[str, Any] = field(default_factory=dict)
     log: str = ""
+    pruned_samples_file: Optional[Path] = None  # Path to .outliers file
+
+    def to_dict(self) -> dict:
+        """Convert to legacy dictionary format for backward compatibility.
+
+        Returns the standard format:
+        {
+            'pass': bool,
+            'step': str,
+            'metrics': {'outlier_count': int, ...},
+            'output': {'pruned_samples': str, 'plink_out': str}
+        }
+        """
+        return {
+            'pass': True,  # If we have a result, it passed
+            'step': self.metrics.get('step_name', 'unknown'),
+            'metrics': {
+                'outlier_count': self.samples_removed + self.variants_removed,
+                **self.metrics
+            },
+            'output': {
+                'pruned_samples': str(self.pruned_samples_file) if self.pruned_samples_file else None,
+                'plink_out': str(self.output.path)
+            }
+        }
 
 @dataclass(frozen=True)
 class QCResult:
@@ -717,6 +839,13 @@ class QCResult:
     @property
     def total_variants_removed(self) -> int:
         return sum(r.variants_removed for _, r in self.step_results)
+
+    def to_legacy_dict(self) -> dict:
+        """Convert to legacy pass_fail dictionary format."""
+        return {
+            name: result.to_dict()
+            for name, result in self.step_results
+        }
 ```
 
 #### 2.2 `qc/config.py`
@@ -769,9 +898,10 @@ class LDConfig:
 ```python
 from pathlib import Path
 import logging
+import pandas as pd
 
 from ...core.genotypes import GenotypeData
-from ...core.executors import run_command, get_plink2
+from ...core.executors import run_plink2_make_pgen, get_plink2, run_command
 from ..config import CallrateConfig
 from ..results import FilterResult
 
@@ -789,38 +919,48 @@ def filter_callrate(
     - Samples with missingness > config.sample_threshold
     - Variants with missingness > config.variant_threshold
     """
+    step_name = "callrate_prune"
     logger.info(f"Filtering by callrate (sample={config.sample_threshold}, variant={config.variant_threshold})")
 
-    input_flag = "--pfile" if data.format == "pfile" else "--bfile"
-
-    command = [
-        str(get_plink2()),
-        input_flag, str(data.path),
-        "--mind", str(config.sample_threshold),
-        "--geno", str(config.variant_threshold),
-        "--make-pgen",
-        "--out", str(out_path)
-    ]
-
-    result = run_command(command, tool_name="plink2")
+    # Use helper function that ensures psam-cols preservation
+    result = run_plink2_make_pgen(
+        input_path=data.path,
+        output_path=out_path,
+        input_format=data.format,
+        extra_args=[
+            "--mind", str(config.sample_threshold),
+            "--geno", str(config.variant_threshold),
+        ]
+    )
 
     output = GenotypeData.from_path(out_path)
+
+    # Write outlier file in correct format (tab-separated, #FID header)
+    outliers_path = out_path.parent / f"{out_path.name}.outliers"
+    if (irem_file := out_path.with_suffix(".mindrem.id")).exists():
+        outliers = pd.read_csv(irem_file, sep=r"\s+", dtype=str)
+        outliers = outliers.rename(columns={"FID": "#FID"})
+        outliers.to_csv(outliers_path, sep="\t", header=True, index=False)
+    else:
+        outliers_path = None
 
     return FilterResult(
         output=output,
         samples_removed=data.sample_count - output.sample_count,
         variants_removed=data.variant_count - output.variant_count,
         metrics={
+            "step_name": step_name,
             "sample_threshold": config.sample_threshold,
             "variant_threshold": config.variant_threshold,
         },
-        log=result.stderr
+        log=result.stderr,
+        pruned_samples_file=outliers_path
     )
 ```
 
 #### 2.4 `qc/pipeline.py`
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Any
 import logging
@@ -846,6 +986,7 @@ class QCStep(Protocol):
 class QCPipeline:
     """Composes QC steps into a pipeline."""
     steps: list[tuple[str, QCStep, Any]]  # (name, function, config)
+    warn_only: bool = False  # If True, continue on step failure (--warn flag)
 
     def run(self, data: GenotypeData, out_dir: Path) -> QCResult:
         """Execute all steps sequentially."""
@@ -861,21 +1002,30 @@ class QCPipeline:
             step_out = out_dir / name / "output"
             step_out.parent.mkdir(exist_ok=True)
 
-            result = step_fn(current, config, step_out)
-            step_results.append((name, result))
+            try:
+                result = step_fn(current, config, step_out)
+                step_results.append((name, result))
 
-            logger.info(
-                f"Completed {name}: "
-                f"-{result.samples_removed} samples, "
-                f"-{result.variants_removed} variants"
-            )
+                logger.info(
+                    f"Completed {name}: "
+                    f"-{result.samples_removed} samples, "
+                    f"-{result.variants_removed} variants"
+                )
 
-            current = result.output
+                current = result.output
 
-            if current.sample_count == 0:
-                raise QCError(f"All samples removed at step: {name}")
-            if current.variant_count == 0:
-                raise QCError(f"All variants removed at step: {name}")
+                if current.sample_count == 0:
+                    raise QCError(f"All samples removed at step: {name}")
+                if current.variant_count == 0:
+                    raise QCError(f"All variants removed at step: {name}")
+
+            except QCError as e:
+                if self.warn_only:
+                    logger.warning(f"Step {name} failed but continuing (--warn mode): {e}")
+                    # Skip this step, keep using previous data
+                    continue
+                else:
+                    raise
 
         current_step.set("")
 
@@ -914,6 +1064,9 @@ Replace current ancestry code with ML-pattern fit/predict interface.
 from dataclasses import dataclass
 from typing import Literal
 
+# CRITICAL: umap-learn must be pinned to 0.5.3 for model compatibility
+# See requirements.txt: umap-learn==0.5.3
+
 @dataclass(frozen=True)
 class PCAConfig:
     """PCA configuration."""
@@ -924,7 +1077,10 @@ class PCAConfig:
 
 @dataclass(frozen=True)
 class UMAPConfig:
-    """UMAP configuration."""
+    """UMAP configuration.
+
+    Note: Requires umap-learn==0.5.3 for model compatibility.
+    """
     n_neighbors: int = 15
     min_dist: float = 0.1
     n_components: int = 2
@@ -944,18 +1100,18 @@ class AncestryConfig:
     umap: UMAPConfig = UMAPConfig()
     classifier: ClassifierConfig = ClassifierConfig()
 
-    # Ancestry labels
+    # Supported ancestry labels (all 10 from current implementation)
     labels: tuple[str, ...] = (
         "AFR",  # African
-        "EUR",  # European
-        "EAS",  # East Asian
         "SAS",  # South Asian
+        "EAS",  # East Asian
+        "EUR",  # European
         "AMR",  # American/Latino
-        "MDE",  # Middle Eastern
-        "AAC",  # African American
         "AJ",   # Ashkenazi Jewish
         "CAS",  # Central Asian
+        "MDE",  # Middle Eastern
         "FIN",  # Finnish
+        "AAC",  # African American
     )
 ```
 
@@ -1078,12 +1234,78 @@ class ReferencePanel:
         ...
 ```
 
+#### 3.5 Container/Cloud Support
+
+The current implementation supports multiple execution modes that must be preserved:
+
+```python
+from dataclasses import dataclass
+from typing import Literal, Optional
+from enum import Enum
+
+class InferenceMode(Enum):
+    """Ancestry inference execution modes."""
+    LOCAL = "local"           # Local Python execution
+    CONTAINER = "container"   # Docker container
+    SINGULARITY = "singularity"  # Singularity container
+    CLOUD = "cloud"           # Google Cloud AI Platform
+
+@dataclass(frozen=True)
+class InferenceConfig:
+    """Configuration for ancestry inference execution."""
+    mode: InferenceMode = InferenceMode.LOCAL
+    container_image: Optional[str] = None
+    cloud_project: Optional[str] = None
+    cloud_region: str = "us-central1"
+```
+
+CLI flags to support:
+- `--container` → Docker execution
+- `--singularity` → Singularity execution
+- `--cloud` → Google Cloud AI Platform
+
 ### Success Criteria
 - [ ] `AncestryModel.fit()` works with reference panel
 - [ ] `AncestryModel.predict()` produces same results as old code
 - [ ] Model can be saved/loaded
 - [ ] All ancestry parameters documented in config.py
+- [ ] Container and cloud modes work as before
 - [ ] `mypy genotools/ancestry/ --strict` passes
+
+---
+
+## Method Mapping (Old → New)
+
+This table shows how current methods map to new functions.
+
+### SampleQC Methods
+
+| Current Method | New Function | Module |
+|---------------|--------------|--------|
+| `SampleQC.run_callrate_prune()` | `filter_callrate()` | `qc/steps/callrate.py` |
+| `SampleQC.run_sex_prune()` | `filter_sex()` | `qc/steps/sex.py` |
+| `SampleQC.run_het_prune()` | `filter_heterozygosity()` | `qc/steps/heterozygosity.py` |
+| `SampleQC.run_related_prune()` | `filter_relatedness()` | `qc/steps/relatedness.py` |
+| `SampleQC.run_confirming_kinship()` | `verify_kinship()` | `qc/steps/relatedness.py` |
+
+### VariantQC Methods
+
+| Current Method | New Function | Module |
+|---------------|--------------|--------|
+| `VariantQC.run_geno_prune()` | `filter_variant_missingness()` | `qc/steps/variant_missingness.py` |
+| `VariantQC.run_case_control_prune()` | `filter_case_control()` | `qc/steps/case_control.py` |
+| `VariantQC.run_haplotype_prune()` | `filter_haplotype()` | `qc/steps/haplotype.py` |
+| `VariantQC.run_hwe_prune()` | `filter_hwe()` | `qc/steps/hwe.py` |
+| `VariantQC.run_ld_prune()` | `prune_ld()` | `qc/steps/ld_prune.py` |
+
+### Ancestry Methods
+
+| Current Method | New Function | Module |
+|---------------|--------------|--------|
+| `Ancestry.predict()` | `AncestryModel.predict()` | `ancestry/model.py` |
+| `Ancestry.train_umap_classifier()` | `AncestryModel.fit()` | `ancestry/model.py` |
+| PCA calculation | `run_pca()` | `ancestry/reducers/pca.py` |
+| UMAP transformation | `UMAPReducer.fit_transform()` | `ancestry/reducers/umap.py` |
 
 ---
 
@@ -1128,6 +1350,14 @@ class PipelineArgs:
     run_gwas: bool = False
     pheno_file: Optional[Path] = None
 
+    # Error handling
+    warn_only: bool = False  # --warn flag: continue on step failure
+
+    # Inference mode
+    use_container: bool = False
+    use_singularity: bool = False
+    use_cloud: bool = False
+
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser with proper types."""
     parser = argparse.ArgumentParser(
@@ -1141,7 +1371,19 @@ def create_parser() -> argparse.ArgumentParser:
     # Boolean flags - no more string parsing!
     parser.add_argument("--skip-callrate", action="store_true")
     parser.add_argument("--skip-sex", action="store_true")
-    ...
+    # ... other skip flags
+
+    # Error handling - IMPORTANT: preserve --warn behavior
+    parser.add_argument("--warn", action="store_true",
+                        help="Continue pipeline on step failure instead of stopping")
+
+    # Inference mode flags
+    parser.add_argument("--container", action="store_true",
+                        help="Run ancestry inference in Docker container")
+    parser.add_argument("--singularity", action="store_true",
+                        help="Run ancestry inference in Singularity container")
+    parser.add_argument("--cloud", action="store_true",
+                        help="Run ancestry inference on Google Cloud AI Platform")
 
     return parser
 
@@ -1153,7 +1395,11 @@ def parse_args(args: Optional[list[str]] = None) -> PipelineArgs:
         geno_path=ns.geno,
         out_dir=ns.out,
         run_callrate=not ns.skip_callrate,
-        ...
+        warn_only=ns.warn,
+        use_container=ns.container,
+        use_singularity=ns.singularity,
+        use_cloud=ns.cloud,
+        # ...
     )
 ```
 
@@ -1164,10 +1410,12 @@ import logging
 
 from ..core.genotypes import GenotypeData
 from ..core.logging import setup_logging
+from ..core.exceptions import QCError, AncestryError
 from ..qc.pipeline import QCPipeline
 from ..qc.steps import filter_callrate, filter_sex, ...
 from ..qc.config import CallrateConfig, SexConfig, ...
 from ..ancestry.model import AncestryModel
+from ..ancestry.config import InferenceMode
 from .parser import PipelineArgs
 from .output import write_results
 
@@ -1182,6 +1430,7 @@ def run_pipeline(args: PipelineArgs) -> dict:
     logger.info(f"Loaded {data.sample_count} samples, {data.variant_count} variants")
 
     results = {}
+    pass_fail = {}  # Track step success/failure
 
     # Build and run QC pipeline
     if any([args.run_callrate, args.run_sex, args.run_het, args.run_related]):
@@ -1192,16 +1441,42 @@ def run_pipeline(args: PipelineArgs) -> dict:
             steps.append(("sex", filter_sex, SexConfig()))
         # ... etc
 
-        qc_pipeline = QCPipeline(steps=steps)
-        qc_result = qc_pipeline.run(data, args.out_dir / "qc")
-        results["qc"] = qc_result
-        data = qc_result.output
+        qc_pipeline = QCPipeline(steps=steps, warn_only=args.warn_only)
+        try:
+            qc_result = qc_pipeline.run(data, args.out_dir / "qc")
+            results["qc"] = qc_result
+            data = qc_result.output
+            pass_fail["qc"] = {"status": True}
+        except QCError as e:
+            logger.error(f"QC failed: {e}")
+            pass_fail["qc"] = {"status": False, "error": str(e)}
+            if not args.warn_only:
+                raise
 
     # Run ancestry if requested
     if args.run_ancestry:
-        model = AncestryModel.load(args.ref_panel)
-        ancestry_result = model.predict(data)
-        results["ancestry"] = ancestry_result
+        # Determine inference mode
+        if args.use_container:
+            mode = InferenceMode.CONTAINER
+        elif args.use_singularity:
+            mode = InferenceMode.SINGULARITY
+        elif args.use_cloud:
+            mode = InferenceMode.CLOUD
+        else:
+            mode = InferenceMode.LOCAL
+
+        try:
+            model = AncestryModel.load(args.ref_panel)
+            ancestry_result = model.predict(data, mode=mode)
+            results["ancestry"] = ancestry_result
+            pass_fail["ancestry"] = {"status": True}
+        except AncestryError as e:
+            logger.error(f"Ancestry prediction failed: {e}")
+            pass_fail["ancestry"] = {"status": False, "error": str(e)}
+            if not args.warn_only:
+                raise
+
+    results["pass_fail"] = pass_fail
 
     # Write outputs
     write_results(results, args.out_dir)
@@ -1213,9 +1488,64 @@ def run_pipeline(args: PipelineArgs) -> dict:
 ```python
 from pathlib import Path
 import json
+from dataclasses import asdict
+from typing import Any
+
+from ..qc.results import QCResult
+from ..ancestry.results import AncestryPredictions
 
 def write_results(results: dict, out_dir: Path) -> None:
-    """Write pipeline results to files."""
+    """Write pipeline results to files.
+
+    Output JSON structure must match current format:
+    {
+        "ancestry_counts": {"EUR": 100, "AFR": 50, ...},
+        "ancestry_labels": [{"#FID": "...", "IID": "...", "label": "EUR"}, ...],
+        "QC": [
+            {"step": "callrate_prune", "pruned_count": 5, "metric": "outlier_count", ...}
+        ],
+        "GWAS": [
+            {"value": 1.02, "metric": "lambda", "ancestry": "EUR"}
+        ],
+        "pruned_samples": [...],
+        "related_samples": [...]
+    }
+    """
+    output = {}
+
+    # QC results
+    if "qc" in results:
+        qc_result: QCResult = results["qc"]
+        output["QC"] = [
+            {
+                "step": name,
+                "pruned_count": r.samples_removed + r.variants_removed,
+                "metric": "outlier_count",
+                **r.metrics
+            }
+            for name, r in qc_result.step_results
+        ]
+        output["pruned_samples"] = _collect_pruned_samples(qc_result)
+
+    # Ancestry results
+    if "ancestry" in results:
+        ancestry_result: AncestryPredictions = results["ancestry"]
+        output["ancestry_counts"] = ancestry_result.predictions["predicted_ancestry"].value_counts().to_dict()
+        output["ancestry_labels"] = ancestry_result.predictions[["#FID", "IID", "predicted_ancestry"]].rename(
+            columns={"predicted_ancestry": "label"}
+        ).to_dict(orient="records")
+
+    # GWAS results
+    if "gwas" in results:
+        output["GWAS"] = results["gwas"]
+
+    # Write JSON output
+    with open(out_dir / "results.json", "w") as f:
+        json.dump(output, f, indent=2)
+
+def _collect_pruned_samples(qc_result: QCResult) -> list[dict[str, str]]:
+    """Collect all pruned samples across QC steps."""
+    # Implementation reads from each step's pruned_samples file
     ...
 ```
 
@@ -1239,6 +1569,10 @@ if __name__ == "__main__":
 - [ ] Clean separation: parser → runner → domain
 - [ ] `python -m genotools --help` shows proper help
 - [ ] Easy to add new CLI options
+- [ ] `--warn` flag continues pipeline on step failure
+- [ ] `--container`, `--singularity`, `--cloud` flags work
+- [ ] Output JSON matches expected structure (see `cli/output.py`)
+- [ ] `pass_fail` dict available for step status inspection
 
 ---
 
