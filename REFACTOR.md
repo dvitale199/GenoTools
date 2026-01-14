@@ -100,6 +100,29 @@ Current code uses `shell_do()` and `concat_logs()` from `genotools.utils`. The n
 ### Goal
 Build a testing harness that ensures new implementations produce identical results to the current pip-installable version.
 
+### Virtual Environment Setup
+
+Use separate virtual environments to keep the stable baseline separate from active development:
+
+```bash
+# .venv - Development version (editable install, changes reflected immediately)
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# .venv-stable - Frozen baseline (non-editable, snapshot before refactoring)
+python -m venv .venv-stable
+source .venv-stable/bin/activate
+pip install .
+```
+
+| Environment | Install Command | Purpose |
+|-------------|-----------------|---------|
+| `.venv` | `pip install -e .` | Active development, code changes reflected immediately |
+| `.venv-stable` | `pip install .` | Frozen "before" snapshot for regression comparison |
+
+**Note:** Both are installed from the local repo (not PyPI) since the PyPI version may be outdated.
+
 ### Approach
 1. **Generate golden files** using current implementation
 2. **Compare new implementations** against golden outputs

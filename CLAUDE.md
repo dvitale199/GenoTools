@@ -487,6 +487,29 @@ genotools --pfile input --out output --ancestry --cloud
 
 ## Development Workflow
 
+### Virtual Environment Setup
+
+Use separate virtual environments to keep stable and development versions isolated:
+
+| Environment | Install Command | Purpose |
+|-------------|-----------------|---------|
+| `.venv` | `pip install -e .` | Active development, code changes reflected immediately |
+| `.venv-stable` | `pip install .` | Frozen baseline snapshot for regression comparison |
+
+```bash
+# Development environment (editable - use this for active work)
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# Stable baseline (frozen snapshot - use for comparison)
+python -m venv .venv-stable
+source .venv-stable/bin/activate
+pip install .
+```
+
+**Note:** Both are installed from the local repo, not PyPI, since PyPI may be outdated.
+
 ### 1. Making Changes
 ```bash
 # Install in development mode
