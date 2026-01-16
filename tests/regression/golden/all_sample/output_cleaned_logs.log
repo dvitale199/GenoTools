@@ -1,0 +1,176 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.log
+Process: callrate_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --mind 0.05
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --pfile tests/data/synthetic/genotools_test
+workspace.
+1 binary phenotype loaded (250 cases, 250 controls).
+12 samples removed due to missing genotype data (--mind).
+488 samples (244 females, 244 males; 488 founders) remaining after main
+filters.
+244 cases and 244 controls remaining after main filters.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1.log
+Process: sex_prune
+Options in effect:
+  --bfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --check-sex 0.25 0.75
+  --maf 0.05
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1
+Before main variant filters, 488 founders and 0 nonfounders present.
+Warning: 42259 het. haploid genotypes present 
+many commands treat these as missing.
+Total genotyping rate is 0.989406.
+3388 variants removed due to minor allele threshold(s)
+37112 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 450 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2.log
+Process: sex_prune
+Options in effect:
+  --bfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --check-sex 0.25 0.75
+  --chr 23
+  --geno 0.05
+  --hwe 1E-5
+  --maf 0.05
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2
+  --to-bp 155701383
+Before main variant filters, 488 founders and 0 nonfounders present.
+Warning: 42259 het. haploid genotypes present 
+many commands treat these as missing.
+Total genotyping rate is 0.990762.
+0 variants removed due to missing genotype data (--geno).
+--hwe: 14 variants removed due to Hardy-Weinberg exact test.
+46 variants removed due to minor allele threshold(s)
+440 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 440 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.log
+Process: sex_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+workspace.
+1 binary phenotype loaded (244 cases, 244 controls).
+--remove: 235 samples remaining.
+235 samples (235 females, 0 males; 235 founders) remaining after main filters.
+114 cases and 121 controls remaining after main filters.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp.log
+Process: het_prune
+Options in effect:
+  --geno 0.01
+  --indep-pairwise 50 5 0.5
+  --maf 0.05
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+workspace.
+1 binary phenotype loaded (114 cases, 121 controls).
+--geno: 16950 variants removed due to missing genotype data.
+1970 variants removed due to allele frequency threshold(s)
+21580 variants remaining after main filters.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.log
+Process: het_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+workspace.
+1 binary phenotype loaded (114 cases, 121 controls).
+--extract: 12441 variants remaining.
+12441 variants remaining after main filters.
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp3.log
+Process: het_prune
+Options in effect:
+  --het
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp3
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2
+workspace.
+1 binary phenotype loaded (114 cases, 121 controls).
+
+
+Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.log
+Process: het_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+workspace.
+1 binary phenotype loaded (114 cases, 121 controls).
+--remove: 232 samples remaining.
+232 samples (232 females, 0 males; 232 founders) remaining after main filters.
+113 cases and 119 controls remaining after main filters.
+
+
+Log: tests/regression/golden/all_sample/output_pairs.log
+Process: related_prune
+Options in effect:
+  --king-table-filter 0.0884
+  --make-king triangle bin
+  --make-king-table
+  --out tests/regression/golden/all_sample/output_pairs
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+840 variants handled by initial scan (39160 remaining).
+--make-king: 40000 variants processed.
+--king-table-filter: 1 relationship reported (26795 filtered out).
+
+
+Log: tests/regression/golden/all_sample/output_related_king.log
+Process: related_prune
+Options in effect:
+  --king-cutoff tests/regression/golden/all_sample/output_pairs 0.0884
+  --out tests/regression/golden/all_sample/output_related_king
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--king-cutoff: 1 constraint loaded.
+
+
+Log: tests/regression/golden/all_sample/output_duplicated_king.log
+Process: related_prune
+Options in effect:
+  --king-cutoff tests/regression/golden/all_sample/output_pairs 0.354
+  --out tests/regression/golden/all_sample/output_duplicated_king
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--king-cutoff: 1 constraint loaded.
+
+
+Log: tests/regression/golden/all_sample/output.log
+Process: related_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_sample/output
+  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--remove: 231 samples remaining.
+231 samples (231 females, 0 males; 231 founders) remaining after main filters.
+113 cases and 118 controls remaining after main filters.
+
+

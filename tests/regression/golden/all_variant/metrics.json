@@ -1,0 +1,7 @@
+{
+  "pass": true,
+  "step": "all_variant_pipeline",
+  "returncode": 0,
+  "stdout": "Your data has the following breakdown:\n- Genetic Sex:\n231 Females \n\n- Phenotypes:\n118 Controls \n\n113 Cases \n\nRunning: geno with input tests/regression/golden/related/output and output: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno\nRunning: case_control with input tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno and output: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control\nRunning: haplotype with input tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control and output: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype\nRunning: hwe with input tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype and output: tests/regression/golden/all_variant/output\n",
+  "stderr": ""
+}

@@ -1,0 +1,102 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno.log
+Process: geno_prune
+Options in effect:
+  --geno 0.05
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno
+  --pfile tests/regression/golden/related/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--geno: 225 variants removed due to missing genotype data.
+40275 variants remaining after main filters.
+
+
+Log: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_mis_tmp.log
+Process: case_control_missingness_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno
+  --out tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_mis_tmp
+  --test-missing
+Before main variant filters, 231 founders and 0 nonfounders present.
+Total genotyping rate is 0.990042.
+40275 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+
+
+Log: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control.log
+Process: case_control_missingness_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno
+  --exclude tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_mis_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 40275 variants remaining.
+40275 variants remaining after main filters.
+
+
+Log: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype_hap_tmp.log
+Process: haplotype_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control
+  --maf 0.05
+  --out tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype_hap_tmp
+  --test-mishap
+Before main variant filters, 231 founders and 0 nonfounders present.
+Total genotyping rate is 0.990042.
+3673 variants removed due to minor allele threshold(s)
+36602 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+--test-mishap: 2922 loci checked (33680 skipped).
+
+
+Log: tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype.log
+Process: haplotype_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control
+  --exclude tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype_hap_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 40260 variants remaining.
+40260 variants remaining after main filters.
+
+
+Log: tests/regression/golden/all_variant/output_hwe_tmp.log
+Process: hwe_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype
+  --filter-controls
+  --hwe 0.0001
+  --out tests/regression/golden/all_variant/output_hwe_tmp
+  --write-snplist
+113 people removed due to case/control status (--filter-controls).
+Before main variant filters, 118 founders and 0 nonfounders present.
+Total genotyping rate in remaining samples is 0.989932.
+--hwe: 635 variants removed due to Hardy-Weinberg exact test.
+39625 variants and 118 people pass filters and QC.
+Among remaining phenotypes, 0 are cases and 118 are controls.
+
+
+Log: tests/regression/golden/all_variant/output.log
+Process: hwe_prune
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.ivps8ywc_tmp/output_geno_case_control_haplotype
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 39625 variants remaining.
+39625 variants remaining after main filters.
+
+

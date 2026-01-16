@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "step": "geno_prune",
+  "metrics": {
+    "geno_removed_count": 225
+  },
+  "output": {
+    "plink_out": "tests/regression/golden/geno/output"
+  }
+}

@@ -1,0 +1,36 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/haplotype/output_hap_tmp.log
+Process: haplotype_prune
+Options in effect:
+  --bfile tests/regression/golden/case_control/output
+  --maf 0.05
+  --out tests/regression/golden/haplotype/output_hap_tmp
+  --test-mishap
+Before main variant filters, 231 founders and 0 nonfounders present.
+Total genotyping rate is 0.990033.
+3655 variants removed due to minor allele threshold(s)
+35984 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+--test-mishap: 2881 loci checked (33103 skipped).
+
+
+Log: tests/regression/golden/haplotype/output.log
+Process: haplotype_prune
+Options in effect:
+  --bfile tests/regression/golden/case_control/output
+  --exclude tests/regression/golden/haplotype/output_hap_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/haplotype/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 39627 variants remaining.
+39627 variants remaining after main filters.
+
+

@@ -1,0 +1,30 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/ld/output_ld_temp.log
+Process: ld_prune
+Options in effect:
+  --indep-pairwise 50 5 0.5
+  --out tests/regression/golden/ld/output_ld_temp
+  --pfile tests/regression/golden/haplotype/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+
+
+Log: tests/regression/golden/ld/output.log
+Process: ld_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/ld/output
+  --pfile tests/regression/golden/haplotype/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 21937 variants remaining.
+21937 variants remaining after main filters.
+
+

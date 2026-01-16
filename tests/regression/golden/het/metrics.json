@@ -1,0 +1,11 @@
+{
+  "pass": true,
+  "step": "het_prune",
+  "metrics": {
+    "outlier_count": 3
+  },
+  "output": {
+    "pruned_samples": "tests/regression/golden/het/output.outliers",
+    "plink_out": "tests/regression/golden/het/output"
+  }
+}

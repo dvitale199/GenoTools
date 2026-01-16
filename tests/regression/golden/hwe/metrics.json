@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "step": "hwe_prune",
+  "metrics": {
+    "hwe_removed_count": 636
+  },
+  "output": {
+    "plink_out": "tests/regression/golden/hwe/output"
+  }
+}

@@ -1,0 +1,119 @@
+Log: tests/regression/golden/het/output_tmp.log
+Process: het_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --geno 0.01
+  --indep-pairwise 50 5 0.5
+  --maf 0.05
+  --out tests/regression/golden/het/output_tmp
+  --pfile tests/regression/golden/sex/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253383 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+235 samples (235 females, 0 males; 235 founders) loaded from
+tests/regression/golden/sex/output.psam.
+40500 variants loaded from tests/regression/golden/sex/output.pvar.
+1 binary phenotype loaded (114 cases, 121 controls).
+Calculating allele frequencies... done.
+--geno: 16950 variants removed due to missing genotype data.
+1970 variants removed due to allele frequency threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+21580 variants remaining after main filters.
+--indep-pairwise (14 compute threads): 9139/21580 variants removed.
+Variant lists written to tests/regression/golden/het/output_tmp.prune.in and
+tests/regression/golden/het/output_tmp.prune.out .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/het/output_tmp2.log
+Process: het_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --extract tests/regression/golden/het/output_tmp.prune.in
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/het/output_tmp2
+  --pfile tests/regression/golden/sex/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253381 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+235 samples (235 females, 0 males; 235 founders) loaded from
+tests/regression/golden/sex/output.psam.
+40500 variants loaded from tests/regression/golden/sex/output.pvar.
+1 binary phenotype loaded (114 cases, 121 controls).
+--extract: 12441 variants remaining.
+12441 variants remaining after main filters.
+Writing tests/regression/golden/het/output_tmp2.psam ... done.
+Writing tests/regression/golden/het/output_tmp2.pvar ... done.
+Writing tests/regression/golden/het/output_tmp2.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/het/output_tmp3.log
+Process: het_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --het
+  --out tests/regression/golden/het/output_tmp3
+  --pfile tests/regression/golden/het/output_tmp2
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253379 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+235 samples (235 females, 0 males; 235 founders) loaded from
+tests/regression/golden/het/output_tmp2.psam.
+12441 variants loaded from tests/regression/golden/het/output_tmp2.pvar.
+1 binary phenotype loaded (114 cases, 121 controls).
+Calculating allele frequencies... done.
+Excluding 140 variants on non-autosomes from --het.
+--het: done.
+--het: Results written to tests/regression/golden/het/output_tmp3.het .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/het/output.log
+Process: het_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/het/output
+  --pfile tests/regression/golden/sex/output
+  --remove tests/regression/golden/het/output.outliers
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253376 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+235 samples (235 females, 0 males; 235 founders) loaded from
+tests/regression/golden/sex/output.psam.
+40500 variants loaded from tests/regression/golden/sex/output.pvar.
+1 binary phenotype loaded (114 cases, 121 controls).
+--remove: 232 samples remaining.
+232 samples (232 females, 0 males; 232 founders) remaining after main filters.
+113 cases and 119 controls remaining after main filters.
+Writing tests/regression/golden/het/output.psam ... done.
+Writing tests/regression/golden/het/output.pvar ... done.
+Writing tests/regression/golden/het/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+
