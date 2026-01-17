@@ -1,0 +1,56 @@
+Log: tests/regression/golden/ld/output_ld_temp.log
+Process: ld_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --indep-pairwise 50 5 0.5
+  --out tests/regression/golden/ld/output_ld_temp
+  --pfile tests/regression/golden/haplotype/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253358 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/haplotype/output.psam.
+39627 variants loaded from tests/regression/golden/haplotype/output.pvar.
+1 binary phenotype loaded (113 cases, 118 controls).
+Calculating allele frequencies... done.
+--indep-pairwise (14 compute threads): 17690/39627 variants removed.
+Variant lists written to tests/regression/golden/ld/output_ld_temp.prune.in and
+tests/regression/golden/ld/output_ld_temp.prune.out .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/ld/output.log
+Process: ld_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --extract tests/regression/golden/ld/output_ld_temp.prune.in
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/ld/output
+  --pfile tests/regression/golden/haplotype/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253357 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/haplotype/output.psam.
+39627 variants loaded from tests/regression/golden/haplotype/output.pvar.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 21937 variants remaining.
+21937 variants remaining after main filters.
+Writing tests/regression/golden/ld/output.psam ... done.
+Writing tests/regression/golden/ld/output.pvar ... done.
+Writing tests/regression/golden/ld/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+

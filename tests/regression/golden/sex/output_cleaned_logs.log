@@ -1,0 +1,61 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/sex/output_tmp1.log
+Process: sex_prune
+Options in effect:
+  --bfile tests/regression/golden/callrate/output
+  --check-sex 0.25 0.75
+  --maf 0.05
+  --out tests/regression/golden/sex/output_tmp1
+Before main variant filters, 488 founders and 0 nonfounders present.
+Warning: 42259 het. haploid genotypes present 
+missing.
+Total genotyping rate is 0.989406.
+3388 variants removed due to minor allele threshold(s)
+37112 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 450 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+
+
+Log: tests/regression/golden/sex/output_tmp2.log
+Process: sex_prune
+Options in effect:
+  --bfile tests/regression/golden/callrate/output
+  --check-sex 0.25 0.75
+  --chr 23
+  --geno 0.05
+  --hwe 1E-5
+  --maf 0.05
+  --out tests/regression/golden/sex/output_tmp2
+  --to-bp 155701383
+Before main variant filters, 488 founders and 0 nonfounders present.
+Warning: 42259 het. haploid genotypes present 
+missing.
+Total genotyping rate is 0.990762.
+0 variants removed due to missing genotype data (--geno).
+--hwe: 14 variants removed due to Hardy-Weinberg exact test.
+46 variants removed due to minor allele threshold(s)
+440 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 440 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+
+
+Log: tests/regression/golden/sex/output.log
+Process: sex_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/sex/output
+  --pfile tests/regression/golden/callrate/output
+workspace.
+1 binary phenotype loaded (244 cases, 244 controls).
+--remove: 235 samples remaining.
+235 samples (235 females, 0 males; 235 founders) remaining after main filters.
+114 cases and 121 controls remaining after main filters.
+
+

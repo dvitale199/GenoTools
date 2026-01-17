@@ -1,0 +1,58 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/related/output_pairs.log
+Process: related_prune
+Options in effect:
+  --king-table-filter 0.0884
+  --make-king triangle bin
+  --make-king-table
+  --out tests/regression/golden/related/output_pairs
+  --pfile tests/regression/golden/het/output
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+840 variants handled by initial scan (39160 remaining).
+--make-king: 40000 variants processed.
+--king-table-filter: 1 relationship reported (26795 filtered out).
+
+
+Log: tests/regression/golden/related/output_related_king.log
+Process: related_prune
+Options in effect:
+  --king-cutoff tests/regression/golden/related/output_pairs 0.0884
+  --out tests/regression/golden/related/output_related_king
+  --pfile tests/regression/golden/het/output
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--king-cutoff: 1 constraint loaded.
+
+
+Log: tests/regression/golden/related/output_duplicated_king.log
+Process: related_prune
+Options in effect:
+  --king-cutoff tests/regression/golden/related/output_pairs 0.354
+  --out tests/regression/golden/related/output_duplicated_king
+  --pfile tests/regression/golden/het/output
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--king-cutoff: 1 constraint loaded.
+
+
+Log: tests/regression/golden/related/output.log
+Process: related_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/related/output
+  --pfile tests/regression/golden/het/output
+workspace.
+1 binary phenotype loaded (113 cases, 119 controls).
+--remove: 231 samples remaining.
+231 samples (231 females, 0 males; 231 founders) remaining after main filters.
+113 cases and 118 controls remaining after main filters.
+
+

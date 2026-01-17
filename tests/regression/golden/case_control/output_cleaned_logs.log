@@ -1,0 +1,33 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/case_control/output_mis_tmp.log
+Process: case_control_missingness_prune
+Options in effect:
+  --bfile tests/regression/golden/hwe/output
+  --out tests/regression/golden/case_control/output_mis_tmp
+  --test-missing
+Before main variant filters, 231 founders and 0 nonfounders present.
+Total genotyping rate is 0.990033.
+39639 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+
+
+Log: tests/regression/golden/case_control/output.log
+Process: case_control_missingness_prune
+Options in effect:
+  --bfile tests/regression/golden/hwe/output
+  --exclude tests/regression/golden/case_control/output_mis_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/case_control/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 39639 variants remaining.
+39639 variants remaining after main filters.
+
+

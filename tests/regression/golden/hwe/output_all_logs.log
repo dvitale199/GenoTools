@@ -1,0 +1,59 @@
+Log: tests/regression/golden/hwe/output_hwe_tmp.log
+Process: hwe_prune
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/geno/output
+  --hwe 0.0001
+  --out tests/regression/golden/hwe/output_hwe_tmp
+  --write-snplist
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MB RAM detected; reserving 128964 MB for main workspace.
+40275 variants loaded from .bim file.
+231 people (0 males, 231 females) loaded from .fam.
+231 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 231 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.990042.
+--hwe: 636 variants removed due to Hardy-Weinberg exact test.
+39639 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+List of variant IDs written to
+tests/regression/golden/hwe/output_hwe_tmp.snplist .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/hwe/output.log
+Process: hwe_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --bfile tests/regression/golden/geno/output
+  --extract tests/regression/golden/hwe/output_hwe_tmp.snplist
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/hwe/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253376 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/geno/output.fam.
+40275 variants loaded from tests/regression/golden/geno/output.bim.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 39639 variants remaining.
+39639 variants remaining after main filters.
+Writing tests/regression/golden/hwe/output.psam ... done.
+Writing tests/regression/golden/hwe/output.pvar ... done.
+Writing tests/regression/golden/hwe/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+

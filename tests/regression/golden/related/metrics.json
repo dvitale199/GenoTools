@@ -1,0 +1,13 @@
+{
+  "pass": true,
+  "step": "related_prune",
+  "metrics": {
+    "related_count": 0,
+    "duplicated_count": 1
+  },
+  "output": {
+    "pruned_samples": "tests/regression/golden/related/output.pruned",
+    "related_samples": "tests/regression/golden/related/output_pairs.related",
+    "plink_out": "tests/regression/golden/related/output"
+  }
+}

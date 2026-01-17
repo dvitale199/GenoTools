@@ -1,0 +1,34 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/hwe/output_hwe_tmp.log
+Process: hwe_prune
+Options in effect:
+  --bfile tests/regression/golden/geno/output
+  --hwe 0.0001
+  --out tests/regression/golden/hwe/output_hwe_tmp
+  --write-snplist
+Before main variant filters, 231 founders and 0 nonfounders present.
+Total genotyping rate is 0.990042.
+--hwe: 636 variants removed due to Hardy-Weinberg exact test.
+39639 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+
+
+Log: tests/regression/golden/hwe/output.log
+Process: hwe_prune
+Options in effect:
+  --bfile tests/regression/golden/geno/output
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/hwe/output
+workspace.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 39639 variants remaining.
+39639 variants remaining after main filters.
+
+
