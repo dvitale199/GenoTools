@@ -1670,9 +1670,41 @@ Migrate GWAS module and remove deprecated code.
 
 | Phase | Status | Issues Resolved |
 |-------|--------|-----------------|
-| 0: Regression Testing | Not Started | (enables validation) |
-| 1: Core Foundation | Not Started | A1, P1, R1, R2, R3, D1, D2, D3 |
+| 0: Regression Testing | ✅ Complete | (enables validation) |
+| 1: Core Foundation | ✅ Complete | A1, P1, R1, R2, R3, D1, D2, D3 |
 | 2: QC Migration | Not Started | A1, A2, M1, M2, D1 |
 | 3: Ancestry Migration | Not Started | A2, M1, D1 |
 | 4: CLI Migration | Not Started | A3, M3, C1 |
 | 5: GWAS & Cleanup | Not Started | - |
+
+---
+
+## Phase 1 Completion Notes
+
+**Completed:** 2026-01-21
+
+### Deliverables
+
+| File | Status | Description |
+|------|--------|-------------|
+| `core/__init__.py` | ✅ | Public exports for all core components |
+| `core/exceptions.py` | ✅ | Exception hierarchy (GenoToolsError, QCError, AncestryError, ExternalToolError, etc.) |
+| `core/logging.py` | ✅ | Structured logging with step context (current_step, step_context) |
+| `core/genotypes.py` | ✅ | Immutable GenotypeData dataclass with format detection and conversion |
+| `core/executors.py` | ✅ | Lazy-loaded external tool wrappers (get_plink, get_plink2, get_king, run_command) |
+| `core/config.py` | ✅ | Base configuration classes (BaseConfig, ThresholdConfig, PipelineConfig) |
+
+### Success Criteria Met
+
+- [x] `from genotools.core import GenotypeData, setup_logging` works
+- [x] Import time < 100ms (actual: ~33ms)
+- [x] `mypy genotools/core/ --strict` passes
+- [x] Unit tests for GenotypeData format detection and conversion (24 tests passing)
+- [ ] `.common_snps` file retention fix (deferred to Phase 3 - ancestry migration)
+
+### Key Design Decisions
+
+1. **Lazy initialization**: External tools (PLINK, KING) are only downloaded when first used, not on import
+2. **Immutability**: GenotypeData is a frozen dataclass - transformations return new instances
+3. **Type hints**: Full type annotations with mypy --strict compliance
+4. **Backward compatibility**: Calls to existing untyped code use `# type: ignore[no-untyped-call]`
