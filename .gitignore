@@ -1,5 +1,5 @@
 data/*
-genotools/__pycache__/*
+__pycache__/
 GenoTools.egg-info/*
 test_data/*
 executables/*

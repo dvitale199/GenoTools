@@ -24,6 +24,7 @@ GenoTools currently suffers from tight coupling, mutable state, and mixed concer
 | P1 | Repeated format conversions | P0 | 1 |
 | R1 | Inconsistent error handling | P0 | 1 |
 | R2 | Fragile file cleanup | P2 | 1 |
+| R2a | Diagnostic files deleted (common_snps) | P1 | 1 |
 | R3 | Unsafe subprocess handling | P2 | 1 |
 | M1 | Hardcoded magic values | P1 | 2, 3 |
 | M2 | Duplicated logic patterns | P2 | 2 |
@@ -585,6 +586,7 @@ Build shared infrastructure that all other phases depend on.
 | P1 | Format conversions | GenotypeData manages format, converts once |
 | R1 | Error handling | Custom exception hierarchy |
 | R2 | File cleanup | Context managers in executors.py |
+| R2a | Diagnostic files deleted | Always save .common_snps to final_out_path |
 | R3 | Subprocess handling | shlex.split() or list commands |
 | D1 | Type hints (partial) | Dataclasses with full type hints |
 | D2 | Module-level init | Lazy initialization in executors.py |
@@ -783,11 +785,38 @@ def temp_files(*paths: Path):
                     f.unlink()
 ```
 
+#### 1.5 Ancestry Diagnostic File Retention
+
+The `.common_snps` file is critical for debugging ancestry prediction failures. When ancestry predictions collapse to a single label (e.g., all samples predicted as SAS with ~15% test accuracy), this typically indicates insufficient SNP overlap between the user's data and the reference panel. Without the `.common_snps` file, users cannot diagnose this.
+
+**Problem:** Currently, `.common_snps` is written to `self.out_path`, which points to a temp directory when `--full_output` is not specified. The file is deleted when the pipeline completes.
+
+**Fix:** Use `final_out_path` for `.common_snps` (same pattern already used for model `.pkl` file):
+
+```python
+# In ancestry.py get_raw_files(), change:
+ref_common_snps = f'{self.out_path}_umap_linearsvc_ancestry_model'
+
+# To:
+model_out_path = self.final_out_path if self.final_out_path else self.out_path
+ref_common_snps = f'{model_out_path}_umap_linearsvc_ancestry_model'
+```
+
+**User diagnostic workflow after fix:**
+```bash
+# Check SNP overlap (should be >10,000 for reliable predictions)
+wc -l {out}_umap_linearsvc_ancestry_model.common_snps
+
+# Compare to input variant count
+wc -l {input}.pvar
+```
+
 ### Success Criteria
 - [ ] `from genotools.core import GenotypeData, setup_logging` works
 - [ ] Import time < 100ms (no side effects)
 - [ ] `mypy genotools/core/ --strict` passes
 - [ ] Unit tests for GenotypeData format detection and conversion
+- [ ] `.common_snps` file persists after ancestry run without `--full_output`
 
 ---
 
@@ -1641,9 +1670,41 @@ Migrate GWAS module and remove deprecated code.
 
 | Phase | Status | Issues Resolved |
 |-------|--------|-----------------|
-| 0: Regression Testing | Not Started | (enables validation) |
-| 1: Core Foundation | Not Started | A1, P1, R1, R2, R3, D1, D2, D3 |
+| 0: Regression Testing | ✅ Complete | (enables validation) |
+| 1: Core Foundation | ✅ Complete | A1, P1, R1, R2, R3, D1, D2, D3 |
 | 2: QC Migration | Not Started | A1, A2, M1, M2, D1 |
 | 3: Ancestry Migration | Not Started | A2, M1, D1 |
 | 4: CLI Migration | Not Started | A3, M3, C1 |
 | 5: GWAS & Cleanup | Not Started | - |
+
+---
+
+## Phase 1 Completion Notes
+
+**Completed:** 2026-01-21
+
+### Deliverables
+
+| File | Status | Description |
+|------|--------|-------------|
+| `core/__init__.py` | ✅ | Public exports for all core components |
+| `core/exceptions.py` | ✅ | Exception hierarchy (GenoToolsError, QCError, AncestryError, ExternalToolError, etc.) |
+| `core/logging.py` | ✅ | Structured logging with step context (current_step, step_context) |
+| `core/genotypes.py` | ✅ | Immutable GenotypeData dataclass with format detection and conversion |
+| `core/executors.py` | ✅ | Lazy-loaded external tool wrappers (get_plink, get_plink2, get_king, run_command) |
+| `core/config.py` | ✅ | Base configuration classes (BaseConfig, ThresholdConfig, PipelineConfig) |
+
+### Success Criteria Met
+
+- [x] `from genotools.core import GenotypeData, setup_logging` works
+- [x] Import time < 100ms (actual: ~33ms)
+- [x] `mypy genotools/core/ --strict` passes
+- [x] Unit tests for GenotypeData format detection and conversion (24 tests passing)
+- [ ] `.common_snps` file retention fix (deferred to Phase 3 - ancestry migration)
+
+### Key Design Decisions
+
+1. **Lazy initialization**: External tools (PLINK, KING) are only downloaded when first used, not on import
+2. **Immutability**: GenotypeData is a frozen dataclass - transformations return new instances
+3. **Type hints**: Full type annotations with mypy --strict compliance
+4. **Backward compatibility**: Calls to existing untyped code use `# type: ignore[no-untyped-call]`
