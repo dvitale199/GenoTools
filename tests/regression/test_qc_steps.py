@@ -1,7 +1,7 @@
 """
 Regression tests for QC steps.
 
-These tests compare the current implementation against golden reference outputs
+These tests compare the new implementation against golden reference outputs
 to detect any regressions during refactoring.
 
 Run after generating golden files:
@@ -9,16 +9,19 @@ Run after generating golden files:
 """
 
 import pytest
-import json
 from pathlib import Path
 import pandas as pd
 
 from .compare import (
     compare_pfiles,
-    compare_outlier_files,
     compare_metrics,
     load_golden_metrics,
 )
+
+
+# =============================================================================
+# Sample QC Regression Tests
+# =============================================================================
 
 
 class TestCallrateRegression:
@@ -28,20 +31,21 @@ class TestCallrateRegression:
         self, test_geno_path: Path, golden_callrate: Path, tmp_output_dir: Path
     ):
         """New implementation produces same sample/variant counts as golden."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.callrate import filter_callrate
+        from genotools.qc.config import CallrateConfig
+
+        # Load input data
+        data = GenotypeData.from_path(test_geno_path)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "callrate_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_callrate_prune(mind=0.05)  # Matches --all_sample default
-
-        assert result["pass"], f"Callrate step failed: {result}"
+        config = CallrateConfig(mind=0.05)  # Matches --all_sample default
+        result = filter_callrate(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_callrate / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -54,24 +58,25 @@ class TestCallrateRegression:
         self, test_geno_path: Path, golden_callrate: Path, tmp_output_dir: Path
     ):
         """Outlier counts match golden."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.callrate import filter_callrate
+        from genotools.qc.config import CallrateConfig
 
         # Load golden metrics
         golden_metrics = load_golden_metrics(golden_callrate.parent, "callrate")
         assert golden_metrics is not None, "Golden metrics not found"
 
+        # Load input data
+        data = GenotypeData.from_path(test_geno_path)
+
         # Run current implementation
         output_prefix = tmp_output_dir / "callrate_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_callrate_prune(mind=0.05)  # Matches --all_sample default
-
-        assert result["pass"], f"Callrate step failed: {result}"
+        config = CallrateConfig(mind=0.05)  # Matches --all_sample default
+        result = filter_callrate(data, config, output_prefix)
 
         # Compare metrics
         expected_outliers = golden_metrics.get("metrics", {}).get("outlier_count", 0)
-        actual_outliers = result.get("metrics", {}).get("outlier_count", 0)
+        actual_outliers = result.metrics.get("outlier_count", 0)
 
         assert actual_outliers == expected_outliers, (
             f"Outlier count mismatch: expected {expected_outliers}, got {actual_outliers}"
@@ -81,7 +86,9 @@ class TestCallrateRegression:
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
         """Detected outliers match the injected callrate outliers."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.callrate import filter_callrate
+        from genotools.qc.config import CallrateConfig
 
         # Load expected outliers from manifest
         manifest_df = pd.read_csv(outlier_manifest)
@@ -89,26 +96,23 @@ class TestCallrateRegression:
             manifest_df[manifest_df["outlier_type"] == "callrate_samples"]["sample_1"]
         )
 
+        # Load input data
+        data = GenotypeData.from_path(test_geno_path)
+
         # Run callrate filtering
         output_prefix = tmp_output_dir / "callrate_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_callrate_prune(mind=0.05)  # Matches --all_sample default
-
-        assert result["pass"], f"Callrate step failed: {result}"
+        config = CallrateConfig(mind=0.05)  # Matches --all_sample default
+        result = filter_callrate(data, config, output_prefix)
 
         # Get detected outliers
-        outliers_file = Path(result["output"]["pruned_samples"])
-        if outliers_file.exists():
-            outliers_df = pd.read_csv(outliers_file, sep="\t")
+        if result.pruned_samples_file and result.pruned_samples_file.exists():
+            outliers_df = pd.read_csv(result.pruned_samples_file, sep="\t")
             detected_outliers = set(outliers_df["IID"])
         else:
             detected_outliers = set()
 
         # All expected outliers should be detected
         missing = expected_outliers - detected_outliers
-        extra = detected_outliers - expected_outliers
 
         assert len(missing) == 0, f"Expected outliers not detected: {missing}"
         # Note: extra outliers might be acceptable if the data has other issues
@@ -124,23 +128,22 @@ class TestSexRegression:
 
         Note: Sex check runs on the callrate-filtered output, not raw data.
         """
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.sex import filter_sex
+        from genotools.qc.config import SexConfig
 
         # Input is the callrate-filtered output (mimics the pipeline)
         callrate_output = golden_callrate / "output"
+        data = GenotypeData.from_path(callrate_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "sex_output"
-        qc = SampleQC()
-        qc.geno_path = str(callrate_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_sex_prune()
-
-        assert result["pass"], f"Sex step failed: {result}"
+        config = SexConfig()
+        result = filter_sex(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_sex / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -159,23 +162,22 @@ class TestHetRegression:
 
         Note: Het check runs on the sex-filtered output.
         """
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.heterozygosity import filter_heterozygosity
+        from genotools.qc.config import HetConfig
 
         # Input is the sex-filtered output (mimics the pipeline)
         sex_output = golden_sex / "output"
+        data = GenotypeData.from_path(sex_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "het_output"
-        qc = SampleQC()
-        qc.geno_path = str(sex_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_het_prune()
-
-        assert result["pass"], f"Het step failed: {result}"
+        config = HetConfig()
+        result = filter_heterozygosity(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_het / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -194,23 +196,22 @@ class TestRelatedRegression:
 
         Note: Relatedness check runs on the het-filtered output, not raw data.
         """
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.relatedness import filter_relatedness
+        from genotools.qc.config import RelatedConfig
 
         # Input is the het-filtered output (mimics the pipeline)
         het_output = golden_het / "output"
+        data = GenotypeData.from_path(het_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "related_output"
-        qc = SampleQC()
-        qc.geno_path = str(het_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_related_prune(related_cutoff=0.0884)
-
-        assert result["pass"], f"Related step failed: {result}"
+        config = RelatedConfig(related_cutoff=0.0884)
+        result = filter_relatedness(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_related / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -226,22 +227,22 @@ class TestDirectOutlierValidation:
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
         """All injected callrate outliers should be detected."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.callrate import filter_callrate
+        from genotools.qc.config import CallrateConfig
 
         manifest_df = pd.read_csv(outlier_manifest)
         expected = set(
             manifest_df[manifest_df["outlier_type"] == "callrate_samples"]["sample_1"]
         )
 
+        data = GenotypeData.from_path(test_geno_path)
         output_prefix = tmp_output_dir / "callrate_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_callrate_prune(mind=0.05)  # Matches --all_sample default
+        config = CallrateConfig(mind=0.05)  # Matches --all_sample default
+        result = filter_callrate(data, config, output_prefix)
 
-        outliers_file = Path(result["output"]["pruned_samples"])
-        if outliers_file.exists():
-            detected = set(pd.read_csv(outliers_file, sep="\t")["IID"])
+        if result.pruned_samples_file and result.pruned_samples_file.exists():
+            detected = set(pd.read_csv(result.pruned_samples_file, sep="\t")["IID"])
         else:
             detected = set()
 
@@ -252,22 +253,22 @@ class TestDirectOutlierValidation:
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
         """Sex discordant samples should be detected."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.sex import filter_sex
+        from genotools.qc.config import SexConfig
 
         manifest_df = pd.read_csv(outlier_manifest)
         expected = set(
             manifest_df[manifest_df["outlier_type"] == "sex_discordance_samples"]["sample_1"]
         )
 
+        data = GenotypeData.from_path(test_geno_path)
         output_prefix = tmp_output_dir / "sex_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_sex_prune()
+        config = SexConfig()
+        result = filter_sex(data, config, output_prefix)
 
-        outliers_file = Path(result["output"]["pruned_samples"])
-        if outliers_file.exists():
-            detected = set(pd.read_csv(outliers_file, sep="\t")["IID"])
+        if result.pruned_samples_file and result.pruned_samples_file.exists():
+            detected = set(pd.read_csv(result.pruned_samples_file, sep="\t")["IID"])
         else:
             detected = set()
 
@@ -285,7 +286,9 @@ class TestDirectOutlierValidation:
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
         """Heterozygosity outliers should be detected."""
-        from genotools.qc import SampleQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.heterozygosity import filter_heterozygosity
+        from genotools.qc.config import HetConfig
 
         manifest_df = pd.read_csv(outlier_manifest)
         expected_high = set(
@@ -296,15 +299,13 @@ class TestDirectOutlierValidation:
         )
         expected = expected_high | expected_low
 
+        data = GenotypeData.from_path(test_geno_path)
         output_prefix = tmp_output_dir / "het_output"
-        qc = SampleQC()
-        qc.geno_path = str(test_geno_path)
-        qc.out_path = str(output_prefix)
-        result = qc.run_het_prune()
+        config = HetConfig()
+        result = filter_heterozygosity(data, config, output_prefix)
 
-        outliers_file = Path(result["output"]["pruned_samples"])
-        if outliers_file.exists():
-            detected = set(pd.read_csv(outliers_file, sep="\t")["IID"])
+        if result.pruned_samples_file and result.pruned_samples_file.exists():
+            detected = set(pd.read_csv(result.pruned_samples_file, sep="\t")["IID"])
         else:
             detected = set()
 
@@ -334,23 +335,22 @@ class TestGenoRegression:
 
         Note: Variant QC runs after sample QC, so input is related-filtered output.
         """
-        from genotools.qc import VariantQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.variant_missingness import filter_variant_missingness
+        from genotools.qc.config import GenoConfig
 
         # Input is the sample-QC-filtered output
         related_output = golden_related / "output"
+        data = GenotypeData.from_path(related_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "geno_output"
-        qc = VariantQC()
-        qc.geno_path = str(related_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_geno_prune(geno_threshold=0.05)
-
-        assert result["pass"], f"Geno step failed: {result}"
+        config = GenoConfig(geno=0.05)
+        result = filter_variant_missingness(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_geno / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -369,23 +369,22 @@ class TestHWERegression:
 
         Note: HWE runs after geno filtering.
         """
-        from genotools.qc import VariantQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.hwe import filter_hwe
+        from genotools.qc.config import HWEConfig
 
         # Input is the geno-filtered output
         geno_output = golden_geno / "output"
+        data = GenotypeData.from_path(geno_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "hwe_output"
-        qc = VariantQC()
-        qc.geno_path = str(geno_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_hwe_prune(hwe_threshold=1e-4)
-
-        assert result["pass"], f"HWE step failed: {result}"
+        config = HWEConfig(hwe_threshold=1e-4)
+        result = filter_hwe(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_hwe / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -404,23 +403,22 @@ class TestCaseControlRegression:
 
         Note: Case-control runs after HWE filtering.
         """
-        from genotools.qc import VariantQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.case_control import filter_case_control
+        from genotools.qc.config import CaseControlConfig
 
         # Input is the hwe-filtered output
         hwe_output = golden_hwe / "output"
+        data = GenotypeData.from_path(hwe_output)
 
         # Run current implementation
         output_prefix = tmp_output_dir / "case_control_output"
-        qc = VariantQC()
-        qc.geno_path = str(hwe_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_case_control_prune(p_threshold=1e-4)
-
-        assert result["pass"], f"Case-control step failed: {result}"
+        config = CaseControlConfig(p_threshold=1e-4)
+        result = filter_case_control(data, config, output_prefix)
 
         # Compare to golden
         golden_output = golden_case_control / "output"
-        comparison = compare_pfiles(golden_output, Path(result["output"]["plink_out"]))
+        comparison = compare_pfiles(golden_output, result.output.path)
 
         assert comparison.equal, (
             f"Output differs from golden:\n"
@@ -436,7 +434,9 @@ class TestVariantOutlierValidation:
         self, golden_related: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
         """Variants with high missingness should be filtered."""
-        from genotools.qc import VariantQC
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc.steps.variant_missingness import filter_variant_missingness
+        from genotools.qc.config import GenoConfig
 
         manifest_df = pd.read_csv(outlier_manifest)
         # Count expected variant outliers (we injected 150 geno_miss_variants)
@@ -446,15 +446,13 @@ class TestVariantOutlierValidation:
 
         # Run geno filtering on related output
         related_output = golden_related / "output"
+        data = GenotypeData.from_path(related_output)
         output_prefix = tmp_output_dir / "geno_output"
-        qc = VariantQC()
-        qc.geno_path = str(related_output)
-        qc.out_path = str(output_prefix)
-        result = qc.run_geno_prune(geno_threshold=0.05)
+        config = GenoConfig(geno=0.05)
+        result = filter_variant_missingness(data, config, output_prefix)
 
         # Check that we filtered some variants
-        # Note: VariantQC uses 'geno_removed_count' not 'outlier_count'
-        pruned_count = result.get("metrics", {}).get("geno_removed_count", 0)
+        pruned_count = result.metrics.get("geno_removed_count", 0)
 
         # We should detect at least 50% of the injected outliers
         # (threshold interactions may cause some to pass)
@@ -465,7 +463,176 @@ class TestVariantOutlierValidation:
 
 
 # =============================================================================
-# Pipeline Integration Tests
+# QCPipeline API Regression Tests (New Implementation)
+# =============================================================================
+
+
+class TestQCPipelineSampleQC:
+    """Regression tests for QCPipeline.sample_qc() against golden output.
+
+    These tests verify the NEW QCPipeline API produces the same results
+    as the old SampleQC class-based implementation.
+    """
+
+    def test_sample_qc_pipeline_matches_golden(
+        self, test_geno_path: Path, golden_all_sample: Path, tmp_output_dir: Path
+    ):
+        """QCPipeline.sample_qc() produces same final output as golden.
+
+        This is the key regression test for Phase 2 completion.
+        """
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc import (
+            QCPipeline,
+            CallrateConfig,
+            SexConfig,
+            HetConfig,
+            RelatedConfig,
+        )
+
+        # Load input data
+        data = GenotypeData.from_path(test_geno_path)
+
+        # Create pipeline with same settings as --all_sample
+        pipeline = QCPipeline.sample_qc(
+            callrate_config=CallrateConfig(mind=0.05),
+            sex_config=SexConfig(),
+            het_config=HetConfig(),
+            related_config=RelatedConfig(related_cutoff=0.0884),
+        )
+
+        # Run the pipeline
+        output_dir = tmp_output_dir / "sample_qc_pipeline"
+        result = pipeline.run(data, output_dir)
+
+        # Compare final output to golden
+        golden_output = golden_all_sample / "output"
+        comparison = compare_pfiles(golden_output, result.output.path)
+
+        assert comparison.equal, (
+            f"QCPipeline output differs from golden:\n"
+            f"  Sample diff: {comparison.sample_diff}\n"
+            f"  Variant diff: {comparison.variant_diff}\n"
+            f"  {comparison.message}"
+        )
+
+    def test_sample_qc_pipeline_sample_counts_match(
+        self, test_geno_path: Path, golden_all_sample: Path, tmp_output_dir: Path
+    ):
+        """QCPipeline removes the same number of samples as golden."""
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc import (
+            QCPipeline,
+            CallrateConfig,
+            SexConfig,
+            HetConfig,
+            RelatedConfig,
+        )
+
+        # Load golden output to get expected counts
+        golden_output = golden_all_sample / "output"
+        golden_data = GenotypeData.from_path(golden_output)
+
+        # Load input and run pipeline
+        data = GenotypeData.from_path(test_geno_path)
+        pipeline = QCPipeline.sample_qc(
+            callrate_config=CallrateConfig(mind=0.05),
+            sex_config=SexConfig(),
+            het_config=HetConfig(),
+            related_config=RelatedConfig(related_cutoff=0.0884),
+        )
+
+        output_dir = tmp_output_dir / "sample_qc_counts"
+        result = pipeline.run(data, output_dir)
+
+        assert result.output.sample_count == golden_data.sample_count, (
+            f"Sample count mismatch: "
+            f"expected {golden_data.sample_count}, got {result.output.sample_count}"
+        )
+
+    def test_sample_qc_pipeline_is_deterministic(
+        self, test_geno_path: Path, tmp_output_dir: Path
+    ):
+        """QCPipeline.sample_qc() produces identical output on repeated runs."""
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc import (
+            QCPipeline,
+            CallrateConfig,
+            SexConfig,
+            HetConfig,
+            RelatedConfig,
+        )
+
+        data = GenotypeData.from_path(test_geno_path)
+        pipeline = QCPipeline.sample_qc(
+            callrate_config=CallrateConfig(mind=0.05),
+            sex_config=SexConfig(),
+            het_config=HetConfig(),
+            related_config=RelatedConfig(related_cutoff=0.0884),
+        )
+
+        # Run twice
+        result1 = pipeline.run(data, tmp_output_dir / "run1")
+        result2 = pipeline.run(data, tmp_output_dir / "run2")
+
+        comparison = compare_pfiles(result1.output.path, result2.output.path)
+
+        assert comparison.equal, (
+            f"Pipeline is not deterministic:\n"
+            f"  Sample diff: {comparison.sample_diff}\n"
+            f"  {comparison.message}"
+        )
+
+
+class TestQCPipelineVariantQC:
+    """Regression tests for QCPipeline.variant_qc() against golden output."""
+
+    def test_variant_qc_pipeline_matches_golden(
+        self, golden_related: Path, golden_all_variant: Path, tmp_output_dir: Path
+    ):
+        """QCPipeline.variant_qc() produces same final output as golden.
+
+        Note: Variant QC runs on sample-QC-filtered data (related output).
+        """
+        from genotools.core.genotypes import GenotypeData
+        from genotools.qc import (
+            QCPipeline,
+            GenoConfig,
+            CaseControlConfig,
+            HaplotypeConfig,
+            HWEConfig,
+        )
+
+        # Input is the sample-QC-filtered output
+        related_output = golden_related / "output"
+        data = GenotypeData.from_path(related_output)
+
+        # Create pipeline with same settings as --all_variant
+        pipeline = QCPipeline.variant_qc(
+            geno_config=GenoConfig(geno=0.05),
+            hwe_config=HWEConfig(hwe_threshold=1e-4),
+            case_control_config=CaseControlConfig(p_threshold=1e-4),
+            haplotype_config=HaplotypeConfig(),
+        )
+
+        # Run the pipeline
+        output_dir = tmp_output_dir / "variant_qc_pipeline"
+        result = pipeline.run(data, output_dir)
+
+        # Compare final output to golden
+        golden_output = golden_all_variant / "output"
+        comparison = compare_pfiles(golden_output, result.output.path)
+
+        assert comparison.equal, (
+            f"QCPipeline output differs from golden:\n"
+            f"  Sample diff: {comparison.sample_diff}\n"
+            f"  Variant diff: {comparison.variant_diff}\n"
+            f"  {comparison.message}"
+        )
+
+
+# =============================================================================
+# CLI Pipeline Integration Tests (Old CLI - will pass after Phase 4)
 # =============================================================================
 
 
