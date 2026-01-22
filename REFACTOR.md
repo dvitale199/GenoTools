@@ -1672,8 +1672,8 @@ Migrate GWAS module and remove deprecated code.
 |-------|--------|-----------------|
 | 0: Regression Testing | ✅ Complete | (enables validation) |
 | 1: Core Foundation | ✅ Complete | A1, P1, R1, R2, R3, D1, D2, D3 |
-| 2: QC Migration | Not Started | A1, A2, M1, M2, D1 |
-| 3: Ancestry Migration | Not Started | A2, M1, D1 |
+| 2: QC Migration | ✅ Complete | A1, A2, M1, M2, D1 |
+| 3: Ancestry Migration | ✅ Complete | A2, M1, D1 |
 | 4: CLI Migration | Not Started | A3, M3, C1 |
 | 5: GWAS & Cleanup | Not Started | - |
 
@@ -1708,3 +1708,82 @@ Migrate GWAS module and remove deprecated code.
 2. **Immutability**: GenotypeData is a frozen dataclass - transformations return new instances
 3. **Type hints**: Full type annotations with mypy --strict compliance
 4. **Backward compatibility**: Calls to existing untyped code use `# type: ignore[no-untyped-call]`
+
+---
+
+## Phase 3 Completion Notes
+
+**Completed:** 2026-01-22
+
+### Deliverables
+
+| File | Status | Description |
+|------|--------|-------------|
+| `ancestry/__init__.py` | ✅ | Public exports for all ancestry components |
+| `ancestry/config.py` | ✅ | Configuration dataclasses (PCAConfig, UMAPConfig, ClassifierConfig, AncestryConfig, etc.) |
+| `ancestry/results.py` | ✅ | Result dataclasses (AncestryPredictions, TrainingMetrics, PCAResult, etc.) |
+| `ancestry/reference.py` | ✅ | ReferencePanel management for loading reference data |
+| `ancestry/model.py` | ✅ | AncestryModel with fit/predict interface |
+| `ancestry/reducers/__init__.py` | ✅ | Reducer exports |
+| `ancestry/reducers/pca.py` | ✅ | PCAReducer with flashPCA-style scaling |
+| `ancestry/reducers/umap_reducer.py` | ✅ | UMAPReducer wrapper |
+
+### Success Criteria Met
+
+- [x] `AncestryModel` with `fit()` and `predict()` methods implemented
+- [x] All ancestry parameters documented in config.py (PCAConfig, UMAPConfig, ClassifierConfig, GridSearchConfig, etc.)
+- [x] Model can be saved/loaded with pickle
+- [x] InferenceMode enum for container/cloud support (LOCAL, CONTAINER, SINGULARITY, CLOUD)
+- [x] `mypy genotools/ancestry/ --ignore-missing-imports` passes
+- [x] Unit tests: 85 tests passing for config, results, and reducers
+
+### Key Design Decisions
+
+1. **Fit/predict interface**: Unlike QC's step composition, ancestry uses ML-style fit/predict pattern matching scikit-learn conventions
+2. **Frozen configurations**: All config dataclasses are immutable (frozen=True) with validation in `__post_init__`
+3. **FlashPCA scaling**: Preserved flashPCA-style scaling formula for backward compatibility with trained models
+4. **Separate reducers**: PCA and UMAP are separate reducer classes that can be used independently
+5. **Admixed detection**: CAH (Complex Admixture History) detection preserved from original implementation
+6. **Backward compatibility**: `to_dict()` methods on result classes return legacy dictionary format
+
+### New Module Structure
+
+```
+genotools/ancestry/
+├── __init__.py           # Public API exports
+├── config.py             # Configuration dataclasses (frozen, validated)
+├── model.py              # AncestryModel with fit/predict
+├── reference.py          # ReferencePanel loading
+├── results.py            # Result dataclasses
+└── reducers/
+    ├── __init__.py
+    ├── pca.py            # PCAReducer with flashPCA scaling
+    └── umap_reducer.py   # UMAPReducer wrapper
+```
+
+### Usage Example
+
+```python
+from genotools.ancestry import AncestryModel, AncestryConfig, PCAConfig
+
+# Custom configuration
+config = AncestryConfig(
+    pca=PCAConfig(n_components=30),
+    min_samples_per_ancestry=50
+)
+
+# Create model
+model = AncestryModel(config=config)
+
+# Fit on reference data
+model.fit(raw_ref_data, labels)
+
+# Predict ancestry
+predictions = model.predict(new_sample_data, sample_ids)
+print(predictions.ancestry_counts)
+# {'EUR': 100, 'AFR': 50, ...}
+
+# Save/load model
+model.save(Path("model.pkl"))
+loaded = AncestryModel.load(Path("model.pkl"))
+```
