@@ -1675,7 +1675,7 @@ Migrate GWAS module and remove deprecated code.
 | 2: QC Migration | ✅ Complete | A1, A2, M1, M2, D1 |
 | 3: Ancestry Migration | ✅ Complete | A2, M1, D1 |
 | 4: CLI Migration | ✅ Complete | A3, M3, C1 |
-| 5: GWAS & Cleanup | Not Started | - |
+| 5: GWAS & Cleanup | ✅ Complete | (GWAS migration) |
 
 ---
 
@@ -1874,3 +1874,117 @@ The CLI module is designed to be used in two ways:
 
 1. **With legacy code**: Use `PipelineArgs.to_legacy_dict()` to get the old-style args dict
 2. **With new modules**: Use the typed config objects directly (e.g., `args.sample_qc.to_callrate_config()`)
+
+---
+
+## Phase 5 Completion Notes
+
+**Completed:** 2026-01-23
+
+### Deliverables
+
+| File | Status | Description |
+|------|--------|-------------|
+| `gwas/__init__.py` | ✅ | Public exports for all GWAS components |
+| `gwas/config.py` | ✅ | Configuration dataclasses (PCAPruningConfig, PCAConfig, GWASConfig, CovariateConfig, AssocConfig) |
+| `gwas/results.py` | ✅ | Result dataclasses (PruningResult, PCAResult, InflationMetrics, GWASResult, AssocResult) |
+| `gwas/steps/__init__.py` | ✅ | Step function exports |
+| `gwas/steps/pca.py` | ✅ | Pure PCA functions (run_pca_pruning, run_pca) |
+| `gwas/steps/association.py` | ✅ | Pure GWAS functions (run_gwas, calculate_inflation) |
+| `gwas/pipeline.py` | ✅ | AssocPipeline orchestrator with covariate handling |
+| `core/exceptions.py` | ✅ | Added GWASError exception |
+
+### Success Criteria Met
+
+- [x] GWAS module migrated to pure function architecture
+- [x] All GWAS/PCA parameters documented in config.py
+- [x] PCA pruning with configurable exclusion regions (hg19/hg38)
+- [x] Genomic inflation (lambda) calculation with sample-size normalization
+- [x] MAF-filtered inflation metrics (optional)
+- [x] AssocPipeline with proper covariate handling logic
+- [x] Unit tests: 84 tests passing for config, results, and steps
+- [x] All 343 unit tests passing across entire codebase
+
+### Key Design Decisions
+
+1. **Step composition pattern**: GWAS follows the same pattern as QC - pure functions that can be composed
+2. **Separate pruning config**: PCAPruningConfig is a separate config for variant filtering before PCA
+3. **Build-specific exclusions**: Exclusion regions for hg19/hg38 are constants with a helper function
+4. **Inflation calculation**: `calculate_inflation()` is a pure function that can be used independently
+5. **Covariate resolution logic**: Pipeline handles complex covariate source selection (external vs PCA)
+6. **Backward compatibility**: All result classes have `to_dict()` methods returning legacy format
+
+### New Module Structure
+
+```
+genotools/gwas/
+├── __init__.py           # Public API exports
+├── config.py             # Configuration dataclasses (frozen, validated)
+├── results.py            # Result dataclasses
+├── pipeline.py           # AssocPipeline orchestrator
+└── steps/
+    ├── __init__.py       # Step function exports
+    ├── pca.py            # PCA computation (run_pca_pruning, run_pca)
+    └── association.py    # GWAS execution (run_gwas, calculate_inflation)
+```
+
+### Usage Example
+
+```python
+from genotools.gwas import (
+    AssocPipeline,
+    AssocConfig,
+    PCAConfig,
+    GWASConfig,
+    run_association,
+    calculate_inflation,
+)
+from genotools.core import GenotypeData
+
+# Simple usage with defaults
+data = GenotypeData.from_path("/path/to/genotypes")
+result = run_association(data, Path("/path/to/output"))
+
+# Custom configuration
+config = AssocConfig(
+    pca=PCAConfig(n_pcs=20, build='hg38'),
+    gwas=GWASConfig(maf_lambdas=True),
+    run_pca=True,
+    run_gwas=True,
+)
+pipeline = AssocPipeline(config)
+result = pipeline.run(data, Path("/path/to/output"))
+
+# Access results
+print(f"Lambda: {result.inflation_metrics.lambda_gc}")
+print(f"Lambda1000: {result.inflation_metrics.lambda_1000}")
+print(f"Eigenvecs: {result.eigenvec_path}")
+
+# Calculate inflation independently
+import numpy as np
+pvalues = np.random.uniform(0, 1, 10000)
+inflation = calculate_inflation(pvalues, n_cases=500, n_controls=1000)
+print(f"Lambda GC: {inflation.lambda_gc}")
+
+# Legacy format for backward compatibility
+legacy_dict = result.to_dict()
+```
+
+### Configuration Options
+
+| Config Class | Key Parameters | Description |
+|--------------|----------------|-------------|
+| `PCAPruningConfig` | maf, geno, hwe, ld_* | Variant filtering before PCA |
+| `PCAConfig` | n_pcs, build, pruning | PCA computation settings |
+| `GWASConfig` | pheno_name, maf_lambdas | GWAS execution settings |
+| `CovariateConfig` | covar_path, covar_names | External covariate handling |
+| `AssocConfig` | pca, gwas, covariates, run_* | Combined configuration |
+
+### Exclusion Regions
+
+Build-specific exclusion regions are provided for both hg19 and hg38:
+
+- **hg19**: 4 regions (including chr6 MHC: 25M-33.5M)
+- **hg38**: 15 regions (including chr6 MHC: 25M-35M, centromeres, high-LD regions)
+
+Access via `get_exclusion_regions("hg38")` or `PCAConfig(build="hg38").get_exclusion_regions()`

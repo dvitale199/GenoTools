@@ -50,6 +50,17 @@ class AncestryError(GenoToolsError):
     pass
 
 
+class GWASError(GenoToolsError):
+    """GWAS/Association analysis errors.
+
+    Raised when GWAS or PCA analysis fails, such as:
+        - PCA pruning failure due to insufficient samples
+        - GWAS output files not generated
+        - Invalid phenotype data
+    """
+    pass
+
+
 class ExternalToolError(GenoToolsError):
     """External tool (PLINK, PLINK2, KING) execution failures.
 
