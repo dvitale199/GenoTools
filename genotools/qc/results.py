@@ -37,6 +37,8 @@ class FilterResult:
         log: PLINK/tool log output for debugging.
         pruned_samples_file: Path to .outliers file with filtered sample IDs,
             or None if no samples were filtered.
+        related_samples_file: Path to .related file with kinship pair info,
+            or None if not a relatedness step.
         step_name: Name of the QC step (e.g., 'callrate_prune').
     """
 
@@ -46,6 +48,7 @@ class FilterResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     log: str = ""
     pruned_samples_file: Optional[Path] = None
+    related_samples_file: Optional[Path] = None
     step_name: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,21 +65,36 @@ class FilterResult:
         Returns:
             Dictionary in legacy format matching SampleQC/VariantQC output.
         """
+        output_dict = {
+            "pruned_samples": (
+                str(self.pruned_samples_file)
+                if self.pruned_samples_file
+                else None
+            ),
+            "plink_out": str(self.output.path),
+        }
+        # Include related_samples for relatedness step (backward compatibility)
+        if self.related_samples_file is not None:
+            output_dict["related_samples"] = str(self.related_samples_file)
+
+        # Build metrics dict - relatedness step uses related_count/duplicated_count
+        # instead of outlier_count for backward compatibility
+        is_relatedness_step = "related" in self.step_name
+        if is_relatedness_step:
+            # Relatedness step: only include related_count and duplicated_count
+            metrics_dict = dict(self.metrics)
+        else:
+            # Other steps: include outlier_count
+            metrics_dict = {
+                "outlier_count": self.samples_removed + self.variants_removed,
+                **self.metrics,
+            }
+
         return {
             "pass": True,  # If FilterResult exists, step passed
             "step": self.step_name,
-            "metrics": {
-                "outlier_count": self.samples_removed + self.variants_removed,
-                **self.metrics,
-            },
-            "output": {
-                "pruned_samples": (
-                    str(self.pruned_samples_file)
-                    if self.pruned_samples_file
-                    else None
-                ),
-                "plink_out": str(self.output.path),
-            },
+            "metrics": metrics_dict,
+            "output": output_dict,
         }
 
 

@@ -33,10 +33,42 @@ def handle_main():
 
     from umap import UMAP
     from genotools.utils import upfront_check, bfiles_to_pfiles, vcf_to_pfiles, gt_header
-    from genotools.qc import SampleQC, VariantQC
-    from genotools.ancestry import Ancestry
-    from genotools.gwas import Assoc
     from genotools.pipeline import execute_ancestry_predictions, execute_pipeline, build_metrics_pruned_df
+
+    # Import legacy modules using importlib to avoid namespace conflict with new packages
+    import importlib.util
+    import sys
+    from pathlib import Path as PathLib
+
+    genotools_dir = PathLib(__file__).parent
+
+    # Load legacy qc.py module
+    qc_spec = importlib.util.spec_from_file_location(
+        "genotools.legacy_qc", genotools_dir / "qc.py"
+    )
+    legacy_qc = importlib.util.module_from_spec(qc_spec)
+    sys.modules["genotools.legacy_qc"] = legacy_qc
+    qc_spec.loader.exec_module(legacy_qc)
+    SampleQC = legacy_qc.SampleQC
+    VariantQC = legacy_qc.VariantQC
+
+    # Load legacy ancestry.py module
+    ancestry_spec = importlib.util.spec_from_file_location(
+        "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
+    )
+    legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)
+    sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
+    ancestry_spec.loader.exec_module(legacy_ancestry)
+    Ancestry = legacy_ancestry.Ancestry
+
+    # Load legacy gwas.py module
+    gwas_spec = importlib.util.spec_from_file_location(
+        "genotools.legacy_gwas", genotools_dir / "gwas.py"
+    )
+    legacy_gwas = importlib.util.module_from_spec(gwas_spec)
+    sys.modules["genotools.legacy_gwas"] = legacy_gwas
+    gwas_spec.loader.exec_module(legacy_gwas)
+    Assoc = legacy_gwas.Assoc
 
     # initialize classes
     samp_qc = SampleQC()

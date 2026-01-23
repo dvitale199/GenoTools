@@ -96,6 +96,21 @@ class PipelineOutput:
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
+    @property
+    def success(self) -> bool:
+        """Check if pipeline completed successfully.
+
+        Returns True if all steps passed (or if no steps were run).
+        """
+        for key, value in self.pass_fail.items():
+            if isinstance(value, dict):
+                # Check nested pass_fail structure (e.g., "pass_fail" or "EUR_pass_fail")
+                for step_name, step_info in value.items():
+                    if isinstance(step_info, dict) and "status" in step_info:
+                        if not step_info["status"]:
+                            return False
+        return True
+
     @classmethod
     def from_runner_state(
         cls,

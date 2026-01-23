@@ -255,6 +255,7 @@ def filter_relatedness(
                 },
                 log="",
                 pruned_samples_file=pruned_out,
+                related_samples_file=related_out,
                 step_name=step_name,
             )
         else:

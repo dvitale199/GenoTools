@@ -17,6 +17,9 @@
 
 This module provides the main pipeline orchestration logic, coordinating
 QC steps, ancestry prediction, and GWAS analysis.
+
+Supports both legacy class-based modules and new pure function architecture.
+Set environment variable GENOTOOLS_USE_NEW_MODULES=1 to use the new architecture.
 """
 
 from __future__ import annotations
@@ -34,6 +37,9 @@ from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 
 logger = logging.getLogger(__name__)
+
+# Feature flag to enable new pure function modules
+USE_NEW_MODULES = os.environ.get("GENOTOOLS_USE_NEW_MODULES", "0") == "1"
 
 
 @dataclass
@@ -136,11 +142,12 @@ class PipelineRunner:
         # Initialize QC classes (legacy)
         self._initialize_qc_classes()
 
-        # Set up logging
-        self._setup_logging()
-
-        # Convert input format if needed
+        # Convert input format if needed (must happen before logging setup
+        # because upfront_check validates that log files don't exist)
         self._convert_input_format()
+
+        # Set up logging (after upfront_check so log file creation doesn't trigger error)
+        self._setup_logging()
 
         # Validate we have something to do
         steps = self.args.get_all_enabled_steps()
@@ -179,13 +186,54 @@ class PipelineRunner:
         )
 
     def _initialize_qc_classes(self) -> None:
+        """Initialize QC modules.
+
+        Uses new pure function modules if USE_NEW_MODULES is enabled,
+        otherwise falls back to legacy class-based modules.
+        """
+        if USE_NEW_MODULES:
+            self._initialize_new_modules()
+        else:
+            self._initialize_legacy_modules()
+
+    def _initialize_legacy_modules(self) -> None:
         """Initialize legacy QC classes for backward compatibility."""
         # Import here to avoid circular imports and allow gradual migration
-        # These imports use the legacy module structure (genotools/qc.py, etc.)
-        # which will be replaced during full integration
-        from ..qc import SampleQC, VariantQC  # type: ignore[attr-defined]
-        from ..ancestry import Ancestry  # type: ignore[attr-defined]
-        from ..gwas import Assoc  # type: ignore[attr-defined]
+        # Use importlib to explicitly import the legacy module FILES (qc.py, ancestry.py, gwas.py)
+        # rather than the new package directories (qc/, ancestry/, gwas/)
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        genotools_dir = Path(__file__).parent.parent
+
+        # Load legacy qc.py module
+        qc_spec = importlib.util.spec_from_file_location(
+            "genotools.legacy_qc", genotools_dir / "qc.py"
+        )
+        legacy_qc = importlib.util.module_from_spec(qc_spec)  # type: ignore
+        sys.modules["genotools.legacy_qc"] = legacy_qc
+        qc_spec.loader.exec_module(legacy_qc)  # type: ignore
+        SampleQC = legacy_qc.SampleQC
+        VariantQC = legacy_qc.VariantQC
+
+        # Load legacy ancestry.py module
+        ancestry_spec = importlib.util.spec_from_file_location(
+            "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
+        )
+        legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)  # type: ignore
+        sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
+        ancestry_spec.loader.exec_module(legacy_ancestry)  # type: ignore
+        Ancestry = legacy_ancestry.Ancestry
+
+        # Load legacy gwas.py module
+        gwas_spec = importlib.util.spec_from_file_location(
+            "genotools.legacy_gwas", genotools_dir / "gwas.py"
+        )
+        legacy_gwas = importlib.util.module_from_spec(gwas_spec)  # type: ignore
+        sys.modules["genotools.legacy_gwas"] = legacy_gwas
+        gwas_spec.loader.exec_module(legacy_gwas)  # type: ignore
+        Assoc = legacy_gwas.Assoc
 
         self._samp_qc = SampleQC()
         self._var_qc = VariantQC()
@@ -206,6 +254,100 @@ class PipelineRunner:
             "ld": self._var_qc.run_ld_prune,
             "assoc": self._assoc.run_association,
         }
+
+    def _initialize_new_modules(self) -> None:
+        """Initialize new pure function modules.
+
+        Sets up the step dispatch dictionary to use the new architecture
+        with pure functions and typed configs.
+        """
+        logger.info("Using new pure function modules (GENOTOOLS_USE_NEW_MODULES=1)")
+
+        # Import new QC modules
+        from ..qc import (
+            filter_callrate,
+            filter_sex,
+            filter_heterozygosity,
+            filter_relatedness,
+            verify_kinship,
+            filter_case_control,
+            filter_haplotype,
+            filter_hwe,
+            filter_variant_missingness,
+            prune_ld,
+            CallrateConfig,
+            SexConfig,
+            HetConfig,
+            RelatedConfig,
+            CaseControlConfig,
+            HaplotypeConfig,
+            HWEConfig,
+            GenoConfig,
+            LDConfig,
+        )
+        from ..core.genotypes import GenotypeData
+
+        # Import new GWAS module
+        from ..gwas import run_association as run_gwas_association, AssocConfig, PCAConfig, GWASConfig
+
+        # Import new Ancestry module
+        from ..ancestry import AncestryModel, ReferencePanel, AncestryConfig
+
+        # Store module references for later use
+        self._new_modules = {
+            "filter_callrate": filter_callrate,
+            "filter_sex": filter_sex,
+            "filter_heterozygosity": filter_heterozygosity,
+            "filter_relatedness": filter_relatedness,
+            "verify_kinship": verify_kinship,
+            "filter_case_control": filter_case_control,
+            "filter_haplotype": filter_haplotype,
+            "filter_hwe": filter_hwe,
+            "filter_variant_missingness": filter_variant_missingness,
+            "prune_ld": prune_ld,
+            "run_gwas_association": run_gwas_association,
+            "GenotypeData": GenotypeData,
+            "AncestryModel": AncestryModel,
+            "ReferencePanel": ReferencePanel,
+        }
+
+        # Store config classes
+        self._config_classes = {
+            "CallrateConfig": CallrateConfig,
+            "SexConfig": SexConfig,
+            "HetConfig": HetConfig,
+            "RelatedConfig": RelatedConfig,
+            "CaseControlConfig": CaseControlConfig,
+            "HaplotypeConfig": HaplotypeConfig,
+            "HWEConfig": HWEConfig,
+            "GenoConfig": GenoConfig,
+            "LDConfig": LDConfig,
+            "AssocConfig": AssocConfig,
+            "PCAConfig": PCAConfig,
+            "GWASConfig": GWASConfig,
+            "AncestryConfig": AncestryConfig,
+        }
+
+        # We still need legacy ancestry module for now (the new ancestry module
+        # doesn't have the same interface yet)
+        # Use importlib to load the legacy ancestry.py file
+        import importlib.util
+        import sys
+        from pathlib import Path as PathLib
+
+        genotools_dir = PathLib(__file__).parent.parent
+        ancestry_spec = importlib.util.spec_from_file_location(
+            "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
+        )
+        legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)  # type: ignore
+        sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
+        ancestry_spec.loader.exec_module(legacy_ancestry)  # type: ignore
+        Ancestry = legacy_ancestry.Ancestry
+        self._ancestry = Ancestry()
+
+        # _steps_dict is not used when USE_NEW_MODULES is enabled
+        # Instead, we call the new functions directly in _run_single_step_new()
+        self._steps_dict = {}
 
     def _setup_logging(self) -> None:
         """Set up log files."""
@@ -591,6 +733,137 @@ class PipelineRunner:
         legacy_args: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Run a single QC step.
+
+        Args:
+            step: Step name.
+            step_input: Input path.
+            step_output: Output path.
+            legacy_args: Legacy argument dictionary.
+
+        Returns:
+            Step result dictionary or None if step skipped.
+        """
+        if USE_NEW_MODULES:
+            return self._run_single_step_new(step, step_input, step_output, legacy_args)
+
+        return self._run_single_step_legacy(step, step_input, step_output, legacy_args)
+
+    def _run_single_step_new(
+        self,
+        step: str,
+        step_input: str,
+        step_output: str,
+        legacy_args: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run a single QC step using new pure function modules.
+
+        Args:
+            step: Step name.
+            step_input: Input path.
+            step_output: Output path.
+            legacy_args: Legacy argument dictionary.
+
+        Returns:
+            Step result dictionary in legacy format, or None if step skipped.
+        """
+        GenotypeData = self._new_modules["GenotypeData"]
+
+        # Load input data
+        data = GenotypeData.from_path(Path(step_input))
+
+        # Map step names to functions and config creation
+        if step == "callrate":
+            config = self._config_classes["CallrateConfig"](mind=legacy_args["callrate"])
+            result = self._new_modules["filter_callrate"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "sex":
+            sex_vals = legacy_args["sex"]
+            config = self._config_classes["SexConfig"](female_max_f=sex_vals[0], male_min_f=sex_vals[1])
+            result = self._new_modules["filter_sex"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "het":
+            het_vals = legacy_args["het"]
+            config = self._config_classes["HetConfig"](f_lower=het_vals[0], f_upper=het_vals[1])
+            result = self._new_modules["filter_heterozygosity"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "related":
+            config = self._config_classes["RelatedConfig"](
+                related_cutoff=legacy_args["related_cutoff"],
+                duplicated_cutoff=legacy_args["duplicated_cutoff"],
+                prune_related=legacy_args["prune_related"],
+                prune_duplicated=legacy_args["prune_duplicated"],
+            )
+            result = self._new_modules["filter_relatedness"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "kinship_check":
+            if platform.system() != "Linux":
+                print("Relatedness Assessment can only run on a Linux OS!")
+                return None
+            result = self._new_modules["verify_kinship"](data, Path(step_output))
+            return result.to_dict()
+
+        elif step == "case_control":
+            config = self._config_classes["CaseControlConfig"](p_threshold=legacy_args["case_control"])
+            result = self._new_modules["filter_case_control"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "haplotype":
+            config = self._config_classes["HaplotypeConfig"](p_threshold=legacy_args["haplotype"])
+            result = self._new_modules["filter_haplotype"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "hwe":
+            config = self._config_classes["HWEConfig"](
+                hwe_threshold=legacy_args["hwe"],
+                filter_controls=legacy_args["filter_controls"],
+            )
+            result = self._new_modules["filter_hwe"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "geno":
+            config = self._config_classes["GenoConfig"](geno=legacy_args["geno"])
+            result = self._new_modules["filter_variant_missingness"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "ld":
+            ld_vals = legacy_args["ld"]
+            config = self._config_classes["LDConfig"](
+                window_size=ld_vals[0],
+                step_size=ld_vals[1],
+                r2_threshold=ld_vals[2],
+            )
+            result = self._new_modules["prune_ld"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "assoc":
+            # Use the new GWAS module
+            config = self._config_classes["AssocConfig"](
+                pca=self._config_classes["PCAConfig"](
+                    build=legacy_args.get("build", "hg38"),
+                ) if legacy_args.get("pca") else None,
+                gwas=self._config_classes["GWASConfig"](
+                    maf_lambdas=legacy_args.get("maf_lambdas", False),
+                ) if legacy_args.get("gwas") else None,
+                run_pca=legacy_args.get("pca", False),
+                run_gwas=legacy_args.get("gwas", False),
+            )
+            result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
+            return result.to_dict()
+
+        return None
+
+    def _run_single_step_legacy(
+        self,
+        step: str,
+        step_input: str,
+        step_output: str,
+        legacy_args: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Run a single QC step using legacy class-based modules.
 
         Args:
             step: Step name.
