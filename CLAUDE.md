@@ -580,6 +580,50 @@ cat output_cleaned_logs.log  # Formatted summary
 
 ---
 
+## AI Communication Guidelines
+
+### Commit Messages
+
+When reaching a good checkpoint, provide a commit message following these rules:
+
+1. **Never include** `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>` or any co-author attribution
+2. Use conventional commit format when appropriate (feat:, fix:, refactor:, docs:, test:)
+3. First line should be concise (50 chars or less if possible)
+4. Include a blank line then detailed bullet points for complex changes
+
+**Example:**
+```
+refactor: migrate QC module to pure function architecture
+
+- Add typed config dataclasses (CallrateConfig, SexConfig, etc.)
+- Create pure functions for each QC step
+- Implement SampleQC and VariantQC wrapper classes
+- Add comprehensive unit tests (84 tests)
+- Maintain backward compatibility with legacy interface
+```
+
+### Pull Request Descriptions
+
+When asked for PR descriptions:
+
+1. **Always return in markdown format** so it can be copied directly to GitHub web interface
+2. **Never include** "Generated with Claude Code" or similar attribution text
+3. Use this structure:
+
+```markdown
+## Summary
+- Bullet point 1
+- Bullet point 2
+- Bullet point 3
+
+## Test plan
+- [ ] Test item 1
+- [ ] Test item 2
+- [ ] Integration testing notes
+```
+
+---
+
 ## Summary
 
 | Rule | Reason |
