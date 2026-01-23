@@ -1674,7 +1674,7 @@ Migrate GWAS module and remove deprecated code.
 | 1: Core Foundation | ✅ Complete | A1, P1, R1, R2, R3, D1, D2, D3 |
 | 2: QC Migration | ✅ Complete | A1, A2, M1, M2, D1 |
 | 3: Ancestry Migration | ✅ Complete | A2, M1, D1 |
-| 4: CLI Migration | Not Started | A3, M3, C1 |
+| 4: CLI Migration | ✅ Complete | A3, M3, C1 |
 | 5: GWAS & Cleanup | Not Started | - |
 
 ---
@@ -1787,3 +1787,90 @@ print(predictions.ancestry_counts)
 model.save(Path("model.pkl"))
 loaded = AncestryModel.load(Path("model.pkl"))
 ```
+
+---
+
+## Phase 4 Completion Notes
+
+**Completed:** 2026-01-22
+
+### Deliverables
+
+| File | Status | Description |
+|------|--------|-------------|
+| `cli/__init__.py` | ✅ | Public exports for all CLI components |
+| `cli/parser.py` | ✅ | Argument parsing with typed dataclasses (PipelineArgs, InputArgs, SampleQCArgs, etc.) |
+| `cli/runner.py` | ✅ | Pipeline orchestration (PipelineRunner, run_pipeline) |
+| `cli/output.py` | ✅ | Result formatting and JSON serialization (PipelineOutput, QCMetrics, GWASMetrics) |
+
+### Success Criteria Met
+
+- [x] CLI argument parsing with proper types (no boolean string parsing)
+- [x] Clean separation: parser → runner → output
+- [x] `parse_args()` returns typed `PipelineArgs` dataclass
+- [x] `--all-sample` and `--all-variant` convenience flags
+- [x] `--warn` flag (now `--no-warn` to disable, warn is default)
+- [x] `--container`, `--singularity`, `--cloud` flags for inference mode
+- [x] `mypy genotools/cli/ --ignore-missing-imports` passes
+- [x] Unit tests: 90 tests passing for parser, runner, and output
+
+### Key Design Decisions
+
+1. **Typed argument groups**: Separate dataclasses for InputArgs, SampleQCArgs, VariantQCArgs, AncestryArgs, GWASArgs, OutputArgs
+2. **Legacy compatibility**: `to_legacy_dict()` method on PipelineArgs for backward compatibility with existing pipeline code
+3. **Flexible nargs**: `--sex`, `--het`, `--ld` accept variable arguments (0 for defaults, 2/3 for custom)
+4. **Negated booleans**: `--no-warn` disables warn mode (warn is now default), `--no-prune-duplicated` disables duplicate pruning
+5. **Config conversion**: SampleQCArgs and VariantQCArgs have `to_*_config()` methods for creating typed config objects
+
+### New Module Structure
+
+```
+genotools/cli/
+├── __init__.py     # Public API exports
+├── parser.py       # Argument parsing with typed dataclasses
+├── runner.py       # Pipeline orchestration (PipelineRunner)
+└── output.py       # Result formatting (PipelineOutput, write_results)
+```
+
+### Usage Example
+
+```python
+from genotools.cli import parse_args, run_pipeline, PipelineArgs
+
+# Parse command line arguments
+args = parse_args([
+    "--pfile", "data/test",
+    "--out", "results/output",
+    "--all-sample",
+    "--ancestry",
+    "--container"
+])
+
+# Inspect parsed arguments
+print(f"Input: {args.geno_path}")
+print(f"Steps: {args.get_all_enabled_steps()}")
+print(f"Inference mode: {args.ancestry.inference_mode}")
+
+# Convert to legacy format for backward compatibility
+legacy_dict = args.to_legacy_dict()
+
+# Or run the pipeline directly
+result = run_pipeline(args)
+result.save(args.out_path.with_suffix(".json"))
+```
+
+### CLI Argument Changes
+
+| Old Argument | New Argument | Notes |
+|--------------|--------------|-------|
+| `--warn True/False` | `--no-warn` | Boolean flag, warn is now default |
+| `--full_output True/False` | `--full-output` | Boolean flag with dashes |
+| `--skip_fails True/False` | `--skip-fails` | Boolean flag with dashes |
+| `--filter_controls True/False` | `--filter-controls` | Boolean flag with dashes |
+
+### Integration Notes
+
+The CLI module is designed to be used in two ways:
+
+1. **With legacy code**: Use `PipelineArgs.to_legacy_dict()` to get the old-style args dict
+2. **With new modules**: Use the typed config objects directly (e.g., `args.sample_qc.to_callrate_config()`)
