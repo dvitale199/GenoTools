@@ -1628,32 +1628,114 @@ if __name__ == "__main__":
 
 ---
 
-## Phase 5: GWAS & Cleanup
+## Phase 5: GWAS Migration
 
 ### Goal
-Migrate GWAS module and remove deprecated code.
+Migrate GWAS module to pure function architecture.
 
 ### Deliverables
 
 #### 5.1 GWAS Migration
 - Apply same patterns as QC (pure functions, typed configs)
-- Determine if step-based or different pattern fits better
+- Step-based pattern with AssocPipeline orchestrator
 
-#### 5.2 Deprecation
-1. Add deprecation warnings to old modules
-2. Update all documentation
-3. Update examples/tests to use new API
+### Success Criteria
+- [x] GWAS module migrated to pure function architecture
+- [x] All GWAS/PCA parameters documented in config.py
+- [x] Unit tests passing
 
-#### 5.3 Removal
-1. Remove old `qc.py`, `ancestry.py`, `pipeline.py`
+---
+
+## Phase 6: Integration Testing & Cutover
+
+### Goal
+Enable side-by-side testing of old vs new pipelines, then complete the cutover.
+
+### Branch
+`refactor/phase6-integration`
+
+### Approach
+
+**Key insight:** Don't replace `__main__.py` immediately. Instead, add a parallel entry point (`genotools-new`) that exercises the new code path. This enables A/B testing on real data before committing to the cutover.
+
+### Virtual Environment Strategy
+
+| Environment | Install | Entry Points | Purpose |
+|-------------|---------|--------------|---------|
+| `.venv-stable` | `pip install .` | `genotools` only | Frozen baseline for comparison |
+| `.venv` | `pip install -e .` | `genotools` + `genotools-new` | Development and A/B testing |
+
+### Deliverables
+
+#### 6.1 Parallel Entry Point
+Add `genotools-new` command that uses the new CLI/runner:
+
+```python
+# setup.py or pyproject.toml
+entry_points={
+    'console_scripts': [
+        'genotools=genotools.__main__:handle_main',      # existing (old)
+        'genotools-new=genotools.cli:main',              # new
+    ],
+}
+```
+
+Create `genotools/cli/__init__.py:main()` function:
+```python
+def main():
+    from .parser import parse_args
+    from .runner import run_pipeline
+
+    args = parse_args()
+    result = run_pipeline(args)
+    result.save(args.out_path.with_suffix(".json"))
+```
+
+#### 6.2 Wire New Modules into Runner
+Update `cli/runner.py` to use new pure function modules instead of legacy classes:
+
+| Current (Legacy) | New (Pure Functions) |
+|------------------|----------------------|
+| `from ..qc import SampleQC` | `from ..qc.steps import filter_callrate, filter_sex, ...` |
+| `from ..ancestry import Ancestry` | `from ..ancestry import AncestryModel` |
+| `from ..gwas import Assoc` | `from ..gwas import AssocPipeline` |
+
+#### 6.3 A/B Testing Protocol
+```bash
+# Setup
+source .venv/bin/activate
+
+# Run old pipeline
+genotools --pfile data/test --out results/old --all-sample --ancestry
+
+# Run new pipeline
+genotools-new --pfile data/test --out results/new --all-sample --ancestry
+
+# Compare outputs
+diff results/old.json results/new.json
+diff results/old.pgen results/new.pgen  # binary, use plink2 --pfile diff
+```
+
+#### 6.4 Cutover (after validation)
+Once `genotools-new` produces identical output:
+1. Replace `__main__.py` contents with new CLI call
+2. Remove `genotools-new` entry point
+3. Add deprecation warnings to old modules
+4. Update documentation
+
+#### 6.5 Cleanup (final)
+1. Remove old modules: `qc.py`, `ancestry.py`, `pipeline.py`, `gwas.py`
 2. Remove `REFACTOR.md` and `REFACTOR_ISSUES.md`
 3. Final cleanup pass
 
 ### Success Criteria
-- [ ] All tests pass with new implementation
-- [ ] No references to old modules
+- [ ] `genotools-new` entry point works
+- [ ] New runner uses pure function modules (not legacy classes)
+- [ ] A/B testing shows identical output for all test cases
+- [ ] `genotools` (old) still works unchanged
+- [ ] Cutover complete: `genotools` uses new code path
+- [ ] Old modules removed
 - [ ] Documentation updated
-- [ ] Clean git history with squashed commits per phase
 
 ---
 
@@ -1675,7 +1757,8 @@ Migrate GWAS module and remove deprecated code.
 | 2: QC Migration | ✅ Complete | A1, A2, M1, M2, D1 |
 | 3: Ancestry Migration | ✅ Complete | A2, M1, D1 |
 | 4: CLI Migration | ✅ Complete | A3, M3, C1 |
-| 5: GWAS & Cleanup | ✅ Complete | (GWAS migration) |
+| 5: GWAS Migration | ✅ Complete | (GWAS migration) |
+| 6: Integration & Cutover | ⏳ In Progress | (final integration) |
 
 ---
 
