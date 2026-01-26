@@ -92,7 +92,7 @@ def compare_pass_fail(pf1: dict, pf2: dict) -> dict | None:
 def compare_qc_metrics(qc1: dict, qc2: dict) -> dict | None:
     """Compare QC metrics, allowing for minor numeric differences."""
     # QC is a dict of lists/dicts from DataFrame.to_dict()
-    # Focus on step names and pruned_count
+    # Focus on step names and count values
 
     diffs = {}
 
@@ -103,12 +103,13 @@ def compare_qc_metrics(qc1: dict, qc2: dict) -> dict | None:
     if steps1 != steps2:
         diffs["steps_differ"] = {"old": list(steps1), "new": list(steps2)}
 
-    # Compare pruned counts
-    counts1 = qc1.get("pruned_count", {})
-    counts2 = qc2.get("pruned_count", {})
+    # Compare counts (old uses "pruned_count", new uses "count")
+    counts1 = qc1.get("pruned_count", qc1.get("count", {}))
+    counts2 = qc2.get("pruned_count", qc2.get("count", {}))
 
-    if counts1 != counts2:
-        diffs["pruned_counts_differ"] = True
+    # Compare values regardless of key name
+    if list(counts1.values()) != list(counts2.values()):
+        diffs["counts_differ"] = True
 
     return diffs if diffs else None
 

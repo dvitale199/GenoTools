@@ -39,11 +39,11 @@ class QCMetrics:
     """QC step metrics."""
 
     step: str
-    pruned_count: int
+    count: int
     metric: str
     ancestry: str = "all"
     level: str = "sample"  # or "variant"
-    passed: bool = True
+    passed: bool = True  # Internal field, serialized as "pass"
 
 
 @dataclass
@@ -292,7 +292,7 @@ class PipelineOutput:
                     metrics_list.append(
                         QCMetrics(
                             step=step_result.get("step", step),
-                            pruned_count=value,
+                            count=value,
                             metric=metric,
                             ancestry=ancestry,
                             level=level,
@@ -376,7 +376,7 @@ class PipelineOutput:
             qc_df = pd.DataFrame([
                 {
                     "step": m.step,
-                    "pruned_count": m.pruned_count,
+                    "count": m.count,
                     "metric": m.metric,
                     "ancestry": m.ancestry,
                     "level": m.level,
@@ -458,7 +458,7 @@ def build_metrics_dataframe(metrics: List[QCMetrics]) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "step": m.step,
-            "pruned_count": m.pruned_count,
+            "count": m.count,
             "metric": m.metric,
             "ancestry": m.ancestry,
             "level": m.level,
