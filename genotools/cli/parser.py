@@ -307,14 +307,14 @@ class PipelineArgs:
     def get_enabled_variant_steps(self) -> List[str]:
         """Get list of enabled variant QC steps."""
         steps = []
+        if self.variant_qc.run_geno:
+            steps.append("geno")
         if self.variant_qc.run_case_control:
             steps.append("case_control")
         if self.variant_qc.run_haplotype:
             steps.append("haplotype")
         if self.variant_qc.run_hwe:
             steps.append("hwe")
-        if self.variant_qc.run_geno:
-            steps.append("geno")
         if self.variant_qc.run_ld:
             steps.append("ld")
         return steps

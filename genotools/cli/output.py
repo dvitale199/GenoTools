@@ -204,7 +204,7 @@ class PipelineOutput:
         related_dfs: List[pd.DataFrame] = []
 
         sample_steps = ["callrate", "sex", "het", "related"]
-        variant_steps = ["case_control", "haplotype", "hwe", "geno", "ld"]
+        variant_steps = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
         # Process ancestry-specific results
         if hasattr(state, "ancestry_results"):

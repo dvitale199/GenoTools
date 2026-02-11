@@ -109,7 +109,7 @@ class PipelineRunner:
 
     # Step categories
     SAMPLE_STEPS = ["callrate", "sex", "het", "related", "kinship_check"]
-    VARIANT_STEPS = ["case_control", "haplotype", "hwe", "geno", "ld"]
+    VARIANT_STEPS = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
     def __init__(self, args: PipelineArgs) -> None:
         """Initialize the pipeline runner.

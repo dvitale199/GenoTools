@@ -5,8 +5,8 @@ This script runs both the old (genotools) and new (genotools-new) CLI
 with the same input data and compares the outputs across multiple test
 scenarios: sample QC, sample+variant QC, and full pipeline with ancestry.
 
-All 9 pipeline runs (3 scenarios x 3 pipelines) execute in parallel.
-Recommend ~48 GB RAM and 8+ vCPUs for full parallelism with ancestry.
+QC scenarios run in parallel. Ancestry scenarios run sequentially to avoid
+race conditions on shared ref panel intermediate files.
 
 Usage:
     # QC only
@@ -289,84 +289,101 @@ def main():
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build all jobs upfront
+    # Build jobs: QC jobs run in parallel, ancestry jobs run sequentially
+    # (ancestry writes intermediate files to shared ref panel directory)
     # Each job: (job_id, scenario_name, pipeline_variant, cmd, out_path, env)
-    jobs = []
+    qc_jobs = []
+    ancestry_jobs = []
 
     # --- Scenario 1: Sample QC ---
     s1 = out_dir / "sample_qc"
-    jobs.append(("sample_qc/old", "sample_qc", "old", [
+    qc_jobs.append(("sample_qc/old", "sample_qc", "old", [
         "genotools", "--pfile", str(test_data), "--out", str(s1 / "old" / "output"),
         "--full_output", "True", "--all_sample",
     ], s1 / "old" / "output", None))
-    jobs.append(("sample_qc/new", "sample_qc", "new", [
+    qc_jobs.append(("sample_qc/new", "sample_qc", "new", [
         "genotools-new", "--pfile", str(test_data), "--out", str(s1 / "new" / "output"),
         "--full-output", "--all-sample",
     ], s1 / "new" / "output", None))
-    jobs.append(("sample_qc/new_modules", "sample_qc", "new_modules", [
+    qc_jobs.append(("sample_qc/new_modules", "sample_qc", "new_modules", [
         "genotools-new", "--pfile", str(test_data), "--out", str(s1 / "new_modules" / "output"),
         "--full-output", "--all-sample",
     ], s1 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
     # --- Scenario 2: Sample + Variant QC ---
     s2 = out_dir / "full_qc"
-    jobs.append(("full_qc/old", "full_qc", "old", [
+    qc_jobs.append(("full_qc/old", "full_qc", "old", [
         "genotools", "--pfile", str(test_data), "--out", str(s2 / "old" / "output"),
         "--full_output", "True", "--all_sample", "--all_variant",
     ], s2 / "old" / "output", None))
-    jobs.append(("full_qc/new", "full_qc", "new", [
+    qc_jobs.append(("full_qc/new", "full_qc", "new", [
         "genotools-new", "--pfile", str(test_data), "--out", str(s2 / "new" / "output"),
         "--full-output", "--all-sample", "--all-variant",
     ], s2 / "new" / "output", None))
-    jobs.append(("full_qc/new_modules", "full_qc", "new_modules", [
+    qc_jobs.append(("full_qc/new_modules", "full_qc", "new_modules", [
         "genotools-new", "--pfile", str(test_data), "--out", str(s2 / "new_modules" / "output"),
         "--full-output", "--all-sample", "--all-variant",
     ], s2 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
-    # --- Scenario 3: Full QC + Ancestry ---
+    # --- Scenario 3: Full QC + Ancestry (sequential to avoid ref panel race) ---
     if run_ancestry:
         s3 = out_dir / "ancestry"
         ref_p = str(args.ref_panel)
         ref_l = str(args.ref_labels)
-        jobs.append(("ancestry/old", "ancestry", "old", [
+        ancestry_jobs.append(("ancestry/old", "ancestry", "old", [
             "genotools", "--pfile", str(test_data), "--out", str(s3 / "old" / "output"),
             "--full_output", "True", "--all_sample", "--all_variant",
             "--ancestry", "True", "--ref_panel", ref_p, "--ref_labels", ref_l,
         ], s3 / "old" / "output", None))
-        jobs.append(("ancestry/new", "ancestry", "new", [
+        ancestry_jobs.append(("ancestry/new", "ancestry", "new", [
             "genotools-new", "--pfile", str(test_data), "--out", str(s3 / "new" / "output"),
             "--full-output", "--all-sample", "--all-variant",
             "--ancestry", "--ref-panel", ref_p, "--ref-labels", ref_l,
         ], s3 / "new" / "output", None))
-        jobs.append(("ancestry/new_modules", "ancestry", "new_modules", [
+        ancestry_jobs.append(("ancestry/new_modules", "ancestry", "new_modules", [
             "genotools-new", "--pfile", str(test_data), "--out", str(s3 / "new_modules" / "output"),
             "--full-output", "--all-sample", "--all-variant",
             "--ancestry", "--ref-panel", ref_p, "--ref-labels", ref_l,
         ], s3 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
-    # Run all jobs in parallel
-    n_jobs = len(jobs)
-    print(f"Launching {n_jobs} pipeline runs in parallel...")
+    all_jobs = qc_jobs + ancestry_jobs
+    n_jobs = len(all_jobs)
+    print(f"Running {len(qc_jobs)} QC jobs in parallel, {len(ancestry_jobs)} ancestry jobs sequentially...")
     print("-" * 60)
-    for job_id, _, _, cmd, _, env in jobs:
+    for job_id, _, _, cmd, _, env in all_jobs:
         env_prefix = "GENOTOOLS_USE_NEW_MODULES=1 " if env else ""
         print(f"  {job_id}: {env_prefix}{' '.join(cmd)}")
     print("-" * 60)
     print()
 
     total_start = time.time()
-
-    # Collect results grouped by scenario
     scenario_results: dict[str, dict] = {}
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = {}
-        for job_id, scenario, variant, cmd, out_path, env in jobs:
-            future = executor.submit(run_single_pipeline, job_id, cmd, out_path, env)
-            futures[future] = (scenario, variant)
 
-        for future in as_completed(futures):
-            scenario, variant = futures[future]
-            result = future.result()
+    # Phase 1: Run QC jobs in parallel
+    if qc_jobs:
+        print(f"Phase 1: Running {len(qc_jobs)} QC jobs in parallel...")
+        with ThreadPoolExecutor(max_workers=len(qc_jobs)) as executor:
+            futures = {}
+            for job_id, scenario, variant, cmd, out_path, env in qc_jobs:
+                future = executor.submit(run_single_pipeline, job_id, cmd, out_path, env)
+                futures[future] = (scenario, variant)
+
+            for future in as_completed(futures):
+                scenario, variant = futures[future]
+                result = future.result()
+                status = "OK" if result["exit"] == 0 else "FAILED"
+                print(f"  Completed: {result['job_id']} [{status}] ({result['elapsed']:.1f}s)")
+
+                if scenario not in scenario_results:
+                    scenario_results[scenario] = {}
+                scenario_results[scenario][variant] = result
+
+    # Phase 2: Run ancestry jobs sequentially (shared ref panel intermediates)
+    if ancestry_jobs:
+        print(f"\nPhase 2: Running {len(ancestry_jobs)} ancestry jobs sequentially...")
+        for job_id, scenario, variant, cmd, out_path, env in ancestry_jobs:
+            print(f"  Running: {job_id}...")
+            result = run_single_pipeline(job_id, cmd, out_path, env)
             status = "OK" if result["exit"] == 0 else "FAILED"
             print(f"  Completed: {result['job_id']} [{status}] ({result['elapsed']:.1f}s)")
 
