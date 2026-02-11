@@ -2,22 +2,30 @@
 """Compare old vs new GenoTools pipeline implementations.
 
 This script runs both the old (genotools) and new (genotools-new) CLI
-with the same input data and compares the outputs.
+with the same input data and compares the outputs across multiple test
+scenarios: sample QC, sample+variant QC, and full pipeline with ancestry.
+
+All 9 pipeline runs (3 scenarios x 3 pipelines) execute in parallel.
+Recommend ~48 GB RAM and 8+ vCPUs for full parallelism with ancestry.
 
 Usage:
+    # QC only
+    python scripts/test_old_vs_new.py --geno /path/to/data --out /path/to/output
+
+    # QC + ancestry (default if ref panel exists)
     python scripts/test_old_vs_new.py
 
 Requirements:
     - Both genotools and genotools-new must be installed
-    - Synthetic test data must exist in tests/data/synthetic/
 """
 
+import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -91,9 +99,6 @@ def compare_pass_fail(pf1: dict, pf2: dict) -> dict | None:
 
 def compare_qc_metrics(qc1: dict, qc2: dict) -> dict | None:
     """Compare QC metrics, allowing for minor numeric differences."""
-    # QC is a dict of lists/dicts from DataFrame.to_dict()
-    # Focus on step names and count values
-
     diffs = {}
 
     # Get unique steps from both
@@ -107,7 +112,6 @@ def compare_qc_metrics(qc1: dict, qc2: dict) -> dict | None:
     counts1 = qc1.get("pruned_count", qc1.get("count", {}))
     counts2 = qc2.get("pruned_count", qc2.get("count", {}))
 
-    # Compare values regardless of key name
     if list(counts1.values()) != list(counts2.values()):
         diffs["counts_differ"] = True
 
@@ -129,178 +133,286 @@ def count_pfile_samples(pfile_path: Path) -> int:
         return len(lines)
 
 
+def run_single_pipeline(
+    job_id: str,
+    cmd: list[str],
+    out_path: Path,
+    env: dict | None = None,
+) -> dict:
+    """Run a single pipeline invocation. Designed for use with ThreadPoolExecutor."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    start = time.time()
+    exit_code, stdout, stderr = run_command(cmd, env=env)
+    elapsed = time.time() - start
+
+    return {
+        "job_id": job_id,
+        "exit": exit_code,
+        "out": out_path,
+        "stderr": stderr,
+        "elapsed": elapsed,
+        "cmd": cmd,
+    }
+
+
+def report_scenario(label: str, results: dict) -> bool:
+    """Print comparison results for a scenario. Returns True if all passed."""
+    print(f"\n  --- {label} ---")
+
+    old_out = results["old"]["out"]
+    new_out = results["new"]["out"]
+    nm_out = results["new_modules"]["out"]
+
+    # Timing
+    for key in ("old", "new", "new_modules"):
+        r = results[key]
+        status = "OK" if r["exit"] == 0 else f"FAILED (exit {r['exit']})"
+        print(f"  {key:>12s}: {status}  ({r['elapsed']:.1f}s)")
+
+    # Check output files
+    old_json = old_out.with_suffix(".json")
+    new_json = new_out.with_suffix(".json")
+    nm_json = nm_out.with_suffix(".json")
+
+    print(f"  JSON files: old={old_json.exists()}, new={new_json.exists()}, new_modules={nm_json.exists()}")
+    print(f"  Pgen files: old={old_out.with_suffix('.pgen').exists()}, new={new_out.with_suffix('.pgen').exists()}, new_modules={nm_out.with_suffix('.pgen').exists()}")
+
+    # Sample counts
+    old_samples = count_pfile_samples(old_out)
+    new_samples = count_pfile_samples(new_out)
+    nm_samples = count_pfile_samples(nm_out)
+    print(f"  Sample counts: old={old_samples}, new={new_samples}, new_modules={nm_samples}")
+
+    # JSON comparison
+    if old_json.exists() and new_json.exists():
+        diffs = compare_json_files(old_json, new_json)
+        if diffs:
+            print(f"  JSON diff (old vs new-legacy): {diffs}")
+        else:
+            print(f"  JSON diff (old vs new-legacy): IDENTICAL")
+
+    if old_json.exists() and nm_json.exists():
+        diffs = compare_json_files(old_json, nm_json)
+        if diffs:
+            print(f"  JSON diff (old vs new-modules): {diffs}")
+        else:
+            print(f"  JSON diff (old vs new-modules): IDENTICAL")
+
+    # Verdict for this scenario
+    all_ok = True
+    if results["old"]["exit"] != 0:
+        print(f"  FAIL: Old pipeline exited with error")
+        all_ok = False
+    if results["new"]["exit"] != 0:
+        print(f"  FAIL: New CLI (legacy modules) exited with error")
+        all_ok = False
+    if results["new_modules"]["exit"] != 0:
+        print(f"  FAIL: New CLI (new modules) exited with error")
+        all_ok = False
+    if old_samples != new_samples:
+        print(f"  WARN: Sample counts differ: old={old_samples} vs new={new_samples}")
+    if old_samples != nm_samples:
+        print(f"  WARN: Sample counts differ: old={old_samples} vs new_modules={nm_samples}")
+
+    if all_ok and old_samples == new_samples == nm_samples:
+        print(f"  PASS")
+    elif all_ok:
+        print(f"  PARTIAL: Pipelines completed but outputs may differ")
+        all_ok = False
+    else:
+        print(f"  FAIL")
+
+    return all_ok
+
+
+def parse_args():
+    project_root = Path(__file__).resolve().parent.parent
+    home = Path.home()
+
+    parser = argparse.ArgumentParser(
+        description="Compare old vs new GenoTools pipeline implementations."
+    )
+    parser.add_argument(
+        "--geno", type=Path,
+        default=project_root / "tests" / "data" / "synthetic" / "genotools_test",
+        help="Input genotype file prefix (without extension)"
+    )
+    parser.add_argument(
+        "--out", type=Path,
+        default=Path.cwd() / "test_old_vs_new_results",
+        help="Output directory for comparison results"
+    )
+    parser.add_argument(
+        "--ref-panel", type=Path,
+        default=home / ".genotools" / "ref" / "ref_panel" / "ref_panel_gp2_prune_rm_underperform_pos_update",
+        help="Reference panel file prefix for ancestry testing (without extension)"
+    )
+    parser.add_argument(
+        "--ref-labels", type=Path,
+        default=home / ".genotools" / "ref" / "ref_panel" / "ref_panel_ancestry_updated.txt",
+        help="Reference panel ancestry labels file (FID IID label, no header)"
+    )
+    return parser.parse_args()
+
+
 def main():
-    # Paths
-    project_root = Path(__file__).parent.parent
-    test_data = project_root / "tests" / "data" / "synthetic" / "genotools_test"
+    args = parse_args()
+    test_data = args.geno
+    out_dir = args.out
 
     # Verify test data exists
-    if not test_data.with_suffix(".pgen").exists():
+    if not test_data.with_suffix(".pgen").exists() and not test_data.with_suffix(".bed").exists():
         print(f"ERROR: Test data not found at {test_data}")
         sys.exit(1)
+
+    # Determine which scenarios to run
+    ref_panel_exists = args.ref_panel and (
+        args.ref_panel.with_suffix(".bed").exists() or args.ref_panel.with_suffix(".pgen").exists()
+    )
+    ref_labels_exists = args.ref_labels and args.ref_labels.exists()
+    run_ancestry = ref_panel_exists and ref_labels_exists
+    if not run_ancestry:
+        print("NOTE: Skipping ancestry scenario (ref panel/labels not found)")
+        print(f"  ref_panel: {args.ref_panel} (found={ref_panel_exists})")
+        print(f"  ref_labels: {args.ref_labels} (found={ref_labels_exists})")
 
     print("=" * 60)
     print("GenoTools Old vs New Pipeline Comparison")
     print("=" * 60)
-    print(f"Test data: {test_data}")
+    print(f"Test data:  {test_data}")
+    print(f"Output dir: {out_dir}")
+    if run_ancestry:
+        print(f"Ref panel:  {args.ref_panel}")
+        print(f"Ref labels: {args.ref_labels}")
     print()
 
-    # Create temporary directory for outputs
-    with tempfile.TemporaryDirectory(prefix="genotools_test_") as tmpdir:
-        tmpdir = Path(tmpdir)
-        old_out = tmpdir / "old" / "output"
-        new_out = tmpdir / "new" / "output"
-        new_modules_out = tmpdir / "new_modules" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create output directories
-        old_out.parent.mkdir(parents=True)
-        new_out.parent.mkdir(parents=True)
-        new_modules_out.parent.mkdir(parents=True)
+    # Build all jobs upfront
+    # Each job: (job_id, scenario_name, pipeline_variant, cmd, out_path, env)
+    jobs = []
 
-        # Test 1: Old pipeline (genotools)
-        print("Running: OLD pipeline (genotools --all_sample)")
-        print("-" * 60)
-        cmd_old = [
-            "genotools",
-            "--pfile", str(test_data),
-            "--out", str(old_out),
-            "--all_sample",
-            "--full_output", "True",  # Use full output to match new pipeline
-        ]
-        print(f"Command: {' '.join(cmd_old)}")
-        exit_old, stdout_old, stderr_old = run_command(cmd_old)
-        print(f"Exit code: {exit_old}")
-        if exit_old != 0:
-            print(f"STDERR:\n{stderr_old[:2000]}")
-        print()
+    # --- Scenario 1: Sample QC ---
+    s1 = out_dir / "sample_qc"
+    jobs.append(("sample_qc/old", "sample_qc", "old", [
+        "genotools", "--pfile", str(test_data), "--out", str(s1 / "old" / "output"),
+        "--full_output", "True", "--all_sample",
+    ], s1 / "old" / "output", None))
+    jobs.append(("sample_qc/new", "sample_qc", "new", [
+        "genotools-new", "--pfile", str(test_data), "--out", str(s1 / "new" / "output"),
+        "--full-output", "--all-sample",
+    ], s1 / "new" / "output", None))
+    jobs.append(("sample_qc/new_modules", "sample_qc", "new_modules", [
+        "genotools-new", "--pfile", str(test_data), "--out", str(s1 / "new_modules" / "output"),
+        "--full-output", "--all-sample",
+    ], s1 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
-        # Test 2: New pipeline with legacy modules (genotools-new)
-        print("Running: NEW CLI with LEGACY modules (genotools-new --all-sample)")
-        print("-" * 60)
-        cmd_new = [
-            "genotools-new",
-            "--pfile", str(test_data),
-            "--out", str(new_out),
-            "--all-sample",
-            "--full-output",  # Use full output for proper path handling
-        ]
-        print(f"Command: {' '.join(cmd_new)}")
-        exit_new, stdout_new, stderr_new = run_command(cmd_new)
-        print(f"Exit code: {exit_new}")
-        if exit_new != 0:
-            print(f"STDERR:\n{stderr_new[:2000]}")
-        print()
+    # --- Scenario 2: Sample + Variant QC ---
+    s2 = out_dir / "full_qc"
+    jobs.append(("full_qc/old", "full_qc", "old", [
+        "genotools", "--pfile", str(test_data), "--out", str(s2 / "old" / "output"),
+        "--full_output", "True", "--all_sample", "--all_variant",
+    ], s2 / "old" / "output", None))
+    jobs.append(("full_qc/new", "full_qc", "new", [
+        "genotools-new", "--pfile", str(test_data), "--out", str(s2 / "new" / "output"),
+        "--full-output", "--all-sample", "--all-variant",
+    ], s2 / "new" / "output", None))
+    jobs.append(("full_qc/new_modules", "full_qc", "new_modules", [
+        "genotools-new", "--pfile", str(test_data), "--out", str(s2 / "new_modules" / "output"),
+        "--full-output", "--all-sample", "--all-variant",
+    ], s2 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
-        # Test 3: New pipeline with new modules (GENOTOOLS_USE_NEW_MODULES=1)
-        print("Running: NEW CLI with NEW modules (GENOTOOLS_USE_NEW_MODULES=1)")
-        print("-" * 60)
-        cmd_new_modules = [
-            "genotools-new",
-            "--pfile", str(test_data),
-            "--out", str(new_modules_out),
-            "--all-sample",
-            "--full-output",  # Use full output for proper path handling
-        ]
-        print(f"Command: GENOTOOLS_USE_NEW_MODULES=1 {' '.join(cmd_new_modules)}")
-        exit_new_modules, stdout_new_modules, stderr_new_modules = run_command(
-            cmd_new_modules,
-            env={"GENOTOOLS_USE_NEW_MODULES": "1"}
-        )
-        print(f"Exit code: {exit_new_modules}")
-        if exit_new_modules != 0:
-            print(f"STDERR:\n{stderr_new_modules[:2000]}")
-        print()
+    # --- Scenario 3: Full QC + Ancestry ---
+    if run_ancestry:
+        s3 = out_dir / "ancestry"
+        ref_p = str(args.ref_panel)
+        ref_l = str(args.ref_labels)
+        jobs.append(("ancestry/old", "ancestry", "old", [
+            "genotools", "--pfile", str(test_data), "--out", str(s3 / "old" / "output"),
+            "--full_output", "True", "--all_sample", "--all_variant",
+            "--ancestry", "True", "--ref_panel", ref_p, "--ref_labels", ref_l,
+        ], s3 / "old" / "output", None))
+        jobs.append(("ancestry/new", "ancestry", "new", [
+            "genotools-new", "--pfile", str(test_data), "--out", str(s3 / "new" / "output"),
+            "--full-output", "--all-sample", "--all-variant",
+            "--ancestry", "--ref-panel", ref_p, "--ref-labels", ref_l,
+        ], s3 / "new" / "output", None))
+        jobs.append(("ancestry/new_modules", "ancestry", "new_modules", [
+            "genotools-new", "--pfile", str(test_data), "--out", str(s3 / "new_modules" / "output"),
+            "--full-output", "--all-sample", "--all-variant",
+            "--ancestry", "--ref-panel", ref_p, "--ref-labels", ref_l,
+        ], s3 / "new_modules" / "output", {"GENOTOOLS_USE_NEW_MODULES": "1"}))
 
-        # Results summary
-        print("=" * 60)
-        print("RESULTS SUMMARY")
-        print("=" * 60)
+    # Run all jobs in parallel
+    n_jobs = len(jobs)
+    print(f"Launching {n_jobs} pipeline runs in parallel...")
+    print("-" * 60)
+    for job_id, _, _, cmd, _, env in jobs:
+        env_prefix = "GENOTOOLS_USE_NEW_MODULES=1 " if env else ""
+        print(f"  {job_id}: {env_prefix}{' '.join(cmd)}")
+    print("-" * 60)
+    print()
 
-        # Check output files exist
-        old_json = old_out.with_suffix(".json")
-        new_json = new_out.with_suffix(".json")
-        new_modules_json = new_modules_out.with_suffix(".json")
+    total_start = time.time()
 
-        old_pgen = old_out.with_suffix(".pgen")
-        new_pgen = new_out.with_suffix(".pgen")
-        new_modules_pgen = new_modules_out.with_suffix(".pgen")
+    # Collect results grouped by scenario
+    scenario_results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+        futures = {}
+        for job_id, scenario, variant, cmd, out_path, env in jobs:
+            future = executor.submit(run_single_pipeline, job_id, cmd, out_path, env)
+            futures[future] = (scenario, variant)
 
-        print("\nOutput files:")
-        print(f"  Old JSON exists:         {old_json.exists()}")
-        print(f"  New JSON exists:         {new_json.exists()}")
-        print(f"  New modules JSON exists: {new_modules_json.exists()}")
-        print(f"  Old pgen exists:         {old_pgen.exists()}")
-        print(f"  New pgen exists:         {new_pgen.exists()}")
-        print(f"  New modules pgen exists: {new_modules_pgen.exists()}")
+        for future in as_completed(futures):
+            scenario, variant = futures[future]
+            result = future.result()
+            status = "OK" if result["exit"] == 0 else "FAILED"
+            print(f"  Completed: {result['job_id']} [{status}] ({result['elapsed']:.1f}s)")
 
-        # Count samples in output
-        print("\nSample counts:")
-        old_samples = count_pfile_samples(old_out)
-        new_samples = count_pfile_samples(new_out)
-        new_modules_samples = count_pfile_samples(new_modules_out)
-        print(f"  Old:         {old_samples}")
-        print(f"  New:         {new_samples}")
-        print(f"  New modules: {new_modules_samples}")
+            if scenario not in scenario_results:
+                scenario_results[scenario] = {}
+            scenario_results[scenario][variant] = result
 
-        # Compare JSON outputs
-        print("\nJSON Comparison (Old vs New CLI w/ legacy modules):")
-        if old_json.exists() and new_json.exists():
-            diffs = compare_json_files(old_json, new_json)
-            if diffs:
-                print("  DIFFERENCES FOUND:")
-                for key, val in diffs.items():
-                    print(f"    {key}: {val}")
-            else:
-                print("  IDENTICAL (or equivalent)")
-        else:
-            print("  Cannot compare - missing files")
+    total_elapsed = time.time() - total_start
+    print(f"\nAll {n_jobs} runs completed in {total_elapsed:.1f}s")
 
-        print("\nJSON Comparison (Old vs New CLI w/ new modules):")
-        if old_json.exists() and new_modules_json.exists():
-            diffs = compare_json_files(old_json, new_modules_json)
-            if diffs:
-                print("  DIFFERENCES FOUND:")
-                for key, val in diffs.items():
-                    print(f"    {key}: {val}")
-            else:
-                print("  IDENTICAL (or equivalent)")
-        else:
-            print("  Cannot compare - missing files")
+    # Summary
+    print("\n" + "=" * 60)
+    print("RESULTS SUMMARY")
+    print("=" * 60)
 
-        # Final verdict
-        print("\n" + "=" * 60)
-        print("VERDICT")
-        print("=" * 60)
+    all_passed = True
+    for name in ["sample_qc", "full_qc", "ancestry"]:
+        if name in scenario_results:
+            passed = report_scenario(name, scenario_results[name])
+            if not passed:
+                all_passed = False
 
-        all_passed = True
+    # Print stderr for any failures
+    any_failures = False
+    for name, results in scenario_results.items():
+        for variant, r in results.items():
+            if r["exit"] != 0:
+                if not any_failures:
+                    print("\n" + "=" * 60)
+                    print("FAILURE DETAILS")
+                    print("=" * 60)
+                    any_failures = True
+                print(f"\n  {r['job_id']} (exit {r['exit']}):")
+                print(f"  {r['stderr'][:3000]}")
 
-        if exit_old != 0:
-            print("FAIL: Old pipeline exited with error")
-            all_passed = False
+    # Final verdict
+    print("\n" + "=" * 60)
+    print("FINAL VERDICT")
+    print("=" * 60)
 
-        if exit_new != 0:
-            print("FAIL: New CLI (legacy modules) exited with error")
-            all_passed = False
-
-        if exit_new_modules != 0:
-            print("FAIL: New CLI (new modules) exited with error")
-            all_passed = False
-
-        if old_samples != new_samples:
-            print(f"WARN: Sample counts differ between old ({old_samples}) and new ({new_samples})")
-
-        if old_samples != new_modules_samples:
-            print(f"WARN: Sample counts differ between old ({old_samples}) and new_modules ({new_modules_samples})")
-
-        if all_passed and old_samples == new_samples == new_modules_samples:
-            print("PASS: All pipelines completed successfully with matching sample counts")
-            return 0
-        elif all_passed:
-            print("PARTIAL: Pipelines completed but outputs may differ")
-            return 1
-        else:
-            print("FAIL: One or more pipelines failed")
-            return 1
+    if all_passed:
+        print(f"PASS: All scenarios completed successfully with matching outputs ({total_elapsed:.1f}s)")
+        return 0
+    else:
+        print(f"FAIL: One or more scenarios had differences or errors ({total_elapsed:.1f}s)")
+        return 1
 
 
 if __name__ == "__main__":
