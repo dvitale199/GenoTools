@@ -25,6 +25,7 @@ import logging
 import os
 import pathlib
 import platform
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -491,7 +492,7 @@ class PipelineRunner:
                 step_index=i,
                 steps=steps,
                 pass_fail=pass_fail,
-                geno_path=geno_path if self.args.full_output else working_geno,
+                geno_path=geno_path if (self.args.full_output or not self.args.ancestry.run_ancestry) else working_geno,
                 out_path=out_path,
                 working_out=working_out,
             )
@@ -812,32 +813,34 @@ class PipelineRunner:
 
         # Find last passed output
         last_passed_output = None
+        last_passed_step_name = None
         for step_name in steps[:-1]:
             if step_name in pass_fail and pass_fail[step_name].status:
                 last_passed_output = pass_fail[step_name].output_path
+                last_passed_step_name = step_name
 
         if last_passed_output and os.path.isfile(f"{last_passed_output}.pgen"):
-            os.rename(f"{last_passed_output}.pgen", f"{out_path}.pgen")
-            os.rename(f"{last_passed_output}.psam", f"{out_path}.psam")
-            os.rename(f"{last_passed_output}.pvar", f"{out_path}.pvar")
+            shutil.copy2(f"{last_passed_output}.pgen", f"{out_path}.pgen")
+            shutil.copy2(f"{last_passed_output}.psam", f"{out_path}.psam")
+            shutil.copy2(f"{last_passed_output}.pvar", f"{out_path}.pvar")
         elif last_passed_output:
             # All samples/variants pruned
-            input_path = pass_fail[last_passed_output].input_path
+            input_path = pass_fail[last_passed_step_name].input_path
             if os.path.isfile(f"{input_path}.pgen"):
-                os.rename(f"{input_path}.pgen", f"{out_path}.pgen")
-                os.rename(f"{input_path}.psam", f"{out_path}.psam")
-                os.rename(f"{input_path}.pvar", f"{out_path}.pvar")
+                shutil.copy2(f"{input_path}.pgen", f"{out_path}.pgen")
+                shutil.copy2(f"{input_path}.psam", f"{out_path}.psam")
+                shutil.copy2(f"{input_path}.pvar", f"{out_path}.pvar")
         else:
-            # No steps passed - use original input
+            # No steps passed - copy (never rename) to preserve originals
             move_path = (
                 geno_path
                 if self.args.full_output or not self.args.ancestry.run_ancestry
                 else working_geno
             )
             if os.path.isfile(f"{move_path}.pgen"):
-                os.rename(f"{move_path}.pgen", f"{out_path}.pgen")
-                os.rename(f"{move_path}.psam", f"{out_path}.psam")
-                os.rename(f"{move_path}.pvar", f"{out_path}.pvar")
+                shutil.copy2(f"{move_path}.pgen", f"{out_path}.pgen")
+                shutil.copy2(f"{move_path}.psam", f"{out_path}.psam")
+                shutil.copy2(f"{move_path}.pvar", f"{out_path}.pvar")
 
     def _build_output(self) -> PipelineOutput:
         """Build the final pipeline output.
