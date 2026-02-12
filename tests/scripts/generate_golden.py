@@ -18,6 +18,7 @@ Requirements:
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,230 +26,175 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-
-def run_qc_step(step_name: str, step_method, geno_path: Path, out_dir: Path) -> dict:
-    """
-    Run a single QC step and save outputs to golden directory.
-
-    Args:
-        step_name: Name of the step (e.g., 'callrate', 'sex')
-        step_method: Callable that runs the QC step
-        geno_path: Input genotype file prefix
-        out_dir: Output directory for this step's golden files
-
-    Returns:
-        Result dictionary from the QC step
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    output_prefix = out_dir / "output"
-
-    print(f"  Running {step_name}...")
-
-    try:
-        result = step_method(geno_path, output_prefix)
-
-        # Save result metrics
-        metrics_path = out_dir / "metrics.json"
-        with open(metrics_path, "w") as f:
-            json.dump(result, f, indent=2, default=str)
-
-        print(f"    Result: {result.get('metrics', {})}")
-        return result
-
-    except Exception as e:
-        print(f"    ERROR: {e}")
-        return {"pass": False, "step": step_name, "error": str(e)}
+from genotools.core.genotypes import GenotypeData
+from genotools.qc import (
+    filter_callrate, CallrateConfig,
+    filter_sex, SexConfig,
+    filter_heterozygosity, HetConfig,
+    filter_relatedness, RelatedConfig,
+    filter_variant_missingness, GenoConfig,
+    filter_hwe, HWEConfig,
+    filter_case_control, CaseControlConfig,
+    filter_haplotype, HaplotypeConfig,
+    prune_ld, LDConfig,
+)
 
 
 def generate_callrate_golden(geno_path: Path, out_dir: Path, mind: float = 0.05):
-    """Generate golden files for callrate filtering.
-
-    Note: mind=0.05 matches the --all_sample pipeline default.
-    """
-    from genotools.qc import SampleQC
-
+    """Generate golden files for callrate filtering."""
     step_out = out_dir / "callrate"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = SampleQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = CallrateConfig(mind=mind)
+    result = filter_callrate(data, config, output_prefix)
 
-    result = qc.run_callrate_prune(mind=mind)
-
-    # Save metrics
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_sex_golden(geno_path: Path, out_dir: Path):
     """Generate golden files for sex check."""
-    from genotools.qc import SampleQC
-
     step_out = out_dir / "sex"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = SampleQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = SexConfig()
+    result = filter_sex(data, config, output_prefix)
 
-    result = qc.run_sex_prune()
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_het_golden(geno_path: Path, out_dir: Path):
     """Generate golden files for heterozygosity filtering."""
-    from genotools.qc import SampleQC
-
     step_out = out_dir / "het"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = SampleQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = HetConfig()
+    result = filter_heterozygosity(data, config, output_prefix)
 
-    result = qc.run_het_prune()
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_related_golden(geno_path: Path, out_dir: Path, kinship: float = 0.0884):
     """Generate golden files for relatedness filtering."""
-    from genotools.qc import SampleQC
-
     step_out = out_dir / "related"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = SampleQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = RelatedConfig(related_cutoff=kinship)
+    result = filter_relatedness(data, config, output_prefix)
 
-    result = qc.run_related_prune(related_cutoff=kinship)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_geno_golden(geno_path: Path, out_dir: Path, geno_threshold: float = 0.05):
     """Generate golden files for variant missingness filtering."""
-    from genotools.qc import VariantQC
-
     step_out = out_dir / "geno"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = VariantQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = GenoConfig(geno=geno_threshold)
+    result = filter_variant_missingness(data, config, output_prefix)
 
-    result = qc.run_geno_prune(geno_threshold=geno_threshold)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_hwe_golden(geno_path: Path, out_dir: Path, hwe_threshold: float = 1e-4):
     """Generate golden files for HWE filtering."""
-    from genotools.qc import VariantQC
-
     step_out = out_dir / "hwe"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = VariantQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = HWEConfig(hwe_threshold=hwe_threshold)
+    result = filter_hwe(data, config, output_prefix)
 
-    result = qc.run_hwe_prune(hwe_threshold=hwe_threshold)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_case_control_golden(geno_path: Path, out_dir: Path, p_threshold: float = 1e-4):
     """Generate golden files for case-control differential missingness filtering."""
-    from genotools.qc import VariantQC
-
     step_out = out_dir / "case_control"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = VariantQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = CaseControlConfig(p_threshold=p_threshold)
+    result = filter_case_control(data, config, output_prefix)
 
-    result = qc.run_case_control_prune(p_threshold=p_threshold)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_haplotype_golden(geno_path: Path, out_dir: Path, p_threshold: float = 1e-4):
     """Generate golden files for haplotype filtering."""
-    from genotools.qc import VariantQC
-
     step_out = out_dir / "haplotype"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = VariantQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = HaplotypeConfig(p_threshold=p_threshold)
+    result = filter_haplotype(data, config, output_prefix)
 
-    result = qc.run_haplotype_prune(p_threshold=p_threshold)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_ld_golden(geno_path: Path, out_dir: Path, window_size: int = 50, step_size: int = 5, r2_threshold: float = 0.5):
     """Generate golden files for LD pruning."""
-    from genotools.qc import VariantQC
-
     step_out = out_dir / "ld"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
 
-    qc = VariantQC()
-    qc.geno_path = str(geno_path)
-    qc.out_path = str(output_prefix)
+    data = GenotypeData.from_path(geno_path)
+    config = LDConfig(window_size=window_size, step_size=step_size, r2_threshold=r2_threshold)
+    result = prune_ld(data, config, output_prefix)
 
-    result = qc.run_ld_prune(window_size=window_size, step_size=step_size, r2_threshold=r2_threshold)
-
+    result_dict = result.to_dict()
     with open(step_out / "metrics.json", "w") as f:
-        json.dump(result, f, indent=2, default=str)
+        json.dump(result_dict, f, indent=2, default=str)
 
-    return result
+    return result_dict
 
 
 def generate_all_sample_golden(geno_path: Path, out_dir: Path):
-    """Generate golden files for --all_sample pipeline run."""
-    import subprocess
-    import sys
-
+    """Generate golden files for --all-sample pipeline run."""
     step_out = out_dir / "all_sample"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
@@ -258,17 +204,15 @@ def generate_all_sample_golden(geno_path: Path, out_dir: Path):
         for f in step_out.glob(pattern):
             f.unlink()
 
-    # Run the CLI with --all_sample
     cmd = [
-        sys.executable, "-m", "genotools",
+        sys.executable, "-m", "genotools.cli",
         "--pfile", str(geno_path),
         "--out", str(output_prefix),
-        "--all_sample"
+        "--all-sample"
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-    # Save metrics
     metrics = {
         "pass": result.returncode == 0,
         "step": "all_sample_pipeline",
@@ -284,13 +228,7 @@ def generate_all_sample_golden(geno_path: Path, out_dir: Path):
 
 
 def generate_all_variant_golden(geno_path: Path, out_dir: Path):
-    """Generate golden files for --all_variant pipeline run.
-
-    Note: This should be run on sample-QC-filtered data (after all_sample).
-    """
-    import subprocess
-    import sys
-
+    """Generate golden files for --all-variant pipeline run."""
     step_out = out_dir / "all_variant"
     step_out.mkdir(parents=True, exist_ok=True)
     output_prefix = step_out / "output"
@@ -300,17 +238,15 @@ def generate_all_variant_golden(geno_path: Path, out_dir: Path):
         for f in step_out.glob(pattern):
             f.unlink()
 
-    # Run the CLI with --all_variant
     cmd = [
-        sys.executable, "-m", "genotools",
+        sys.executable, "-m", "genotools.cli",
         "--pfile", str(geno_path),
         "--out", str(output_prefix),
-        "--all_variant"
+        "--all-variant"
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-    # Save metrics
     metrics = {
         "pass": result.returncode == 0,
         "step": "all_variant_pipeline",
@@ -433,11 +369,11 @@ def main():
 
     # Pipeline golden files (run from raw input)
     if "all_sample" in args.steps:
-        print("\n[10/11] --all_sample pipeline...")
+        print("\n[10/11] --all-sample pipeline...")
         results["all_sample"] = generate_all_sample_golden(args.geno, args.out)
 
     if "all_variant" in args.steps:
-        print("\n[11/11] --all_variant pipeline...")
+        print("\n[11/11] --all-variant pipeline...")
         # Use sample-QC-filtered output if available, otherwise use related output
         all_variant_input = sample_qc_output if sample_qc_output else (args.out / "related" / "output")
         if all_variant_input and Path(str(all_variant_input) + ".pgen").exists():

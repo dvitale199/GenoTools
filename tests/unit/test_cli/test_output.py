@@ -40,21 +40,21 @@ class TestQCMetrics:
         """QCMetrics can be created."""
         metrics = QCMetrics(
             step="callrate_prune",
-            pruned_count=10,
+            count=10,
             metric="outlier_count",
             ancestry="EUR",
             level="sample",
             passed=True,
         )
         assert metrics.step == "callrate_prune"
-        assert metrics.pruned_count == 10
+        assert metrics.count == 10
         assert metrics.ancestry == "EUR"
 
     def test_default_values(self) -> None:
         """QCMetrics has correct defaults."""
         metrics = QCMetrics(
             step="test",
-            pruned_count=5,
+            count=5,
             metric="count",
         )
         assert metrics.ancestry == "all"
@@ -101,7 +101,7 @@ class TestPipelineOutput:
             qc_metrics=[
                 QCMetrics(
                     step="callrate_prune",
-                    pruned_count=5,
+                    count=5,
                     metric="outlier_count",
                     ancestry="EUR",
                     level="sample",
@@ -109,7 +109,7 @@ class TestPipelineOutput:
                 ),
                 QCMetrics(
                     step="geno_prune",
-                    pruned_count=100,
+                    count=100,
                     metric="variant_count",
                     ancestry="EUR",
                     level="variant",
@@ -143,7 +143,7 @@ class TestPipelineOutput:
 
         # Should be dict format from DataFrame
         assert "step" in qc
-        assert "pruned_count" in qc
+        assert "count" in qc
         assert "metric" in qc
         assert "ancestry" in qc
         assert "level" in qc
@@ -244,7 +244,7 @@ class TestWriteResults:
         """write_results creates JSON file."""
         output = PipelineOutput(
             qc_metrics=[
-                QCMetrics(step="test", pruned_count=5, metric="count"),
+                QCMetrics(step="test", count=5, metric="count"),
             ],
         )
         out_path = tmp_path / "results"
@@ -267,7 +267,7 @@ class TestBuildMetricsDataframe:
         metrics = [
             QCMetrics(
                 step="callrate_prune",
-                pruned_count=10,
+                count=10,
                 metric="outlier_count",
                 ancestry="EUR",
                 level="sample",
@@ -278,15 +278,15 @@ class TestBuildMetricsDataframe:
 
         assert len(df) == 1
         assert df.iloc[0]["step"] == "callrate_prune"
-        assert df.iloc[0]["pruned_count"] == 10
+        assert df.iloc[0]["count"] == 10
         assert df.iloc[0]["ancestry"] == "EUR"
 
     def test_multiple_metrics(self) -> None:
         """Multiple metrics create correct DataFrame."""
         metrics = [
-            QCMetrics(step="callrate", pruned_count=5, metric="count"),
-            QCMetrics(step="sex", pruned_count=3, metric="count"),
-            QCMetrics(step="het", pruned_count=2, metric="count"),
+            QCMetrics(step="callrate", count=5, metric="count"),
+            QCMetrics(step="sex", count=3, metric="count"),
+            QCMetrics(step="het", count=2, metric="count"),
         ]
         df = build_metrics_dataframe(metrics)
 

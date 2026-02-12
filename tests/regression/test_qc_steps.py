@@ -656,7 +656,7 @@ class TestAllSamplePipeline:
             sys.executable, "-m", "genotools",
             "--pfile", str(test_geno_path),
             "--out", str(output_prefix),
-            "--all_sample"
+            "--all-sample"
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -695,7 +695,7 @@ class TestAllSamplePipeline:
                 sys.executable, "-m", "genotools",
                 "--pfile", str(test_geno_path),
                 "--out", str(output_prefix),
-                "--all_sample"
+                "--all-sample"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             assert result.returncode == 0, (
@@ -734,7 +734,7 @@ class TestAllVariantPipeline:
             sys.executable, "-m", "genotools",
             "--pfile", str(input_path),
             "--out", str(output_prefix),
-            "--all_variant"
+            "--all-variant"
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -776,8 +776,8 @@ class TestFullPipeline:
                 sys.executable, "-m", "genotools",
                 "--pfile", str(test_geno_path),
                 "--out", str(output_prefix),
-                "--all_sample",
-                "--all_variant"
+                "--all-sample",
+                "--all-variant"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             assert result.returncode == 0, (
@@ -810,8 +810,8 @@ class TestFullPipeline:
             sys.executable, "-m", "genotools",
             "--pfile", str(test_geno_path),
             "--out", str(output_prefix),
-            "--all_sample",
-            "--all_variant"
+            "--all-sample",
+            "--all-variant"
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)

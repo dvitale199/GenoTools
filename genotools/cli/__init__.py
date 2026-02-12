@@ -84,11 +84,7 @@ __all__ = [
 
 
 def main():
-    """Main entry point for genotools-new CLI.
-
-    This function provides a parallel entry point for A/B testing
-    the new pure-function architecture against the legacy implementation.
-    """
+    """Main entry point for the genotools CLI."""
     import sys
 
     args = parse_args()
