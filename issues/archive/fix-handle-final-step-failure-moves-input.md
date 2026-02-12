@@ -1,5 +1,8 @@
 # Bug: `_handle_final_step_failure` moves original input files
 
+## Status
+Resolved — commit `1c4212d` (2026-02-12), replaced all `os.rename` with `shutil.copy2` in `_handle_final_step_failure`
+
 ## Summary
 
 When running without `--full-output` (default) and with `--warn` (default), if all QC steps fail, `_handle_final_step_failure` calls `os.rename()` on the user's original input pfiles, moving them to the output location. The original files are destroyed.

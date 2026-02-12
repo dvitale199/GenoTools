@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 
@@ -105,14 +107,16 @@ class PipelineRunner:
     SAMPLE_STEPS = ["callrate", "sex", "het", "related", "kinship_check"]
     VARIANT_STEPS = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
-    def __init__(self, args: PipelineArgs) -> None:
+    def __init__(self, args: PipelineArgs, use_new_ancestry: bool = False) -> None:
         """Initialize the pipeline runner.
 
         Args:
             args: Validated pipeline arguments.
+            use_new_ancestry: If True, use new AncestryModel instead of legacy.
         """
         self.args = args
         self.state: Optional[PipelineState] = None
+        self._use_new_ancestry = use_new_ancestry
 
         # These will be set up during run()
         self._ancestry: Any = None
@@ -316,7 +320,10 @@ class PipelineRunner:
         assert self.state is not None
 
         # Run ancestry prediction
-        ancestry_result = self._run_ancestry_prediction()
+        if self._use_new_ancestry:
+            ancestry_result = self._run_ancestry_prediction_new()
+        else:
+            ancestry_result = self._run_ancestry_prediction()
         self.state.ancestry_result = ancestry_result
         self.state.labels_list = ancestry_result["data"]["labels_list"]
 
@@ -421,6 +428,168 @@ class PipelineRunner:
             self._move_ancestry_files(result)
 
         return result
+
+    def _run_ancestry_prediction_new(self) -> Dict[str, Any]:
+        """Run ancestry prediction using the new AncestryModel.
+
+        Uses legacy get_raw_files() for PLINK preprocessing, then
+        delegates to new AncestryModel for the ML pipeline (PCA, UMAP,
+        XGBoost, admixture detection). Cohort splitting reuses legacy
+        split_cohort_ancestry().
+
+        Returns:
+            Ancestry result dictionary in legacy format.
+        """
+        assert self.state is not None
+
+        # Determine output path (same logic as legacy method)
+        has_qc_steps = self.args.has_any_qc_steps()
+        if has_qc_steps:
+            out_path = f"{self.state.out_path}_ancestry"
+        else:
+            out_path = str(self.state.out_path)
+
+        # Use temporary directory if not full output
+        if not self.args.full_output:
+            out_name = pathlib.PurePath(out_path).name
+            actual_out = f"{self.state.tmp_dir.name}/{out_name}"  # type: ignore[union-attr]
+        else:
+            actual_out = out_path
+
+        # Configure legacy Ancestry object for PLINK preprocessing only
+        self._ancestry.geno_path = str(self.state.geno_path)
+        self._ancestry.out_path = actual_out
+        self._ancestry.final_out_path = out_path
+        self._ancestry.ref_panel = (
+            str(self.args.ancestry.ref_panel)
+            if self.args.ancestry.ref_panel
+            else None
+        )
+        self._ancestry.ref_labels = (
+            str(self.args.ancestry.ref_labels)
+            if self.args.ancestry.ref_labels
+            else None
+        )
+        self._ancestry.model_path = None  # Force training path
+        self._ancestry.containerized = False
+        self._ancestry.singularity = False
+        self._ancestry.subset = self.args.ancestry.subset_ancestry
+        self._ancestry.min_samples = self.args.ancestry.min_samples
+        self._ancestry.train = True
+
+        # Step 1: PLINK preprocessing (shared with legacy)
+        raw = self._ancestry.get_raw_files()
+        raw_ref = raw["raw_ref"]
+        raw_geno = raw["raw_geno"]
+
+        # Step 2: Transform data for new AncestryModel
+        labels = pd.Series(
+            raw_ref["label"].values,
+            index=raw_ref["IID"].values,
+            name="label",
+        )
+        ref_data = raw_ref.drop(columns=["label"])
+        geno_data = raw_geno.drop(columns=["label"])
+        geno_ids = raw_geno[["FID", "IID"]]
+
+        # Step 3: Fit new AncestryModel
+        AncestryModel = self._new_modules["AncestryModel"]
+        model = AncestryModel()
+        model.fit(ref_data, labels, out_path=Path(actual_out))
+
+        # Step 4: Predict with new model
+        predictions = model.predict(
+            geno_data,
+            geno_ids,
+            out_path=Path(actual_out),
+            detect_admixed=True,
+        )
+
+        # Step 5: UMAP visualization
+        from ..ancestry.reducers.umap_reducer import run_umap
+
+        ref_pca_path = f"{actual_out}_labeled_ref_pca.txt"
+        projected_pca_path = f"{actual_out}_projected_new_pca.txt"
+
+        ref_pca = pd.read_csv(ref_pca_path, sep="\t")
+        projected_pca = pd.read_csv(projected_pca_path, sep="\t")
+
+        umap_result = run_umap(
+            ref_pca=ref_pca,
+            new_pca=projected_pca,
+            new_labels=predictions.predictions["predicted_ancestry"],
+            params=model.best_params,
+        )
+
+        # Step 6: Cohort splitting (reuse legacy)
+        labels_path = f"{actual_out}_umap_linearsvc_predicted_labels.txt"
+        ancestry_split = self._ancestry.split_cohort_ancestry(
+            labels_path=labels_path
+        )
+
+        # Step 7: Build legacy-format result dict
+        # predict_data.ids must have columns [FID, IID, label]
+        pred_ids = predictions.predictions.rename(
+            columns={"predicted_ancestry": "label"}
+        )
+
+        data_dict: Dict[str, Any] = {
+            "predict_data": {
+                "ids": pred_ids[["FID", "IID", "label"]],
+                "y_pred": predictions.predictions["predicted_ancestry"].values,
+                "label_encoder": model.label_encoder,
+            },
+            "confusion_matrix": (
+                model.training_metrics.confusion_matrix
+                if model.training_metrics
+                else None
+            ),
+            "train_pcs": model._train_pca,
+            "ref_pcs": ref_pca,
+            "projected_pcs": projected_pca,
+            "total_umap": umap_result["total_umap"],
+            "ref_umap": umap_result["ref_umap"],
+            "new_samples_umap": umap_result["new_umap"],
+            "label_encoder": model.label_encoder,
+            "labels_list": ancestry_split["labels"],
+            "pruned_samples": ancestry_split["pruned_samples"],
+        }
+
+        metrics_dict: Dict[str, Any] = {
+            "predicted_counts": predictions.predictions[
+                "predicted_ancestry"
+            ].value_counts(),
+            "test_accuracy": (
+                model.training_metrics.test_accuracy
+                if model.training_metrics
+                else None
+            ),
+        }
+
+        outfiles_dict: Dict[str, Any] = {
+            "predicted_labels": {"labels_outpath": labels_path},
+            "split_paths": ancestry_split["paths"],
+        }
+
+        out_dict: Dict[str, Any] = {
+            "step": "predict_ancestry",
+            "data": data_dict,
+            "metrics": metrics_dict,
+            "output": outfiles_dict,
+        }
+
+        # Cleanup intermediate files
+        files_to_clean = [
+            raw["out_paths"].get("bed", ""),
+            f"{actual_out}_common_snps",
+        ]
+        self._ancestry.clean_up(files_to_clean)
+
+        # Move files if ancestry-only and not full output
+        if not has_qc_steps and not self.args.full_output:
+            self._move_ancestry_files(out_dict)
+
+        return out_dict
 
     def _move_ancestry_files(self, ancestry_result: Dict[str, Any]) -> None:
         """Move ancestry output files from tmp to final location."""
@@ -856,16 +1025,17 @@ class PipelineRunner:
         )
 
 
-def run_pipeline(args: PipelineArgs) -> PipelineOutput:
+def run_pipeline(args: PipelineArgs, use_new_ancestry: bool = False) -> PipelineOutput:
     """Run the GenoTools pipeline.
 
     This is the main entry point for running the pipeline programmatically.
 
     Args:
         args: Validated pipeline arguments.
+        use_new_ancestry: If True, use new AncestryModel instead of legacy.
 
     Returns:
         PipelineOutput containing all results.
     """
-    runner = PipelineRunner(args)
+    runner = PipelineRunner(args, use_new_ancestry=use_new_ancestry)
     return runner.run()
