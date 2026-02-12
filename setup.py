@@ -40,7 +40,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'genotools=genotools.__main__:handle_main',
+            'genotools=genotools.cli:main',
             'genotools-download=genotools.download_refs:handle_download',
         ]
     },

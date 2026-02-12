@@ -254,7 +254,7 @@ class TestPipelineArgs:
             variant_qc=VariantQCArgs(run_geno=True, run_hwe=True),
         )
         steps = args.get_enabled_variant_steps()
-        assert steps == ["hwe", "geno"]
+        assert steps == ["geno", "hwe"]
 
     def test_get_all_enabled_steps_with_assoc(self) -> None:
         """get_all_enabled_steps includes assoc when PCA/GWAS enabled."""

@@ -78,4 +78,21 @@ __all__ = [
     "write_results",
     "build_metrics_dataframe",
     "build_gwas_dataframe",
+    # Entry point
+    "main",
 ]
+
+
+def main():
+    """Main entry point for the genotools CLI."""
+    import sys
+
+    args = parse_args()
+    result = run_pipeline(args)
+
+    # Save output JSON
+    out_path = args.output.out_path
+    result.save(out_path.with_suffix(".json"))
+
+    # Return appropriate exit code
+    sys.exit(0 if result.success else 1)

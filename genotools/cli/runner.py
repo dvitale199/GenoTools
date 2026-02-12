@@ -25,10 +25,11 @@ import logging
 import os
 import pathlib
 import platform
+import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
 
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
@@ -93,8 +94,7 @@ class PipelineRunner:
     """Runs the GenoTools QC and analysis pipeline.
 
     This class orchestrates the execution of QC steps, ancestry prediction,
-    and GWAS analysis. It supports both the new modular architecture and
-    backward compatibility with legacy code.
+    and GWAS analysis using pure function modules.
 
     Attributes:
         args: Validated pipeline arguments.
@@ -103,7 +103,7 @@ class PipelineRunner:
 
     # Step categories
     SAMPLE_STEPS = ["callrate", "sex", "het", "related", "kinship_check"]
-    VARIANT_STEPS = ["case_control", "haplotype", "hwe", "geno", "ld"]
+    VARIANT_STEPS = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
     def __init__(self, args: PipelineArgs) -> None:
         """Initialize the pipeline runner.
@@ -115,11 +115,9 @@ class PipelineRunner:
         self.state: Optional[PipelineState] = None
 
         # These will be set up during run()
-        self._samp_qc: Any = None
-        self._var_qc: Any = None
         self._ancestry: Any = None
-        self._assoc: Any = None
-        self._steps_dict: Dict[str, Callable[..., Dict[str, Any]]] = {}
+        self._new_modules: Dict[str, Any] = {}
+        self._config_classes: Dict[str, Any] = {}
 
     def run(self) -> PipelineOutput:
         """Run the complete pipeline.
@@ -133,14 +131,15 @@ class PipelineRunner:
         # Initialize state
         self._initialize_state()
 
-        # Initialize QC classes (legacy)
-        self._initialize_qc_classes()
+        # Initialize modules
+        self._initialize_modules()
 
-        # Set up logging
-        self._setup_logging()
-
-        # Convert input format if needed
+        # Convert input format if needed (must happen before logging setup
+        # because upfront_check validates that log files don't exist)
         self._convert_input_format()
+
+        # Set up logging (after upfront_check so log file creation doesn't trigger error)
+        self._setup_logging()
 
         # Validate we have something to do
         steps = self.args.get_all_enabled_steps()
@@ -178,34 +177,88 @@ class PipelineRunner:
             current_input=str(self.args.geno_path),
         )
 
-    def _initialize_qc_classes(self) -> None:
-        """Initialize legacy QC classes for backward compatibility."""
-        # Import here to avoid circular imports and allow gradual migration
-        # These imports use the legacy module structure (genotools/qc.py, etc.)
-        # which will be replaced during full integration
-        from ..qc import SampleQC, VariantQC  # type: ignore[attr-defined]
-        from ..ancestry import Ancestry  # type: ignore[attr-defined]
-        from ..gwas import Assoc  # type: ignore[attr-defined]
+    def _initialize_modules(self) -> None:
+        """Initialize QC, GWAS, and ancestry modules."""
+        # Import QC modules
+        from ..qc import (
+            filter_callrate,
+            filter_sex,
+            filter_heterozygosity,
+            filter_relatedness,
+            verify_kinship,
+            filter_case_control,
+            filter_haplotype,
+            filter_hwe,
+            filter_variant_missingness,
+            prune_ld,
+            CallrateConfig,
+            SexConfig,
+            HetConfig,
+            RelatedConfig,
+            CaseControlConfig,
+            HaplotypeConfig,
+            HWEConfig,
+            GenoConfig,
+            LDConfig,
+        )
+        from ..core.genotypes import GenotypeData
 
-        self._samp_qc = SampleQC()
-        self._var_qc = VariantQC()
-        self._ancestry = Ancestry()
-        self._assoc = Assoc()
+        # Import GWAS module
+        from ..gwas import run_association as run_gwas_association, AssocConfig, PCAConfig, GWASConfig
 
-        # Build step dispatch dictionary
-        self._steps_dict = {
-            "callrate": self._samp_qc.run_callrate_prune,
-            "sex": self._samp_qc.run_sex_prune,
-            "het": self._samp_qc.run_het_prune,
-            "related": self._samp_qc.run_related_prune,
-            "kinship_check": self._samp_qc.run_confirming_kinship,
-            "case_control": self._var_qc.run_case_control_prune,
-            "haplotype": self._var_qc.run_haplotype_prune,
-            "hwe": self._var_qc.run_hwe_prune,
-            "geno": self._var_qc.run_geno_prune,
-            "ld": self._var_qc.run_ld_prune,
-            "assoc": self._assoc.run_association,
+        # Import Ancestry module
+        from ..ancestry import AncestryModel, ReferencePanel, AncestryConfig
+
+        # Store module references
+        self._new_modules = {
+            "filter_callrate": filter_callrate,
+            "filter_sex": filter_sex,
+            "filter_heterozygosity": filter_heterozygosity,
+            "filter_relatedness": filter_relatedness,
+            "verify_kinship": verify_kinship,
+            "filter_case_control": filter_case_control,
+            "filter_haplotype": filter_haplotype,
+            "filter_hwe": filter_hwe,
+            "filter_variant_missingness": filter_variant_missingness,
+            "prune_ld": prune_ld,
+            "run_gwas_association": run_gwas_association,
+            "GenotypeData": GenotypeData,
+            "AncestryModel": AncestryModel,
+            "ReferencePanel": ReferencePanel,
         }
+
+        # Store config classes
+        self._config_classes = {
+            "CallrateConfig": CallrateConfig,
+            "SexConfig": SexConfig,
+            "HetConfig": HetConfig,
+            "RelatedConfig": RelatedConfig,
+            "CaseControlConfig": CaseControlConfig,
+            "HaplotypeConfig": HaplotypeConfig,
+            "HWEConfig": HWEConfig,
+            "GenoConfig": GenoConfig,
+            "LDConfig": LDConfig,
+            "AssocConfig": AssocConfig,
+            "PCAConfig": PCAConfig,
+            "GWASConfig": GWASConfig,
+            "AncestryConfig": AncestryConfig,
+        }
+
+        # Load legacy ancestry module (ancestry.py) via importlib
+        # since genotools.ancestry is the new package directory
+        import importlib.util
+        import sys
+        from pathlib import Path as PathLib
+
+        genotools_dir = PathLib(__file__).parent.parent
+        ancestry_spec = importlib.util.spec_from_file_location(
+            "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
+        )
+        legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)  # type: ignore
+        sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
+        ancestry_spec.loader.exec_module(legacy_ancestry)  # type: ignore
+        Ancestry = legacy_ancestry.Ancestry
+        self._ancestry = Ancestry()
 
     def _setup_logging(self) -> None:
         """Set up log files."""
@@ -439,7 +492,7 @@ class PipelineRunner:
                 step_index=i,
                 steps=steps,
                 pass_fail=pass_fail,
-                geno_path=geno_path if self.args.full_output else working_geno,
+                geno_path=geno_path if (self.args.full_output or not self.args.ancestry.run_ancestry) else working_geno,
                 out_path=out_path,
                 working_out=working_out,
             )
@@ -590,7 +643,7 @@ class PipelineRunner:
         step_output: str,
         legacy_args: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """Run a single QC step.
+        """Run a single QC step using pure function modules.
 
         Args:
             step: Step name.
@@ -599,55 +652,94 @@ class PipelineRunner:
             legacy_args: Legacy argument dictionary.
 
         Returns:
-            Step result dictionary or None if step skipped.
+            Step result dictionary in legacy format, or None if step skipped.
         """
-        if step in self.SAMPLE_STEPS:
-            self._samp_qc.geno_path = step_input
-            self._samp_qc.out_path = step_output
+        GenotypeData = self._new_modules["GenotypeData"]
 
-            if step == "related":
-                return self._steps_dict[step](
-                    related_cutoff=legacy_args["related_cutoff"],
-                    duplicated_cutoff=legacy_args["duplicated_cutoff"],
-                    prune_related=legacy_args["prune_related"],
-                    prune_duplicated=legacy_args["prune_duplicated"],
-                )
-            elif step == "kinship_check":
-                if platform.system() != "Linux":
-                    print("Relatedness Assessment can only run on a Linux OS!")
-                    return None
-                return self._steps_dict[step]()
-            else:
-                return self._steps_dict[step](legacy_args[step])
+        # Load input data
+        data = GenotypeData.from_path(Path(step_input))
 
-        elif step in self.VARIANT_STEPS:
-            self._var_qc.geno_path = step_input
-            self._var_qc.out_path = step_output
+        # Map step names to functions and config creation
+        if step == "callrate":
+            config = self._config_classes["CallrateConfig"](mind=legacy_args["callrate"])
+            result = self._new_modules["filter_callrate"](data, config, Path(step_output))
+            return result.to_dict()
 
-            if step == "hwe":
-                return self._steps_dict[step](
-                    hwe_threshold=legacy_args["hwe"],
-                    filter_controls=legacy_args["filter_controls"],
-                )
-            elif step == "ld":
-                return self._steps_dict[step](
-                    window_size=legacy_args["ld"][0],
-                    step_size=legacy_args["ld"][1],
-                    r2_threshold=legacy_args["ld"][2],
-                )
-            else:
-                return self._steps_dict[step](legacy_args[step])
+        elif step == "sex":
+            sex_vals = legacy_args["sex"]
+            config = self._config_classes["SexConfig"](female_max_f=sex_vals[0], male_min_f=sex_vals[1])
+            result = self._new_modules["filter_sex"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "het":
+            het_vals = legacy_args["het"]
+            config = self._config_classes["HetConfig"](f_lower=het_vals[0], f_upper=het_vals[1])
+            result = self._new_modules["filter_heterozygosity"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "related":
+            config = self._config_classes["RelatedConfig"](
+                related_cutoff=legacy_args["related_cutoff"],
+                duplicated_cutoff=legacy_args["duplicated_cutoff"],
+                prune_related=legacy_args["prune_related"],
+                prune_duplicated=legacy_args["prune_duplicated"],
+            )
+            result = self._new_modules["filter_relatedness"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "kinship_check":
+            if platform.system() != "Linux":
+                print("Relatedness Assessment can only run on a Linux OS!")
+                return None
+            result = self._new_modules["verify_kinship"](data, Path(step_output))
+            return result.to_dict()
+
+        elif step == "case_control":
+            config = self._config_classes["CaseControlConfig"](p_threshold=legacy_args["case_control"])
+            result = self._new_modules["filter_case_control"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "haplotype":
+            config = self._config_classes["HaplotypeConfig"](p_threshold=legacy_args["haplotype"])
+            result = self._new_modules["filter_haplotype"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "hwe":
+            config = self._config_classes["HWEConfig"](
+                hwe_threshold=legacy_args["hwe"],
+                filter_controls=legacy_args["filter_controls"],
+            )
+            result = self._new_modules["filter_hwe"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "geno":
+            config = self._config_classes["GenoConfig"](geno=legacy_args["geno"])
+            result = self._new_modules["filter_variant_missingness"](data, config, Path(step_output))
+            return result.to_dict()
+
+        elif step == "ld":
+            ld_vals = legacy_args["ld"]
+            config = self._config_classes["LDConfig"](
+                window_size=ld_vals[0],
+                step_size=ld_vals[1],
+                r2_threshold=ld_vals[2],
+            )
+            result = self._new_modules["prune_ld"](data, config, Path(step_output))
+            return result.to_dict()
 
         elif step == "assoc":
-            self._assoc.geno_path = step_input
-            self._assoc.out_path = step_output
-            self._assoc.pca = legacy_args["pca"]
-            self._assoc.build = legacy_args["build"]
-            self._assoc.gwas = legacy_args["gwas"]
-            self._assoc.covar_path = legacy_args["covars"]
-            self._assoc.covar_names = legacy_args["covar_names"]
-            self._assoc.maf_lambdas = legacy_args["maf_lambdas"]
-            return self._steps_dict[step]()
+            config = self._config_classes["AssocConfig"](
+                pca=self._config_classes["PCAConfig"](
+                    build=legacy_args.get("build", "hg38"),
+                ) if legacy_args.get("pca") else None,
+                gwas=self._config_classes["GWASConfig"](
+                    maf_lambdas=legacy_args.get("maf_lambdas", False),
+                ) if legacy_args.get("gwas") else None,
+                run_pca=legacy_args.get("pca", False),
+                run_gwas=legacy_args.get("gwas", False),
+            )
+            result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
+            return result.to_dict()
 
         return None
 
@@ -721,32 +813,34 @@ class PipelineRunner:
 
         # Find last passed output
         last_passed_output = None
+        last_passed_step_name = None
         for step_name in steps[:-1]:
             if step_name in pass_fail and pass_fail[step_name].status:
                 last_passed_output = pass_fail[step_name].output_path
+                last_passed_step_name = step_name
 
         if last_passed_output and os.path.isfile(f"{last_passed_output}.pgen"):
-            os.rename(f"{last_passed_output}.pgen", f"{out_path}.pgen")
-            os.rename(f"{last_passed_output}.psam", f"{out_path}.psam")
-            os.rename(f"{last_passed_output}.pvar", f"{out_path}.pvar")
+            shutil.copy2(f"{last_passed_output}.pgen", f"{out_path}.pgen")
+            shutil.copy2(f"{last_passed_output}.psam", f"{out_path}.psam")
+            shutil.copy2(f"{last_passed_output}.pvar", f"{out_path}.pvar")
         elif last_passed_output:
             # All samples/variants pruned
-            input_path = pass_fail[last_passed_output].input_path
+            input_path = pass_fail[last_passed_step_name].input_path
             if os.path.isfile(f"{input_path}.pgen"):
-                os.rename(f"{input_path}.pgen", f"{out_path}.pgen")
-                os.rename(f"{input_path}.psam", f"{out_path}.psam")
-                os.rename(f"{input_path}.pvar", f"{out_path}.pvar")
+                shutil.copy2(f"{input_path}.pgen", f"{out_path}.pgen")
+                shutil.copy2(f"{input_path}.psam", f"{out_path}.psam")
+                shutil.copy2(f"{input_path}.pvar", f"{out_path}.pvar")
         else:
-            # No steps passed - use original input
+            # No steps passed - copy (never rename) to preserve originals
             move_path = (
                 geno_path
                 if self.args.full_output or not self.args.ancestry.run_ancestry
                 else working_geno
             )
             if os.path.isfile(f"{move_path}.pgen"):
-                os.rename(f"{move_path}.pgen", f"{out_path}.pgen")
-                os.rename(f"{move_path}.psam", f"{out_path}.psam")
-                os.rename(f"{move_path}.pvar", f"{out_path}.pvar")
+                shutil.copy2(f"{move_path}.pgen", f"{out_path}.pgen")
+                shutil.copy2(f"{move_path}.psam", f"{out_path}.psam")
+                shutil.copy2(f"{move_path}.pvar", f"{out_path}.pvar")
 
     def _build_output(self) -> PipelineOutput:
         """Build the final pipeline output.

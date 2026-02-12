@@ -39,11 +39,11 @@ class QCMetrics:
     """QC step metrics."""
 
     step: str
-    pruned_count: int
+    count: int
     metric: str
     ancestry: str = "all"
     level: str = "sample"  # or "variant"
-    passed: bool = True
+    passed: bool = True  # Internal field, serialized as "pass"
 
 
 @dataclass
@@ -95,6 +95,21 @@ class PipelineOutput:
     pruned_samples: Optional[pd.DataFrame] = None
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    @property
+    def success(self) -> bool:
+        """Check if pipeline completed successfully.
+
+        Returns True if all steps passed (or if no steps were run).
+        """
+        for key, value in self.pass_fail.items():
+            if isinstance(value, dict):
+                # Check nested pass_fail structure (e.g., "pass_fail" or "EUR_pass_fail")
+                for step_name, step_info in value.items():
+                    if isinstance(step_info, dict) and "status" in step_info:
+                        if not step_info["status"]:
+                            return False
+        return True
 
     @classmethod
     def from_runner_state(
@@ -189,7 +204,7 @@ class PipelineOutput:
         related_dfs: List[pd.DataFrame] = []
 
         sample_steps = ["callrate", "sex", "het", "related"]
-        variant_steps = ["case_control", "haplotype", "hwe", "geno", "ld"]
+        variant_steps = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
         # Process ancestry-specific results
         if hasattr(state, "ancestry_results"):
@@ -277,7 +292,7 @@ class PipelineOutput:
                     metrics_list.append(
                         QCMetrics(
                             step=step_result.get("step", step),
-                            pruned_count=value,
+                            count=value,
                             metric=metric,
                             ancestry=ancestry,
                             level=level,
@@ -361,7 +376,7 @@ class PipelineOutput:
             qc_df = pd.DataFrame([
                 {
                     "step": m.step,
-                    "pruned_count": m.pruned_count,
+                    "count": m.count,
                     "metric": m.metric,
                     "ancestry": m.ancestry,
                     "level": m.level,
@@ -443,7 +458,7 @@ def build_metrics_dataframe(metrics: List[QCMetrics]) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "step": m.step,
-            "pruned_count": m.pruned_count,
+            "count": m.count,
             "metric": m.metric,
             "ancestry": m.ancestry,
             "level": m.level,
