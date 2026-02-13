@@ -637,7 +637,7 @@ Examples:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Pre-trained ancestry model pickle file",
+        help="Pre-trained ancestry model directory (or legacy .pkl file)",
     )
     ancestry_group.add_argument(
         "--container",

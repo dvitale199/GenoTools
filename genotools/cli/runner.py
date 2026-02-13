@@ -437,10 +437,16 @@ class PipelineRunner:
         XGBoost, admixture detection). Cohort splitting reuses legacy
         split_cohort_ancestry().
 
+        Supports two modes:
+        - **Training** (default): Train a new model from reference panel.
+        - **Inference** (``--model``): Load a pre-trained model directory.
+
         Returns:
             Ancestry result dictionary in legacy format.
         """
         assert self.state is not None
+
+        AncestryModel = self._new_modules["AncestryModel"]
 
         # Determine output path (same logic as legacy method)
         has_qc_steps = self.args.has_any_qc_steps()
@@ -456,7 +462,11 @@ class PipelineRunner:
         else:
             actual_out = out_path
 
-        # Configure legacy Ancestry object for PLINK preprocessing only
+        # Determine training vs inference mode
+        model_path = self.args.ancestry.model_path
+        is_inference = model_path is not None
+
+        # Configure shared legacy Ancestry fields
         self._ancestry.geno_path = str(self.state.geno_path)
         self._ancestry.out_path = actual_out
         self._ancestry.final_out_path = out_path
@@ -470,65 +480,44 @@ class PipelineRunner:
             if self.args.ancestry.ref_labels
             else None
         )
-        self._ancestry.model_path = None  # Force training path
         self._ancestry.containerized = False
         self._ancestry.singularity = False
         self._ancestry.subset = self.args.ancestry.subset_ancestry
         self._ancestry.min_samples = self.args.ancestry.min_samples
-        self._ancestry.train = True
 
-        # Step 1: PLINK preprocessing (shared with legacy)
-        raw = self._ancestry.get_raw_files()
-        raw_ref = raw["raw_ref"]
-        raw_geno = raw["raw_geno"]
+        if is_inference:
+            model, predictions, ref_pca, raw = self._run_inference_mode(
+                AncestryModel, model_path, actual_out
+            )
+        else:
+            model, predictions, ref_pca, raw = self._run_training_mode(
+                AncestryModel, actual_out, out_path
+            )
 
-        # Step 2: Transform data for new AncestryModel
-        labels = pd.Series(
-            raw_ref["label"].values,
-            index=raw_ref["IID"].values,
-            name="label",
-        )
-        ref_data = raw_ref.drop(columns=["label"])
-        geno_data = raw_geno.drop(columns=["label"])
-        geno_ids = raw_geno[["FID", "IID"]]
+        # --- Common post-processing (both modes) ---
 
-        # Step 3: Fit new AncestryModel
-        AncestryModel = self._new_modules["AncestryModel"]
-        model = AncestryModel()
-        model.fit(ref_data, labels, out_path=Path(actual_out))
-
-        # Step 4: Predict with new model
-        predictions = model.predict(
-            geno_data,
-            geno_ids,
-            out_path=Path(actual_out),
-            detect_admixed=True,
-        )
-
-        # Step 5: UMAP visualization
+        # UMAP visualization
         from ..ancestry.reducers.umap_reducer import run_umap
 
-        ref_pca_path = f"{actual_out}_labeled_ref_pca.txt"
         projected_pca_path = f"{actual_out}_projected_new_pca.txt"
-
-        ref_pca = pd.read_csv(ref_pca_path, sep="\t")
         projected_pca = pd.read_csv(projected_pca_path, sep="\t")
 
-        umap_result = run_umap(
-            ref_pca=ref_pca,
-            new_pca=projected_pca,
-            new_labels=predictions.predictions["predicted_ancestry"],
-            params=model.best_params,
-        )
+        umap_result: Optional[Dict[str, Any]] = None
+        if ref_pca is not None:
+            umap_result = run_umap(
+                ref_pca=ref_pca,
+                new_pca=projected_pca,
+                new_labels=predictions.predictions["predicted_ancestry"],
+                params=model.best_params,
+            )
 
-        # Step 6: Cohort splitting (reuse legacy)
+        # Cohort splitting (reuse legacy)
         labels_path = f"{actual_out}_umap_linearsvc_predicted_labels.txt"
         ancestry_split = self._ancestry.split_cohort_ancestry(
             labels_path=labels_path
         )
 
-        # Step 7: Build legacy-format result dict
-        # predict_data.ids must have columns [FID, IID, label]
+        # Build legacy-format result dict
         pred_ids = predictions.predictions.rename(
             columns={"predicted_ancestry": "label"}
         )
@@ -547,13 +536,16 @@ class PipelineRunner:
             "train_pcs": model._train_pca,
             "ref_pcs": ref_pca,
             "projected_pcs": projected_pca,
-            "total_umap": umap_result["total_umap"],
-            "ref_umap": umap_result["ref_umap"],
-            "new_samples_umap": umap_result["new_umap"],
+            "total_umap": umap_result["total_umap"] if umap_result else None,
+            "ref_umap": umap_result["ref_umap"] if umap_result else None,
+            "new_samples_umap": umap_result["new_umap"] if umap_result else None,
             "label_encoder": model.label_encoder,
             "labels_list": ancestry_split["labels"],
             "pruned_samples": ancestry_split["pruned_samples"],
         }
+
+        if model.common_snps is not None:
+            data_dict["common_snps"] = model.common_snps
 
         metrics_dict: Dict[str, Any] = {
             "predicted_counts": predictions.predictions[
@@ -590,6 +582,134 @@ class PipelineRunner:
             self._move_ancestry_files(out_dict)
 
         return out_dict
+
+    def _run_training_mode(
+        self,
+        AncestryModel: type,
+        actual_out: str,
+        out_path: str,
+    ) -> tuple:
+        """Train a new AncestryModel from reference panel.
+
+        Args:
+            AncestryModel: The AncestryModel class.
+            actual_out: Output path prefix (may be temp dir).
+            out_path: Final output path (for saving model).
+
+        Returns:
+            Tuple of (model, predictions, ref_pca, raw).
+        """
+        self._ancestry.model_path = None
+        self._ancestry.train = True
+
+        # PLINK preprocessing
+        raw = self._ancestry.get_raw_files()
+        raw_ref = raw["raw_ref"]
+        raw_geno = raw["raw_geno"]
+
+        # Transform data for AncestryModel
+        labels = pd.Series(
+            raw_ref["label"].values,
+            index=raw_ref["IID"].values,
+            name="label",
+        )
+        ref_data = raw_ref.drop(columns=["label"])
+        geno_data = raw_geno.drop(columns=["label"])
+        geno_ids = raw_geno[["FID", "IID"]]
+
+        # Capture common SNPs from ref column names
+        snp_columns = [c for c in ref_data.columns if c not in ("FID", "IID")]
+
+        # Fit model
+        model = AncestryModel()
+        model.fit(ref_data, labels, out_path=Path(actual_out))
+
+        # Store common SNPs and save model directory to final output path
+        model.common_snps = list(snp_columns)
+        model_save_dir = Path(f"{out_path}_ancestry_model")
+        model.save(model_save_dir)
+        logger.info(f"Ancestry model saved to: {model_save_dir}")
+
+        # Predict
+        predictions = model.predict(
+            geno_data,
+            geno_ids,
+            out_path=Path(actual_out),
+            detect_admixed=True,
+        )
+
+        # Load ref PCA written by fit()
+        ref_pca_path = f"{actual_out}_labeled_ref_pca.txt"
+        ref_pca = pd.read_csv(ref_pca_path, sep="\t")
+
+        return model, predictions, ref_pca, raw
+
+    def _run_inference_mode(
+        self,
+        AncestryModel: type,
+        model_path: Path,
+        actual_out: str,
+    ) -> tuple:
+        """Load a pre-trained AncestryModel and predict.
+
+        Args:
+            AncestryModel: The AncestryModel class.
+            model_path: Path to model directory (or legacy .pkl).
+            actual_out: Output path prefix.
+
+        Returns:
+            Tuple of (model, predictions, ref_pca, raw).
+        """
+        model = AncestryModel.load(model_path)
+        logger.info(f"Loaded pre-trained ancestry model from: {model_path}")
+
+        # Write common SNPs to temp file for legacy get_raw_files(train=False)
+        if model.common_snps is not None:
+            common_snps_file = f"{actual_out}_loaded_model.common_snps"
+            with open(common_snps_file, "w") as f:
+                for snp in model.common_snps:
+                    f.write(f"{snp}\n")
+            # Legacy get_raw_files() derives .common_snps path from model_path
+            self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
+        else:
+            # Fall back: try common_snps.txt in model directory
+            model_dir = Path(model_path)
+            if model_dir.is_dir():
+                snps_file = model_dir / "common_snps.txt"
+                if snps_file.exists():
+                    common_snps_file = f"{actual_out}_loaded_model.common_snps"
+                    shutil.copy2(snps_file, common_snps_file)
+                    self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
+                else:
+                    raise FileNotFoundError(
+                        f"No common_snps found in model: {model_path}"
+                    )
+            else:
+                raise FileNotFoundError(
+                    f"No common_snps in model and path is not a directory: "
+                    f"{model_path}"
+                )
+
+        self._ancestry.train = False
+
+        # PLINK preprocessing (uses common SNPs for feature alignment)
+        raw = self._ancestry.get_raw_files()
+        raw_geno = raw["raw_geno"]
+        geno_data = raw_geno.drop(columns=["label"])
+        geno_ids = raw_geno[["FID", "IID"]]
+
+        # Skip fit(), go straight to predict()
+        predictions = model.predict(
+            geno_data,
+            geno_ids,
+            out_path=Path(actual_out),
+            detect_admixed=True,
+        )
+
+        # Use training PCA as ref PCA for UMAP visualization
+        ref_pca = model._train_pca
+
+        return model, predictions, ref_pca, raw
 
     def _move_ancestry_files(self, ancestry_result: Dict[str, Any]) -> None:
         """Move ancestry output files from tmp to final location."""

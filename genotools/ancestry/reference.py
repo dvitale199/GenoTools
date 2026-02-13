@@ -333,8 +333,8 @@ def validate_model_files(model_dir: Path) -> Dict[str, Path]:
         FileNotFoundError: If required files are missing.
     """
     required_files = {
-        "model": "*.pkl",
-        "common_snps": "*.common_snps",
+        "model": "pipeline.pkl",
+        "common_snps": "common_snps.txt",
     }
 
     found_files: Dict[str, Path] = {}

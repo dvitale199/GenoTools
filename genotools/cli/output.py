@@ -85,6 +85,7 @@ class PipelineOutput:
     ancestry_labels: Optional[pd.DataFrame] = None
     confusion_matrix: Optional[pd.DataFrame] = None
     test_accuracy: Optional[float] = None
+    common_snps: Optional[List[str]] = None
     ref_pcs: Optional[pd.DataFrame] = None
     projected_pcs: Optional[pd.DataFrame] = None
     total_umap: Optional[pd.DataFrame] = None
@@ -187,6 +188,10 @@ class PipelineOutput:
         # Test accuracy
         if "metrics" in ancestry_result and "test_accuracy" in ancestry_result["metrics"]:
             self.test_accuracy = ancestry_result["metrics"]["test_accuracy"]
+
+        # Common SNPs
+        if "data" in ancestry_result and "common_snps" in ancestry_result["data"]:
+            self.common_snps = ancestry_result["data"]["common_snps"]
 
     def _process_qc_results(
         self,
@@ -358,6 +363,8 @@ class PipelineOutput:
             result["confusion_matrix"] = self.confusion_matrix.to_dict()
         if self.test_accuracy is not None:
             result["test_accuracy"] = self.test_accuracy
+        if self.common_snps is not None:
+            result["common_snps"] = self.common_snps
 
         # PCA/UMAP data
         if self.ref_pcs is not None:

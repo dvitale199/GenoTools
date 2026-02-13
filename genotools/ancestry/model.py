@@ -43,6 +43,7 @@ Example:
     >>> loaded = AncestryModel.load(Path("model.pkl"))
 """
 
+import json
 import logging
 import os
 import pickle
@@ -115,6 +116,7 @@ class AncestryModel:
     training_metrics: Optional[TrainingMetrics] = field(default=None, repr=False)
     _is_fitted: bool = field(default=False, repr=False)
     _train_pca: Optional[pd.DataFrame] = field(default=None, repr=False)
+    common_snps: Optional[List[str]] = field(default=None, repr=False)
 
     @property
     def is_fitted(self) -> bool:
@@ -557,13 +559,18 @@ class AncestryModel:
         )
 
     def save(self, path: Path) -> Path:
-        """Save fitted model to file.
+        """Save fitted model to a directory.
+
+        Creates a directory at ``path`` containing:
+        - ``pipeline.pkl``: Full pickled AncestryModel.
+        - ``common_snps.txt``: Plain text rsIDs, one per line.
+        - ``metadata.json``: Config, best_params, training_metrics.
 
         Args:
-            path: Output file path (should end in .pkl).
+            path: Output directory path.
 
         Returns:
-            Path to saved file.
+            Path to the saved directory.
 
         Raises:
             AncestryError: If model not fitted.
@@ -571,31 +578,93 @@ class AncestryModel:
         if not self._is_fitted:
             raise AncestryError("Cannot save unfitted model")
 
-        with open(path, "wb") as f:
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        # Full pickle
+        pkl_path = path / "pipeline.pkl"
+        with open(pkl_path, "wb") as f:
             pickle.dump(self, f)
 
-        logger.info(f"Model saved to: {path}")
+        # Common SNPs (plain text, one per line)
+        if self.common_snps is not None:
+            snps_path = path / "common_snps.txt"
+            with open(snps_path, "w") as f:
+                for snp in self.common_snps:
+                    f.write(f"{snp}\n")
+
+        # Human-readable metadata
+        metadata = self._build_metadata()
+        meta_path = path / "metadata.json"
+        with open(meta_path, "w") as f:
+            json.dump(metadata, f, indent=2, default=str)
+
+        logger.info(f"Model saved to directory: {path}")
         return path
+
+    def _build_metadata(self) -> Dict[str, Any]:
+        """Build metadata dictionary for JSON serialization."""
+        metadata: Dict[str, Any] = {}
+
+        metadata["config"] = self.config.to_dict()
+
+        if self.best_params is not None:
+            metadata["best_params"] = self.best_params
+
+        if self.training_metrics is not None:
+            metadata["training_metrics"] = self.training_metrics.to_dict()
+
+        if self.common_snps is not None:
+            metadata["n_common_snps"] = len(self.common_snps)
+
+        return metadata
 
     @classmethod
     def load(cls, path: Path) -> "AncestryModel":
-        """Load fitted model from file.
+        """Load fitted model from a directory or legacy pickle file.
+
+        Supports two formats:
+        - **Directory format**: reads ``pipeline.pkl`` from the directory.
+          If the pickle lacks ``common_snps``, falls back to
+          ``common_snps.txt`` in the same directory.
+        - **Legacy format**: reads a single ``.pkl`` file directly.
 
         Args:
-            path: Path to saved model file.
+            path: Path to model directory or legacy ``.pkl`` file.
 
         Returns:
             Loaded AncestryModel.
 
         Raises:
-            FileNotFoundError: If file doesn't exist.
+            FileNotFoundError: If path doesn't exist.
             AncestryError: If file contains invalid model.
         """
+        path = Path(path)
         if not path.exists():
-            raise FileNotFoundError(f"Model file not found: {path}")
+            raise FileNotFoundError(f"Model not found: {path}")
 
-        with open(path, "rb") as f:
-            model = pickle.load(f)
+        if path.is_dir():
+            # Directory format
+            pkl_path = path / "pipeline.pkl"
+            if not pkl_path.exists():
+                raise FileNotFoundError(
+                    f"pipeline.pkl not found in model directory: {path}"
+                )
+            with open(pkl_path, "rb") as f:
+                model = pickle.load(f)
+
+            # Back-fill common_snps from text file if missing in pickle
+            if getattr(model, "common_snps", None) is None:
+                snps_path = path / "common_snps.txt"
+                if snps_path.exists():
+                    with open(snps_path, "r") as f:
+                        model.common_snps = [
+                            line.strip() for line in f if line.strip()
+                        ]
+        else:
+            # Legacy single-file format
+            with open(path, "rb") as f:
+                model = pickle.load(f)
 
         if not isinstance(model, cls):
             raise AncestryError(
@@ -604,6 +673,30 @@ class AncestryModel:
 
         logger.info(f"Model loaded from: {path}")
         return model
+
+    @staticmethod
+    def load_common_snps(model_dir: Path) -> List[str]:
+        """Load common SNPs list from a model directory.
+
+        This reads only the plain-text ``common_snps.txt`` file without
+        deserializing the full pickle, which avoids dependency issues.
+
+        Args:
+            model_dir: Path to model directory.
+
+        Returns:
+            List of rsID strings.
+
+        Raises:
+            FileNotFoundError: If ``common_snps.txt`` not found.
+        """
+        snps_path = Path(model_dir) / "common_snps.txt"
+        if not snps_path.exists():
+            raise FileNotFoundError(
+                f"common_snps.txt not found in: {model_dir}"
+            )
+        with open(snps_path, "r") as f:
+            return [line.strip() for line in f if line.strip()]
 
 
 def load_trained_pipeline(
