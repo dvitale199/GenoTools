@@ -267,3 +267,180 @@ def load_golden_metrics(golden_dir: Path, step_name: str) -> Optional[dict]:
 
     with open(metrics_path) as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Genotype-content comparison
+#
+# compare_pfiles only diffs sample/variant ID *sets*. For true old-vs-new
+# parity we must also confirm the surviving genotype matrix is identical --
+# a regression that keeps the same IDs but corrupts genotypes or flips allele
+# coding would otherwise pass. These helpers export pfiles to PLINK2 .traw
+# (variant x sample additive-dosage matrix) and compare order-independently.
+# ---------------------------------------------------------------------------
+
+_TRAW_META_COLS = ["CHR", "SNP", "(C)M", "POS", "COUNTED", "ALT"]
+
+
+def _compare_traw_files(expected: Path, actual: Path) -> ComparisonResult:
+    """Compare two PLINK2 .traw genotype matrices, order-independently.
+
+    Aligns on variant ID (SNP) and sample column, then compares allele coding
+    (COUNTED/ALT) and per-cell genotype dosages. Matching missing values (NA in
+    the same cell of both files) count as equal.
+
+    Args:
+        expected: Path to the expected .traw file.
+        actual: Path to the actual .traw file.
+
+    Returns:
+        ComparisonResult. `mismatched_variants` lists variants that differ in
+        coding or genotype; `variant_diff` aggregates ID-set and content diffs.
+    """
+    exp = pd.read_csv(expected, sep="\t", low_memory=False)
+    act = pd.read_csv(actual, sep="\t", low_memory=False)
+
+    exp_samples = [c for c in exp.columns if c not in _TRAW_META_COLS]
+    act_samples = [c for c in act.columns if c not in _TRAW_META_COLS]
+
+    exp = exp.set_index("SNP")
+    act = act.set_index("SNP")
+
+    exp_snps, act_snps = set(exp.index), set(act.index)
+    missing_snps = exp_snps - act_snps
+    extra_snps = act_snps - exp_snps
+    common_snps = sorted(exp_snps & act_snps)
+
+    exp_ids, act_ids = set(exp_samples), set(act_samples)
+    missing_ids = exp_ids - act_ids
+    extra_ids = act_ids - exp_ids
+    common_ids = sorted(exp_ids & act_ids)
+
+    mismatched_variants: set = set()
+    genotype_mismatches = 0
+    coding_mismatches = 0
+
+    if common_snps:
+        e = exp.loc[common_snps]
+        a = act.loc[common_snps]
+
+        # Allele-coding differences (COUNTED / ALT) per variant
+        coding_diff = (
+            (e["COUNTED"].astype(str).values != a["COUNTED"].astype(str).values)
+            | (e["ALT"].astype(str).values != a["ALT"].astype(str).values)
+        )
+        coding_mismatches = int(coding_diff.sum())
+        for i, snp in enumerate(common_snps):
+            if coding_diff[i]:
+                mismatched_variants.add(snp)
+
+        # Per-cell genotype differences on shared samples
+        if common_ids:
+            eg = e[common_ids]
+            ag = a[common_ids]
+            neq = eg.values != ag.values
+            both_nan = pd.isna(eg.values) & pd.isna(ag.values)
+            cell_diff = neq & ~both_nan
+            genotype_mismatches = int(cell_diff.sum())
+            row_has_diff = cell_diff.any(axis=1)
+            for i, snp in enumerate(common_snps):
+                if row_has_diff[i]:
+                    mismatched_variants.add(snp)
+
+    sample_diff = len(missing_ids) + len(extra_ids)
+    id_variant_diff = len(missing_snps) + len(extra_snps)
+
+    equal = (
+        sample_diff == 0
+        and id_variant_diff == 0
+        and genotype_mismatches == 0
+        and coding_mismatches == 0
+    )
+
+    message = (
+        f"variants: missing {len(missing_snps)}, extra {len(extra_snps)}; "
+        f"samples: missing {len(missing_ids)}, extra {len(extra_ids)}; "
+        f"coding mismatches {coding_mismatches}; "
+        f"genotype cell mismatches {genotype_mismatches}"
+    )
+
+    return ComparisonResult(
+        equal=equal,
+        sample_diff=sample_diff,
+        variant_diff=id_variant_diff + len(mismatched_variants),
+        mismatched_samples=sorted(missing_ids | extra_ids),
+        mismatched_variants=sorted(mismatched_variants) + sorted(missing_snps | extra_snps),
+        message=message,
+    )
+
+
+def _resolve_plink2() -> Optional[str]:
+    """Locate a plink2 executable (PATH, then the genotools cache)."""
+    import shutil
+
+    found = shutil.which("plink2")
+    if found:
+        return found
+    candidate = Path.home() / ".genotools" / "misc" / "executables" / "plink2"
+    return str(candidate) if candidate.exists() else None
+
+
+def _export_traw(prefix: Path, plink2_exec: str, out_prefix: Path) -> Path:
+    """Export a pfile set to a .traw genotype matrix via PLINK2."""
+    import subprocess
+
+    cmd = [
+        plink2_exec,
+        "--pfile", str(prefix),
+        "--export", "A-transpose",
+        "--out", str(out_prefix),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    traw = out_prefix.with_suffix(".traw")
+    if result.returncode != 0 or not traw.exists():
+        raise RuntimeError(
+            f"plink2 --export A-transpose failed for {prefix} "
+            f"(returncode {result.returncode}):\n{result.stderr}"
+        )
+    return traw
+
+
+def compare_genotypes(
+    expected_prefix: Path,
+    actual_prefix: Path,
+    plink2_exec: Optional[str] = None,
+) -> ComparisonResult:
+    """Compare the genotype content of two pfile sets.
+
+    Exports both to PLINK2 .traw and compares order-independently. Detects
+    same-ID-but-different-genotype / flipped-coding regressions that
+    compare_pfiles cannot see. Requires a PLINK2 executable.
+
+    Args:
+        expected_prefix: Path prefix for expected pfiles (without extension).
+        actual_prefix: Path prefix for actual pfiles (without extension).
+        plink2_exec: Path to plink2; auto-resolved from PATH/genotools cache
+            if omitted.
+
+    Returns:
+        ComparisonResult over the genotype matrices.
+
+    Raises:
+        RuntimeError: If plink2 cannot be found or an export fails.
+    """
+    import tempfile
+
+    expected_prefix = Path(expected_prefix)
+    actual_prefix = Path(actual_prefix)
+
+    plink2 = plink2_exec or _resolve_plink2()
+    if plink2 is None:
+        raise RuntimeError(
+            "plink2 executable not found; pass plink2_exec=... explicitly"
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        exp_traw = _export_traw(expected_prefix, plink2, tdp / "expected")
+        act_traw = _export_traw(actual_prefix, plink2, tdp / "actual")
+        return _compare_traw_files(exp_traw, act_traw)
