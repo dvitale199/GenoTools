@@ -359,10 +359,15 @@ def _process_logistic_results(
         n_controls=n_controls,
     )
 
+    lambda_1000_str = (
+        f"{inflation.lambda_1000:.4f}"
+        if inflation.lambda_1000 is not None
+        else "N/A"
+    )
     logger.info(
         f"GWAS complete: {n_variants} variants tested, "
         f"lambda={inflation.lambda_gc:.4f}, "
-        f"lambda1000={inflation.lambda_1000:.4f if inflation.lambda_1000 else 'N/A'}"
+        f"lambda1000={lambda_1000_str}"
     )
 
     return GWASResult(

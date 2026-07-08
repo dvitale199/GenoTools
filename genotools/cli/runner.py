@@ -35,6 +35,7 @@ import pandas as pd
 
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
+from ..core.exceptions import GenoToolsError
 
 logger = logging.getLogger(__name__)
 
@@ -803,13 +804,29 @@ class PipelineRunner:
                 )
                 continue
 
-            # Run the step
-            result = self._run_single_step(
-                step=step,
-                step_input=step_input,
-                step_output=step_output,
-                legacy_args=legacy_args,
-            )
+            # Run the step. Refactored steps signal failure by raising a
+            # GenoToolsError (QCError/ExternalToolError/...). Under --warn we
+            # record the failure and continue from the last passed output;
+            # otherwise we fail fast.
+            try:
+                result = self._run_single_step(
+                    step=step,
+                    step_input=step_input,
+                    step_output=step_output,
+                    legacy_args=legacy_args,
+                )
+            except GenoToolsError as e:
+                logger.error(f"Step {step} failed: {e}")
+                if not self.args.warn_only:
+                    raise
+                print(f"Step {step} failed but continuing (--warn): {e}")
+                pass_fail[step] = PassFailRecord(
+                    status=False,
+                    input_path=step_input,
+                    output_path=step_output,
+                    error=str(e),
+                )
+                continue
 
             if result is not None:
                 out_dict[step] = result
