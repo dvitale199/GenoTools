@@ -229,13 +229,22 @@ def run_gwas(
         pheno_path = _create_phenotype_file(data, config.pheno_name)
         logger.debug(f"Created phenotype file: {pheno_path}")
 
-        # Build PLINK2 command
+        # Build PLINK2 command. glm_options is a space-separated string of --glm
+        # modifiers; each must be a separate argv token. The legacy code relied
+        # on shell_do splitting the whole command on whitespace, but run_command
+        # passes list elements verbatim, so an un-split string reaches PLINK2 as
+        # one giant (invalid) --glm argument. allow-no-covars is itself a --glm
+        # modifier, so it must stay in the --glm group when no covariates apply.
         plink2 = get_plink2()
+        glm_args = config.glm_options.split()
+        if covar_path is None:
+            glm_args.append("allow-no-covars")
+
         cmd = [
             str(plink2),
             "--pfile" if data.format == "pfile" else "--bfile",
             str(data.path),
-            "--glm", config.glm_options,
+            "--glm", *glm_args,
             "--pheno-name", config.pheno_name,
             "--pheno", str(pheno_path),
         ]
@@ -256,9 +265,6 @@ def run_gwas(
 
             if config.covariate_variance_standardize:
                 cmd.append("--covar-variance-standardize")
-        else:
-            # No covariates - need allow-no-covars flag
-            cmd[cmd.index("--glm") + 1] = config.glm_options + " allow-no-covars"
 
         cmd.extend(["--out", str(out_path)])
 

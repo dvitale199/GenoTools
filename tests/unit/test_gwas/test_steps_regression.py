@@ -21,7 +21,19 @@ import pytest
 
 from genotools.core.genotypes import GenotypeData
 from genotools.gwas.config import GWASConfig
-from genotools.gwas.steps.association import _process_logistic_results
+from genotools.gwas.steps.association import _process_logistic_results, run_gwas
+
+SYNTHETIC = (
+    Path(__file__).resolve().parents[2] / "data" / "synthetic" / "genotools_test"
+)
+
+
+def _plink2_available() -> bool:
+    import shutil
+
+    if shutil.which("plink2"):
+        return True
+    return (Path.home() / ".genotools" / "misc" / "executables" / "plink2").exists()
 
 
 def _write_binary_cohort(tmp_path: Path, n: int = 10) -> GenotypeData:
@@ -73,3 +85,29 @@ class TestLogisticResultSummaryFormatting:
         assert result.phenotype_type == "binary"
         assert result.inflation is not None
         assert result.inflation.lambda_1000 is not None  # cases+controls present
+
+
+class TestGwasGlmOptionsAreTokenized:
+    """Regression: run_gwas passed the multi-modifier --glm options as a SINGLE
+    argv token. shell_do (old code) split the command on whitespace; run_command
+    (new code) treats each list element as one argument, so PLINK2 received
+    'hide-covar firth-fallback no-x-sex cols=...' as one token and rejected it
+    ('Invalid --glm argument ...'), producing no GWAS output. This broke every
+    GWAS run in the new CLI, silently under --warn.
+    """
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_run_gwas_produces_output(self, tmp_path: Path) -> None:
+        """A real PLINK2 --glm run must succeed and write a results file."""
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+
+        data = GenotypeData.from_path(SYNTHETIC)
+        out = tmp_path / "gwas_out"
+
+        # No covariates -> exercises the allow-no-covars branch of the command.
+        result = run_gwas(data, GWASConfig(), out)
+
+        assert result.success is True
+        assert result.output_path is not None and result.output_path.exists()
+        assert result.n_variants_tested > 0
