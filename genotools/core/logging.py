@@ -69,7 +69,11 @@ def setup_logging(
     logger = logging.getLogger("genotools")
     logger.setLevel(level)
 
-    # Clear any existing handlers
+    # Clear any existing handlers, closing them first so repeated
+    # setup_logging() calls in one process (e.g. successive pipeline runs)
+    # don't leak file descriptors.
+    for handler in logger.handlers[:]:
+        handler.close()
     logger.handlers.clear()
 
     # Create formatter with step context placeholder

@@ -266,7 +266,16 @@ class PipelineRunner:
         self._ancestry = Ancestry()
 
     def _setup_logging(self) -> None:
-        """Set up log files."""
+        """Set up the consolidated run log.
+
+        Runs *after* upfront_check (which errors if ``{out}_all_logs.log``
+        already exists), so it can safely (re)create the log. Beyond creating
+        the legacy-named files, this attaches the structured logging file
+        handler so every step's ``logger.info``/``error`` is aggregated into
+        ``{out}_all_logs.log``. Without this call ``setup_logging`` is never
+        invoked at runtime and the root logger's WARNING default drops all step
+        logs, leaving the consolidated log header-only.
+        """
         assert self.state is not None
         out_path = str(self.state.out_path)
 
@@ -288,6 +297,13 @@ class PipelineRunner:
             fp.write("\n")
         with open(cleaned_logs, "w") as fp:
             pass
+
+        # Route all genotools step/runner logs into the consolidated log file.
+        # setup_logging() opens the file in append mode, so the banner header
+        # written above stays at the top and structured records follow it.
+        from ..core.logging import setup_logging
+
+        setup_logging(level="INFO", log_file=Path(all_logs), console=False)
 
     def _convert_input_format(self) -> None:
         """Convert input format to pfiles if needed."""

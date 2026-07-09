@@ -24,11 +24,11 @@ Tier list is the "easy wins" audit against `origin/refactor/main`.
 | 1b — geno honors threshold + real pass/fail | ✅ Done | `qc/steps/variant_missingness.py:79`; failure propagates as exception. |
 | 1c — haplotype reports failure | ✅ Fixed here | Step raises correctly; **CLI now catches it under `--warn`** (see below). |
 | 1d — GWAS case/control guard | ✅ Done | `association.py:175-177` uses `.get(k, 0)`. |
-| 1d — GWAS log capture | ❌ Open | No log aggregation in the new path; `_all_logs.log` is header-only. |
+| 1d — GWAS log capture | ✅ Addressed here | Structured logging now routed to `{out}_all_logs.log` (see below); it is no longer header-only. Raw PLINK `.log` aggregation was intentionally **not** resurrected — the FilterResult/GWASResult `log` fields still carry PLINK stderr if per-step raw capture is ever wanted. |
 | 1e — stop destroying input files | ✅ Done | Guarded deletes; `shutil.copy2` not `os.rename`. |
 | 2 — parallelize per-ancestry groups | ❌ Open | Still a serial loop (`cli/runner.py:337-354`). Pure-function design makes it cheap to add. |
 | 3 — cache ancestry PCA | 🟡 Partial | `--model` inference reuses fitted PCA; no `(ref_panel, common_snps)` auto-cache; `get_raw_files` still re-extracts. |
-| logging (structured) | 🟡 Built, unplugged | `core/logging.py` good but `setup_logging()` never called at runtime → `logger.info` dropped. |
+| logging (structured) | ✅ Wired here | `_setup_logging()` now calls `core.logging.setup_logging(log_file={out}_all_logs.log)` after `upfront_check`; step `logger.info`/`error` (with `[step]` markers) land in the consolidated log. Test: `tests/regression/test_logging.py`. |
 | tests | ✅ / parity unverified | 343→346 unit tests pass; golden = new-vs-new (self-consistency), not old-vs-new. |
 | CI | ❌ Missing | No `.github/workflows`. |
 
@@ -77,6 +77,32 @@ bash tests/scripts/setup_stable_venv.sh origin/main   # install old baseline
 pytest tests/regression/test_parity.py -v             # old vs new
 ```
 
+### Round 2 (`refactor/hardening-round-2`)
+
+1. **`psutil` declared** in `setup.py::install_requires` (imported by
+   `ancestry/model.py` + legacy `ancestry.py`; a clean `pip install .` used to
+   ImportError). Verified via package metadata.
+2. **`--warn` terminal-step-failure test** — `tests/unit/test_cli/test_runner_regression.py`
+   now covers the *last* step raising under `--warn`, asserting the last-passed
+   output is promoted to `{out}.pgen/.pvar/.psam` (`_handle_final_step_failure`),
+   plus fail-fast without `--warn`.
+3. **Structured logging wired** — `cli/runner.py::_setup_logging()` now calls
+   `core.logging.setup_logging(level="INFO", log_file={out}_all_logs.log,
+   console=False)` *after* `upfront_check` (which errors if that log already
+   exists). It opens the file in append mode, so the ASCII banner stays on top
+   and structured, step-tagged (`[callrate_prune]`, …) records follow.
+   `setup_logging` now also closes handlers before clearing to avoid FD leaks
+   across repeated in-process runs. Test: `tests/regression/test_logging.py`.
+
+   **Consolidated-log design decision:** chose the *structured-file-handler*
+   approach over resurrecting legacy `concat_logs` raw-PLINK-`.log` aggregation.
+   Rationale: single mechanism, forward-looking (step-context aware), and it
+   reuses the already-built `core/logging.py`. Trade-off: `{out}_cleaned_logs.log`
+   remains an empty placeholder (legacy filename kept for compatibility); the
+   populated consolidated log is `{out}_all_logs.log`. Raw PLINK output is still
+   available per-step in `FilterResult.log`/`GWASResult.log` if finer capture is
+   wanted later.
+
 ---
 
 ## Remaining work (tracked, not yet done)
@@ -86,14 +112,12 @@ Priority order for making the refactor mergeable to `main`:
 1. **Prove parity on real data** — run `test_parity.py` on representative real
    cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
    GWAS. This is the gate before merging to `main`. (Harness is ready.)
-2. **Wire structured logging** — call `core.logging.setup_logging()` from the CLI
-   so step `logger.info`/error messages aren't dropped; decide on one log path.
-3. **Restore GWAS/consolidated log capture** (1d) — new path aggregates no PLINK
-   logs; `_all_logs.log` is header-only. Regression vs legacy `concat_logs`.
+2. ✅ **Wire structured logging** — DONE in round 2 (see above).
+3. ✅ **Restore GWAS/consolidated log capture** (1d) — DONE in round 2 via the
+   structured-file-handler approach (see above).
 4. **Add CI** — run unit + regression suites on push; add a parity job that builds
-   `.venv-stable` and runs `test_parity.py`.
-5. **Declare `psutil`** in `setup.py` `install_requires` (imported by
-   `ancestry/model.py`; a clean `pip install .` currently ImportErrors).
+   `.venv-stable` and runs `test_parity.py`. (In progress in round 2.)
+5. ✅ **Declare `psutil`** — DONE in round 2.
 6. **Decouple from legacy** — new CLI still imports `utils.py`
    (`gt_header`/`bfiles_to_pfiles`/`vcf_to_pfiles`/`upfront_check`) and loads
    `ancestry.py` via an importlib file-path hack. Blocks legacy removal (Phase 5/6).
