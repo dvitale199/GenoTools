@@ -102,7 +102,15 @@ class TestGwasGlmOptionsAreTokenized:
         if not SYNTHETIC.with_suffix(".pgen").exists():
             pytest.skip("synthetic test data not found")
 
-        data = GenotypeData.from_path(SYNTHETIC)
+        # Copy the pfileset into tmp: _create_phenotype_file writes {input}.pheno
+        # next to the input, so running on the tracked data would pollute it.
+        import shutil
+
+        local = tmp_path / "cohort"
+        for ext in (".pgen", ".pvar", ".psam"):
+            shutil.copy2(SYNTHETIC.with_suffix(ext), local.with_suffix(ext))
+
+        data = GenotypeData.from_path(local)
         out = tmp_path / "gwas_out"
 
         # No covariates -> exercises the allow-no-covars branch of the command.

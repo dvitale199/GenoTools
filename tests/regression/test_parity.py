@@ -29,6 +29,7 @@ They skip cleanly when .venv-stable is absent. To enable:
 See REFACTOR_HARDENING.md for the parity workflow.
 """
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -214,12 +215,16 @@ def test_old_vs_new_gwas_parity(
     """
     stable_bin, _ = _require_parity_env(stable_venv_genotools)
 
+    # Copy the input into tmp: GWAS writes {input}.pheno next to the input, so
+    # running against the tracked synthetic data would pollute it.
+    geno = tmp_path / "input"
+    for ext in (".pgen", ".pvar", ".psam"):
+        shutil.copy2(test_geno_path.with_suffix(ext), geno.with_suffix(ext))
+
     old_out = tmp_path / "old"
     new_out = tmp_path / "new"
-    old_res = _run(_old_cmd(stable_bin, test_geno_path, old_out, ["pca", "gwas"]))
-    new_res = _run(
-        _new_cmd(test_geno_path, new_out, ["pca", "gwas"]), cwd=str(REPO_ROOT)
-    )
+    old_res = _run(_old_cmd(stable_bin, geno, old_out, ["pca", "gwas"]))
+    new_res = _run(_new_cmd(geno, new_out, ["pca", "gwas"]), cwd=str(REPO_ROOT))
 
     old_glm = find_gwas_output(old_out)
     new_glm = find_gwas_output(new_out)
