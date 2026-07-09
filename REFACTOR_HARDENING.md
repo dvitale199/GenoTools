@@ -30,7 +30,7 @@ Tier list is the "easy wins" audit against `origin/refactor/main`.
 | 3 — cache ancestry PCA | 🟡 Partial | `--model` inference reuses fitted PCA; no `(ref_panel, common_snps)` auto-cache; `get_raw_files` still re-extracts. |
 | logging (structured) | ✅ Wired here | `_setup_logging()` now calls `core.logging.setup_logging(log_file={out}_all_logs.log)` after `upfront_check`; step `logger.info`/`error` (with `[step]` markers) land in the consolidated log. Test: `tests/regression/test_logging.py`. |
 | tests | ✅ / parity unverified | 343→346 unit tests pass; golden = new-vs-new (self-consistency), not old-vs-new. |
-| CI | ❌ Missing | No `.github/workflows`. |
+| CI | ✅ Added here | `.github/workflows/ci.yml`: (1) unit+regression on Python 3.11 with PLINK/PLINK2 auto-downloaded; (2) parity job builds `.venv-stable` and runs `test_parity.py`. |
 
 ---
 
@@ -126,6 +126,10 @@ pytest tests/regression/test_parity.py -v             # old vs new
      `tests/regression/test_compare_gwas.py`.
    All parity tests pass with `.venv-stable` present and skip cleanly without it.
 
+6. **CI added** — `.github/workflows/ci.yml`: a unit+regression job (Python 3.11,
+   PLINK/PLINK2 auto-downloaded via the dependency resolver) and a parity job
+   that builds `.venv-stable` from `origin/main` and runs `test_parity.py`.
+
 ### ⚠️ Flagged parity discrepancy for maintainer decision: PCA region exclusion
 
 The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
@@ -168,8 +172,8 @@ Priority order for making the refactor mergeable to `main`:
 2. ✅ **Wire structured logging** — DONE in round 2 (see above).
 3. ✅ **Restore GWAS/consolidated log capture** (1d) — DONE in round 2 via the
    structured-file-handler approach (see above).
-4. **Add CI** — run unit + regression suites on push; add a parity job that builds
-   `.venv-stable` and runs `test_parity.py`. (In progress in round 2.)
+4. ✅ **Add CI** — DONE in round 2 (`.github/workflows/ci.yml`): unit+regression
+   job (auto-downloads PLINK/PLINK2) + parity job (builds `.venv-stable`).
 5. ✅ **Declare `psutil`** — DONE in round 2.
 6. **Decouple from legacy** — new CLI still imports `utils.py`
    (`gt_header`/`bfiles_to_pfiles`/`vcf_to_pfiles`/`upfront_check`) and loads
