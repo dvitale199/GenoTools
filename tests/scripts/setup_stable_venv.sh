@@ -16,6 +16,10 @@
 set -euo pipefail
 
 REF="${1:-origin/main}"
+# Interpreter used to create .venv-stable. Override to pin a version that the
+# pre-refactor deps (e.g. umap-learn==0.5.3 / numba) still support, e.g.
+#   PYTHON=python3.11 bash tests/scripts/setup_stable_venv.sh
+PYTHON="${PYTHON:-python3}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORKTREE="$(mktemp -d)/genotools-stable-src"
 
@@ -34,7 +38,7 @@ fi
 git -C "${ROOT}" worktree add --detach "${WORKTREE}" "${REF}"
 trap 'git -C "${ROOT}" worktree remove --force "${WORKTREE}" 2>/dev/null || true' EXIT
 
-python3 -m venv "${ROOT}/.venv-stable"
+"${PYTHON}" -m venv "${ROOT}/.venv-stable"
 "${ROOT}/.venv-stable/bin/pip" install --quiet --upgrade pip
 "${ROOT}/.venv-stable/bin/pip" install "${WORKTREE}"
 # Runtime deps the old code needs that its setup.py omits / that fresh venvs on

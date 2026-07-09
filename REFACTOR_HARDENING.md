@@ -103,6 +103,56 @@ pytest tests/regression/test_parity.py -v             # old vs new
    available per-step in `FilterResult.log`/`GWASResult.log` if finer capture is
    wanted later.
 
+4. **GWAS `--glm` tokenization bug fixed** — `gwas/steps/association.py`.
+   `run_gwas` passed `config.glm_options` (`"hide-covar firth-fallback no-x-sex
+   cols=..."`) as a *single* argv token. The legacy code built an f-string that
+   `shell_do` split on whitespace; `run_command` passes list elements verbatim,
+   so PLINK2 got one giant invalid `--glm` argument and produced **no GWAS
+   output on any run** — silently swallowed under `--warn`. (The prior PR fixed
+   the summary crash, but GWAS never actually ran.) Now splits the modifiers
+   into tokens and keeps `allow-no-covars` in the `--glm` group. Test:
+   `tests/unit/test_gwas/test_steps_regression.py` runs a real PLINK2 `--glm`.
+
+5. **Parity harness extended** — `tests/regression/test_parity.py` +
+   `tests/regression/compare.py`:
+   - per-step old/new flag map (old `--case_control`/`--full_output`, new
+     `--case-control`/`--full-output`; single-word `haplotype`/`ld`/`pca`/`gwas`
+     identical);
+   - multi-word QC steps `case_control`, `haplotype`, `ld` (parametrized),
+     `--all_sample --all_variant` full pipeline — all **parity-equal** on
+     synthetic data (IDs + genotype content);
+   - GWAS (`--pca --gwas`): new comparator `compare_gwas_results()`/`compare_gwas()`
+     (+ `find_gwas_output`, `_lambda_gc`) in `compare.py`, unit-tested by
+     `tests/regression/test_compare_gwas.py`.
+   All parity tests pass with `.venv-stable` present and skip cleanly without it.
+
+### ⚠️ Flagged parity discrepancy for maintainer decision: PCA region exclusion
+
+The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
+pruning (`gwas/steps/pca.py` vs legacy `gwas.py`):
+
+- **New** uses `--exclude range {file}` — correctly drops the high-LD/MHC ranges
+  in the exclusion file (synthetic data: 9741 → 9644 variants; prune.in 3971).
+- **Old** used `--exclude {file}` (no `range`) — PLINK2 treats a ranges file as a
+  variant-ID list, matches nothing, and excludes **zero** of those regions
+  (9741 variants; prune.in 3987). i.e. the old region exclusion was a no-op bug.
+
+Consequence: the PCA eigenvectors differ (eigenvalues differ ~0.01, values
+beyond sign flips), so the GWAS covariates — and hence **every** GWAS p-value —
+differ slightly between old and new. The genomic-inflation **lambda still agrees**
+(synthetic: 1.0074 vs 1.0071) and the **set of tested variants is identical**.
+
+Because a refactor's contract is "identical results," the GWAS parity test
+asserts only the invariants that hold today (GWAS runs, same tested-variant set,
+lambda within tolerance) and does **not** silently assert per-variant p-equality.
+**Decision needed:** either (A) restore strict parity by reverting new PCA to
+`--exclude` (no `range`) — reproduces the old no-op and passes strict per-variant
+parity, adopt the region-exclusion fix as a separate deliberate change; or
+(B) ratify `--exclude range` as an intentional correctness fix (excluding MHC/
+high-LD before PCA is standard practice) and accept the documented GWAS
+divergence from the pre-refactor baseline. Not resolved here — production
+behavior left as-is (`--exclude range`).
+
 ---
 
 ## Remaining work (tracked, not yet done)
@@ -111,7 +161,10 @@ Priority order for making the refactor mergeable to `main`:
 
 1. **Prove parity on real data** — run `test_parity.py` on representative real
    cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
-   GWAS. This is the gate before merging to `main`. (Harness is ready.)
+   GWAS. This is the gate before merging to `main`. (Harness extended in round 2:
+   multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Note the
+   flagged PCA region-exclusion discrepancy above will make real-cohort GWAS
+   per-variant p-values diverge from old until that decision is made.)
 2. ✅ **Wire structured logging** — DONE in round 2 (see above).
 3. ✅ **Restore GWAS/consolidated log capture** (1d) — DONE in round 2 via the
    structured-file-handler approach (see above).
