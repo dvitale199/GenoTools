@@ -15,6 +15,7 @@
 
 """Regression tests for CLI runner bugs found in the refactor hardening audit."""
 
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -23,6 +24,16 @@ import pytest
 from genotools.core.exceptions import QCError
 from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
 from genotools.cli.runner import PipelineRunner, PipelineState
+
+SYNTHETIC = (
+    Path(__file__).resolve().parents[2] / "data" / "synthetic" / "genotools_test"
+)
+
+
+def _plink2_available() -> bool:
+    if shutil.which("plink2"):
+        return True
+    return (Path.home() / ".genotools" / "misc" / "executables" / "plink2").exists()
 
 
 def _touch_pfiles(prefix: Path) -> None:
@@ -178,3 +189,134 @@ class TestWarnModeFinalStepFailurePromotesLastPassedOutput:
                 geno_path=str(geno),
                 out_path=str(out),
             )
+
+
+class _CapturingAssoc:
+    """Stand-in for run_association that records the AssocConfig it received."""
+
+    def __init__(self) -> None:
+        self.config: Any = None
+
+    def __call__(self, data: Any, out_path: Path, config: Any) -> Any:
+        self.config = config
+
+        class _Result:
+            def to_dict(self_inner) -> Dict[str, Any]:
+                return {"pass": True, "step": "assoc", "metrics": {}, "output": {}}
+
+        return _Result()
+
+
+def _gwas_legacy_args(**overrides: Any) -> Dict[str, Any]:
+    """Legacy args dict with the GWAS-relevant keys (mirrors to_legacy_dict)."""
+    base: Dict[str, Any] = {
+        "pca": None,
+        "build": "hg38",
+        "gwas": False,
+        "covars": None,
+        "covar_names": None,
+        "maf_lambdas": False,
+    }
+    base.update(overrides)
+    return base
+
+
+class TestAssocStepThreadsPcaAndCovariateArgs:
+    """Regression: the assoc branch of _run_single_step threaded only `build` and
+    `maf_lambdas` into the config. It silently dropped the requested PC count
+    (`pca`), so PCA always ran the default 10 PCs, and dropped external covariates
+    (`covars`/`covar_names`), so `--covars` was ignored and GWAS fell back to PCA
+    covariates. These assert the args reach AssocConfig.
+    """
+
+    def test_n_pcs_reaches_pca_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        capture = _CapturingAssoc()
+        monkeypatch.setitem(runner._new_modules, "run_gwas_association", capture)
+
+        runner._run_single_step(
+            "assoc", str(geno), f"{out}_assoc", _gwas_legacy_args(pca=3)
+        )
+
+        assert capture.config.run_pca is True
+        assert capture.config.pca is not None
+        assert capture.config.pca.n_pcs == 3  # was silently 10
+
+    def test_external_covariates_reach_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        capture = _CapturingAssoc()
+        monkeypatch.setitem(runner._new_modules, "run_gwas_association", capture)
+
+        covar_file = tmp_path / "external.cov"
+        covar_file.write_text("#FID\tIID\tAGE\tSEX\n")
+
+        runner._run_single_step(
+            "assoc",
+            str(geno),
+            f"{out}_assoc",
+            _gwas_legacy_args(gwas=True, covars=str(covar_file), covar_names="AGE,SEX"),
+        )
+
+        assert capture.config.covariates.covar_path == str(covar_file)
+        assert capture.config.covariates.covar_names == "AGE,SEX"
+        assert capture.config.covariates.has_external_covariates() is True
+
+    def test_build_still_threaded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Guard the pre-existing `build` threading isn't lost in the fix."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        capture = _CapturingAssoc()
+        monkeypatch.setitem(runner._new_modules, "run_gwas_association", capture)
+
+        runner._run_single_step(
+            "assoc", str(geno), f"{out}_assoc", _gwas_legacy_args(pca=10, build="hg19")
+        )
+
+        assert capture.config.pca.build == "hg19"
+
+
+def _count_pc_columns(eigenvec_path: Path) -> int:
+    """Count the PC columns (PC1, PC2, ...) in a PLINK2 .eigenvec header."""
+    with open(eigenvec_path) as f:
+        header = f.readline().strip().split("\t")
+    return sum(1 for col in header if col.upper().startswith("PC"))
+
+
+class TestAssocStepPcaProducesRequestedPcs:
+    """End-to-end regression: --pca 3 must produce a 3-PC eigenvec. Before the fix
+    the runner ignored the requested count and PLINK2 always wrote 10 PCs.
+    """
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_pca_3_produces_3_pc_eigenvec(self, tmp_path: Path) -> None:
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+
+        local = tmp_path / "cohort"
+        for ext in (".pgen", ".pvar", ".psam"):
+            shutil.copy2(SYNTHETIC.with_suffix(ext), local.with_suffix(ext))
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=local),
+            output=OutputArgs(out_path=tmp_path / "out", full_output=True),
+        )
+        runner = PipelineRunner(args)
+        runner._initialize_modules()
+
+        out_assoc = tmp_path / "out_assoc"
+        result = runner._run_single_step(
+            "assoc", str(local), str(out_assoc), _gwas_legacy_args(pca=3)
+        )
+
+        assert result is not None and result["pass"] is True
+        eigenvec = out_assoc.with_suffix(".eigenvec")
+        assert eigenvec.exists(), "PCA did not write an eigenvec file"
+        assert _count_pc_columns(eigenvec) == 3  # was 10

@@ -209,7 +209,13 @@ class PipelineRunner:
         from ..core.genotypes import GenotypeData
 
         # Import GWAS module
-        from ..gwas import run_association as run_gwas_association, AssocConfig, PCAConfig, GWASConfig
+        from ..gwas import (
+            run_association as run_gwas_association,
+            AssocConfig,
+            PCAConfig,
+            GWASConfig,
+            CovariateConfig,
+        )
 
         # Import Ancestry module
         from ..ancestry import AncestryModel, ReferencePanel, AncestryConfig
@@ -246,6 +252,7 @@ class PipelineRunner:
             "AssocConfig": AssocConfig,
             "PCAConfig": PCAConfig,
             "GWASConfig": GWASConfig,
+            "CovariateConfig": CovariateConfig,
             "AncestryConfig": AncestryConfig,
         }
 
@@ -1050,15 +1057,30 @@ class PipelineRunner:
             return result.to_dict()
 
         elif step == "assoc":
+            # legacy_args["pca"] is the requested PC count (or None); it doubles as
+            # the run-PCA flag. Thread it into PCAConfig so a non-default --pca N is
+            # honored instead of silently defaulting to 10.
+            n_pcs = legacy_args.get("pca")
+            covar_path = legacy_args.get("covars")
+            covariates = (
+                self._config_classes["CovariateConfig"](
+                    covar_path=covar_path,
+                    covar_names=legacy_args.get("covar_names"),
+                )
+                if covar_path
+                else self._config_classes["CovariateConfig"]()
+            )
             config = self._config_classes["AssocConfig"](
                 pca=self._config_classes["PCAConfig"](
+                    n_pcs=n_pcs,
                     build=legacy_args.get("build", "hg38"),
-                ) if legacy_args.get("pca") else None,
+                ) if n_pcs else None,
                 gwas=self._config_classes["GWASConfig"](
                     maf_lambdas=legacy_args.get("maf_lambdas", False),
                 ) if legacy_args.get("gwas") else None,
-                run_pca=legacy_args.get("pca", False),
-                run_gwas=legacy_args.get("gwas", False),
+                covariates=covariates,
+                run_pca=bool(n_pcs),
+                run_gwas=bool(legacy_args.get("gwas", False)),
             )
             result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
             return result.to_dict()

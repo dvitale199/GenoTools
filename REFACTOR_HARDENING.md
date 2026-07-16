@@ -142,6 +142,36 @@ pytest tests/regression/test_parity.py -v             # old vs new
    CLIs across QC / full-pipeline / GWAS scenarios, prints a PASS/FAIL report and
    exits non-zero on divergence).
 
+### Round 3 (`refactor/hardening-round-3-gwas-args`)
+
+1. **GWAS arg threading fixed** — `cli/runner.py::_run_single_step` (assoc branch).
+   The assoc branch built `AssocConfig` threading only `build` and `maf_lambdas`.
+   It silently dropped three user-supplied GWAS args:
+   - `--pca N` (the requested PC count): `PCAConfig` was built without `n_pcs`,
+     so PCA **always ran the default 10 PCs** regardless of `--pca N`.
+   - `--covars` / `--covar-names`: never reached `AssocConfig.covariates`, so
+     external covariates were **silently ignored** and GWAS fell back to the PCA
+     eigenvectors as covariates.
+
+   Now threads `n_pcs` into `PCAConfig` and builds a `CovariateConfig` from the
+   covar path/names when given; `run_pca`/`run_gwas` normalized to bool to match
+   the dataclass field types. Added `CovariateConfig` to the runner's
+   config-class map. Regression tests
+   (`tests/unit/test_cli/test_runner_regression.py`): n_pcs + external covariates
+   reach `AssocConfig` (hermetic capture), `build` threading preserved, and an
+   end-to-end `--pca 3 → 3-PC eigenvec` via real PLINK2 (was 10).
+
+2. **Parity harness extended** — `tests/regression/test_parity.py`:
+   - `test_old_vs_new_pca_ncount_parity`: `--pca 20` yields a 20-PC eigenvec in
+     both CLIs (new previously always wrote 10).
+   - `test_old_vs_new_gwas_external_covars_parity`: with `--pca --gwas --covars
+     --covar-names`, both CLIs discard the PCA eigenvectors and use the external
+     covariate file, so **decision B does not apply** and per-variant p-values
+     agree tightly. Before the fix the new CLI ignored `--covars` and fell back to
+     PCA covariates (40500 p-mismatches, lambda 0.978 vs 1.007); now they match.
+   Both verified to fail against the pre-fix runner and pass after; they skip
+   cleanly without `.venv-stable`/plink2. Suite: 391 → 397 tests.
+
 ### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
 The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
@@ -197,8 +227,8 @@ Priority order for making the refactor mergeable to `main`:
    `ancestry.py` via an importlib file-path hack. Blocks legacy removal (Phase 5/6).
 7. **Retire dead abstractions** — `QCPipeline` (unused; runner reimplements
    orchestration), unused `ReferencePanel`/results, `container/run.py`.
-8. **GWAS arg parity** — confirm covariate/`n_pcs` args reach the assoc step
-   (`AssocConfig` build appears to thread only `build` + `maf_lambdas`).
+8. ✅ **GWAS arg parity** — DONE in round 3 (see above). `n_pcs`, `--covars`,
+   and `--covar-names` now reach the assoc step; parity harness guards both.
 9. **Tier 2 — parallelize per-ancestry groups** (perf): process pool over the
    `runner.py:337-354` loop; per-group log files; `--threads` cap. Cheap now that
    steps are pure functions.

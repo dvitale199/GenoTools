@@ -40,7 +40,7 @@ PLINK/PLINK2 are downloaded automatically the first time a step needs them
   parity, to the pre-refactor CLI. Tests that need something absent (PLINK, the
   `.venv-stable` baseline, golden files) **skip cleanly** rather than fail.
 
-Everything green today: **391 passed** with `.venv-stable` present.
+Everything green today: **397 passed** with `.venv-stable` present.
 
 ---
 
@@ -92,6 +92,8 @@ What it covers (all on `tests/data/synthetic/`):
 | `test_old_vs_new_multiword_qc_parity` | case_control / haplotype / ld | identical IDs **and** genotype content |
 | `test_old_vs_new_full_pipeline_parity` | all_sample + all_variant | identical IDs **and** genotype content |
 | `test_old_vs_new_gwas_parity` | pca + gwas | same tested-variant set + lambda within tolerance (see [decision B](#decision-b-gwaspca-region-exclusion)) |
+| `test_old_vs_new_pca_ncount_parity` | pca 20 | both CLIs write a 20-PC eigenvec (non-default PC count reaches PLINK2) |
+| `test_old_vs_new_gwas_external_covars_parity` | pca + gwas + covars | external covariates used identically; per-variant p-values agree (decision B N/A — PCA eigenvectors discarded for external covars) |
 
 Note the old CLI uses **underscore** flags (`--case_control`, `--full_output`,
 `--all_sample`) while the new CLI uses **hyphen** flags (`--case-control`,
