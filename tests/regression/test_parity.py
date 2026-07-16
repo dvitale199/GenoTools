@@ -34,12 +34,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from tests.regression.compare import (
     compare_pfiles,
     compare_genotypes,
+    compare_gwas,
     find_gwas_output,
     _lambda_gc,
     _resolve_plink2,
@@ -253,4 +255,137 @@ def test_old_vs_new_gwas_parity(
     assert abs(lambda_old - lambda_new) <= 0.05, (
         f"Genomic-inflation lambda differs beyond tolerance: "
         f"old={lambda_old:.5f}, new={lambda_new:.5f}"
+    )
+
+
+def _find_eigenvec(out_prefix: Path) -> Path | None:
+    """Locate a PLINK2 .eigenvec file for a run output prefix."""
+    out_prefix = Path(out_prefix)
+    matches = sorted(out_prefix.parent.glob(f"{out_prefix.name}*.eigenvec"))
+    return matches[0] if matches else None
+
+
+def _count_pc_columns(eigenvec_path: Path) -> int:
+    """Count the PC columns (PC1, PC2, ...) in a PLINK2 .eigenvec header."""
+    with open(eigenvec_path) as f:
+        header = f.readline().strip().split("\t")
+    return sum(1 for col in header if col.upper().startswith("PC"))
+
+
+def test_old_vs_new_pca_ncount_parity(
+    stable_venv_genotools,
+    test_geno_path: Path,
+    tmp_path: Path,
+) -> None:
+    """A non-default `--pca N` must produce an N-PC eigenvec in BOTH CLIs.
+
+    The new runner previously dropped the requested PC count and PLINK2 always
+    wrote the default 10 PCs; the old CLI honored it. This asserts they now
+    agree on the eigenvector dimensionality for a non-default count (20).
+    """
+    stable_bin, _ = _require_parity_env(stable_venv_genotools)
+
+    n_pcs = 20
+    old_out = tmp_path / "old"
+    new_out = tmp_path / "new"
+    old_res = _run(
+        [str(stable_bin), "--pfile", str(test_geno_path), "--out", str(old_out),
+         "--pca", str(n_pcs)]
+    )
+    new_res = _run(
+        [sys.executable, "-m", "genotools", "--pfile", str(test_geno_path),
+         "--out", str(new_out), "--pca", str(n_pcs)],
+        cwd=str(REPO_ROOT),
+    )
+
+    old_ev = _find_eigenvec(old_out)
+    new_ev = _find_eigenvec(new_out)
+    assert old_ev is not None, (
+        f"Old CLI produced no eigenvec.\nSTDOUT:\n{old_res.stdout}\nSTDERR:\n{old_res.stderr}"
+    )
+    assert new_ev is not None, (
+        f"New CLI produced no eigenvec.\nSTDOUT:\n{new_res.stdout}\nSTDERR:\n{new_res.stderr}"
+    )
+
+    old_n = _count_pc_columns(old_ev)
+    new_n = _count_pc_columns(new_ev)
+    assert old_n == n_pcs, f"Old CLI wrote {old_n} PCs, expected {n_pcs}"
+    assert new_n == n_pcs, f"New CLI wrote {new_n} PCs, expected {n_pcs} (was silently 10)"
+
+
+def _write_covariate_file(psam_path: Path, covar_path: Path) -> str:
+    """Write an external covariate file (#FID IID COV1 COV2) for a psam's samples.
+
+    Returns the comma-separated covariate names. Values are deterministic (fixed
+    seed) so the same file feeds both CLIs and the run is reproducible.
+    """
+    psam = pd.read_csv(psam_path, sep=r"\s+")
+    fid_col = "#FID" if "#FID" in psam.columns else "#IID"
+    rng = np.random.default_rng(42)
+    n = len(psam)
+    cov = pd.DataFrame({
+        "#FID": psam[fid_col].to_numpy(),
+        "IID": psam["IID"].to_numpy(),
+        "COV1": rng.normal(size=n),
+        "COV2": rng.normal(size=n),
+    })
+    cov.to_csv(covar_path, sep="\t", index=False)
+    return "COV1,COV2"
+
+
+def test_old_vs_new_gwas_external_covars_parity(
+    stable_venv_genotools,
+    test_geno_path: Path,
+    tmp_path: Path,
+) -> None:
+    """External `--covars`/`--covar-names` must reach GWAS identically in both CLIs.
+
+    The new runner previously dropped `--covars`/`--covar-names`, so GWAS fell
+    back to the PCA eigenvectors as covariates while the old CLI used the external
+    file -- different covariates, so p-values diverged. With `--pca --gwas
+    --covars`, BOTH CLIs discard the PCA eigenvectors and use the external file
+    (PLINK2's `--covar`), so decision B's PCA-region-exclusion divergence does NOT
+    apply here: the GWAS uses byte-identical `--glm` options and the same covariate
+    file, so per-variant p-values must agree tightly. This proves the external
+    covariates are actually used (and used identically) by the new CLI.
+    """
+    stable_bin, _ = _require_parity_env(stable_venv_genotools)
+
+    # Copy input into tmp: GWAS writes {input}.pheno next to the input.
+    geno = tmp_path / "input"
+    for ext in (".pgen", ".pvar", ".psam"):
+        shutil.copy2(test_geno_path.with_suffix(ext), geno.with_suffix(ext))
+
+    covar_file = tmp_path / "external.cov"
+    covar_names = _write_covariate_file(geno.with_suffix(".psam"), covar_file)
+
+    old_out = tmp_path / "old"
+    new_out = tmp_path / "new"
+    old_res = _run(
+        [str(stable_bin), "--pfile", str(geno), "--out", str(old_out),
+         "--pca", "10", "--gwas", "--covars", str(covar_file),
+         "--covar_names", covar_names]
+    )
+    new_res = _run(
+        [sys.executable, "-m", "genotools", "--pfile", str(geno), "--out", str(new_out),
+         "--pca", "10", "--gwas", "--covars", str(covar_file),
+         "--covar-names", covar_names],
+        cwd=str(REPO_ROOT),
+    )
+
+    old_glm = find_gwas_output(old_out)
+    new_glm = find_gwas_output(new_out)
+    assert old_glm is not None, (
+        f"Old CLI produced no GWAS output.\nSTDOUT:\n{old_res.stdout}\nSTDERR:\n{old_res.stderr}"
+    )
+    assert new_glm is not None, (
+        f"New CLI produced no GWAS output.\nSTDOUT:\n{new_res.stdout}\nSTDERR:\n{new_res.stderr}"
+    )
+
+    # External covars are used identically by both -> per-variant p-values agree.
+    result = compare_gwas(old_out, new_out, p_tolerance=1e-6, lambda_tolerance=1e-3)
+    assert result.equal, (
+        f"GWAS with external covariates diverged old-vs-new: {result.message}\n"
+        f"If the new CLI dropped --covars it would fall back to PCA covariates and "
+        f"diverge here. First mismatches: {result.mismatched_variants[:10]}"
     )
