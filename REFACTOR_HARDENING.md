@@ -129,6 +129,18 @@ pytest tests/regression/test_parity.py -v             # old vs new
 6. **CI added** — `.github/workflows/ci.yml`: a unit+regression job (Python 3.11,
    PLINK/PLINK2 auto-downloaded via the dependency resolver) and a parity job
    that builds `.venv-stable` from `origin/main` and runs `test_parity.py`.
+   Both jobs cache `~/.genotools`; the workflow also supports manual dispatch.
+   **The first CI run flaked, then went green:** the pre-refactor code calls
+   `check_king()` at *import*, so on Linux the old CLI downloaded KING from the
+   flaky `kingrelatedness.com` on every start (a 17-min hang across the parity
+   tests). Fixed by pre-caching KING in `setup_stable_venv.sh` (Linux only) plus
+   `~/.genotools` caching. Details: [TESTING.md §7](TESTING.md#7-king-on-linux).
+
+7. **Handoff tooling & docs** — `TESTING.md` (regression/parity guide for the dev
+   running real-cohort testing) and `tests/scripts/run_parity.py` (turnkey
+   old-vs-new parity on a real cohort: copies the cohort to a workdir, runs both
+   CLIs across QC / full-pipeline / GWAS scenarios, prints a PASS/FAIL report and
+   exits non-zero on divergence).
 
 ### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
