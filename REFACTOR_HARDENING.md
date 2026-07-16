@@ -130,7 +130,7 @@ pytest tests/regression/test_parity.py -v             # old vs new
    PLINK/PLINK2 auto-downloaded via the dependency resolver) and a parity job
    that builds `.venv-stable` from `origin/main` and runs `test_parity.py`.
 
-### ⚠️ Flagged parity discrepancy for maintainer decision: PCA region exclusion
+### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
 The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
 pruning (`gwas/steps/pca.py` vs legacy `gwas.py`):
@@ -146,16 +146,19 @@ beyond sign flips), so the GWAS covariates — and hence **every** GWAS p-value 
 differ slightly between old and new. The genomic-inflation **lambda still agrees**
 (synthetic: 1.0074 vs 1.0071) and the **set of tested variants is identical**.
 
-Because a refactor's contract is "identical results," the GWAS parity test
-asserts only the invariants that hold today (GWAS runs, same tested-variant set,
-lambda within tolerance) and does **not** silently assert per-variant p-equality.
-**Decision needed:** either (A) restore strict parity by reverting new PCA to
-`--exclude` (no `range`) — reproduces the old no-op and passes strict per-variant
-parity, adopt the region-exclusion fix as a separate deliberate change; or
-(B) ratify `--exclude range` as an intentional correctness fix (excluding MHC/
-high-LD before PCA is standard practice) and accept the documented GWAS
-divergence from the pre-refactor baseline. Not resolved here — production
-behavior left as-is (`--exclude range`).
+**Decision (maintainer, option B): ratified `--exclude range` as an intentional
+correctness fix** — excluding MHC/high-LD regions before PCA is standard practice,
+and the old behavior was a no-op bug. This is a **deliberate, accepted divergence
+from the pre-refactor GWAS baseline**, not a regression: real-cohort GWAS
+per-variant p-values will differ slightly from the old code, and that is expected.
+
+Implications for the harness:
+- The GWAS parity test asserts the invariants that hold under B (GWAS runs, same
+  tested-variant set, lambda within tolerance) and intentionally does **not**
+  assert per-variant p-equality against the old baseline.
+- A guard test locks the fix in so it can't silently revert to the old no-op:
+  `tests/unit/test_gwas/test_steps_regression.py::TestPcaExcludesHighLdRegions`
+  asserts PCA pruning removes every variant inside the exclusion ranges.
 
 ---
 
@@ -166,9 +169,11 @@ Priority order for making the refactor mergeable to `main`:
 1. **Prove parity on real data** — run `test_parity.py` on representative real
    cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
    GWAS. This is the gate before merging to `main`. (Harness extended in round 2:
-   multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Note the
-   flagged PCA region-exclusion discrepancy above will make real-cohort GWAS
-   per-variant p-values diverge from old until that decision is made.)
+   multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Per
+   decision B above, real-cohort GWAS per-variant p-values will differ slightly
+   from the old baseline *by design* — PCA now excludes MHC/high-LD regions — so
+   GWAS parity is asserted at the tested-variant-set + lambda level, not
+   per-variant. QC and full-pipeline parity remain exact.)
 2. ✅ **Wire structured logging** — DONE in round 2 (see above).
 3. ✅ **Restore GWAS/consolidated log capture** (1d) — DONE in round 2 via the
    structured-file-handler approach (see above).

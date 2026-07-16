@@ -119,3 +119,71 @@ class TestGwasGlmOptionsAreTokenized:
         assert result.success is True
         assert result.output_path is not None and result.output_path.exists()
         assert result.n_variants_tested > 0
+
+
+class TestPcaExcludesHighLdRegions:
+    """Ratified behavior (REFACTOR_HARDENING.md, decision B): PCA pruning excludes
+    the high-LD/MHC regions via PLINK2 `--exclude range`. The pre-refactor code
+    used `--exclude <rangefile>`, which PLINK2 treats as a variant-ID list -- a
+    no-op that excluded none of those regions. Excluding them before PCA is
+    standard practice, so this behavior was intentionally kept; this test guards
+    against silently regressing to the old no-op.
+    """
+
+    def _parse_ranges(self) -> list[tuple[str, int, int]]:
+        from genotools.gwas.config import get_exclusion_regions
+
+        ranges = []
+        for line in get_exclusion_regions("hg38").strip().splitlines():
+            parts = line.split()
+            ranges.append((str(parts[0]), int(parts[1]), int(parts[2])))
+        return ranges
+
+    def _count_in_ranges(self, pvar_path: Path, ranges) -> int:
+        import pandas as pd
+
+        df = pd.read_csv(
+            pvar_path,
+            sep="\t",
+            comment="#",
+            header=None,
+            usecols=[0, 1],
+            names=["chrom", "pos"],
+            dtype={"chrom": str},
+        )
+        total = 0
+        for chrom, start, end in ranges:
+            total += df[
+                (df["chrom"] == chrom)
+                & (df["pos"] >= start)
+                & (df["pos"] <= end)
+            ].shape[0]
+        return total
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_pca_pruning_drops_excluded_regions(self, tmp_path: Path) -> None:
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+
+        import shutil
+
+        from genotools.gwas.config import PCAPruningConfig
+        from genotools.gwas.steps.pca import run_pca_pruning
+
+        local = tmp_path / "cohort"
+        for ext in (".pgen", ".pvar", ".psam"):
+            shutil.copy2(SYNTHETIC.with_suffix(ext), local.with_suffix(ext))
+
+        ranges = self._parse_ranges()
+
+        # Non-vacuous: the input actually contains variants inside the excluded
+        # ranges (also confirms chromosome naming matches between pvar and ranges).
+        assert self._count_in_ranges(local.with_suffix(".pvar"), ranges) > 0
+
+        data = GenotypeData.from_path(local)
+        out = tmp_path / "pruned"
+        result = run_pca_pruning(data, PCAPruningConfig(), out, build="hg38")
+        assert result.success is True
+
+        # Ratified: no excluded-region variant survives pruning.
+        assert self._count_in_ranges(out.with_suffix(".pvar"), ranges) == 0

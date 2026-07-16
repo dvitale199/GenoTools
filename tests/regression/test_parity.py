@@ -209,9 +209,10 @@ def test_old_vs_new_gwas_parity(
     Per-variant p-values are NOT asserted equal: the new PCA pruning excludes
     high-LD/MHC regions (`--exclude range`) that the old code left in
     (`--exclude`, a no-op on a ranges file), so the PCA covariates -- and hence
-    every GWAS p-value -- differ slightly. That divergence is a *flagged*
-    old-vs-new discrepancy documented in REFACTOR_HARDENING.md for a deliberate
-    maintainer decision; it is not silently asserted away here.
+    every GWAS p-value -- differ slightly. That divergence is a *ratified,
+    intentional* correctness fix (decision B in REFACTOR_HARDENING.md): excluding
+    those regions before PCA is standard practice, so GWAS parity is asserted at
+    the tested-variant-set + lambda level, not per-variant, by design.
     """
     stable_bin, _ = _require_parity_env(stable_venv_genotools)
 
