@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from genotools.qc.results import FilterResult, QCResult
+from genotools.qc.results import FilterResult
 
 
 class TestFilterResult:
@@ -94,99 +94,6 @@ class TestFilterResult:
         """FilterResult is immutable."""
         with pytest.raises(AttributeError):
             sample_filter_result.samples_removed = 0  # type: ignore[misc]
-
-
-class TestQCResult:
-    """Tests for QCResult dataclass."""
-
-    @pytest.fixture
-    def mock_input_data(self) -> MagicMock:
-        """Create mock input GenotypeData."""
-        mock = MagicMock()
-        mock.path = Path("/input/test")
-        mock.sample_count = 500
-        mock.variant_count = 10000
-        return mock
-
-    @pytest.fixture
-    def mock_output_data(self) -> MagicMock:
-        """Create mock output GenotypeData."""
-        mock = MagicMock()
-        mock.path = Path("/output/test")
-        mock.sample_count = 450
-        mock.variant_count = 9000
-        return mock
-
-    @pytest.fixture
-    def sample_qc_result(
-        self,
-        mock_input_data: MagicMock,
-        mock_output_data: MagicMock,
-    ) -> QCResult:
-        """Create a sample QCResult for testing."""
-        step1_output = MagicMock()
-        step1_output.path = Path("/output/step1")
-        step1_output.sample_count = 480
-
-        step1_result = FilterResult(
-            output=step1_output,
-            samples_removed=20,
-            variants_removed=0,
-            metrics={},
-            log="",
-            pruned_samples_file=Path("/output/step1.outliers"),
-            step_name="step1",
-        )
-
-        step2_result = FilterResult(
-            output=mock_output_data,
-            samples_removed=30,
-            variants_removed=1000,
-            metrics={},
-            log="",
-            pruned_samples_file=Path("/output/step2.outliers"),
-            step_name="step2",
-        )
-
-        return QCResult(
-            input=mock_input_data,
-            output=mock_output_data,
-            step_results=[("step1", step1_result), ("step2", step2_result)],
-        )
-
-    def test_total_samples_removed(self, sample_qc_result: QCResult) -> None:
-        """total_samples_removed sums across all steps."""
-        assert sample_qc_result.total_samples_removed == 50  # 20 + 30
-
-    def test_total_variants_removed(self, sample_qc_result: QCResult) -> None:
-        """total_variants_removed sums across all steps."""
-        assert sample_qc_result.total_variants_removed == 1000  # 0 + 1000
-
-    def test_to_legacy_dict(self, sample_qc_result: QCResult) -> None:
-        """to_legacy_dict returns correct format."""
-        legacy_dict = sample_qc_result.to_legacy_dict()
-
-        assert "step1" in legacy_dict
-        assert "step2" in legacy_dict
-        assert legacy_dict["step1"]["step"] == "step1"
-        assert legacy_dict["step2"]["step"] == "step2"
-
-    def test_get_step_result_found(self, sample_qc_result: QCResult) -> None:
-        """get_step_result returns correct result when found."""
-        result = sample_qc_result.get_step_result("step1")
-        assert result is not None
-        assert result.step_name == "step1"
-        assert result.samples_removed == 20
-
-    def test_get_step_result_not_found(self, sample_qc_result: QCResult) -> None:
-        """get_step_result returns None when not found."""
-        result = sample_qc_result.get_step_result("nonexistent")
-        assert result is None
-
-    def test_frozen(self, sample_qc_result: QCResult) -> None:
-        """QCResult is immutable."""
-        with pytest.raises(AttributeError):
-            sample_qc_result.output = MagicMock()  # type: ignore[misc]
 
 
 class TestLegacyCompatibility:

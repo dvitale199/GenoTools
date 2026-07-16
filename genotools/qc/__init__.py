@@ -19,25 +19,10 @@ This module provides pure functions for sample and variant quality control,
 replacing the mutable SampleQC/VariantQC class-based architecture.
 
 Example usage:
-    from genotools.qc import (
-        QCPipeline,
-        filter_callrate,
-        CallrateConfig,
-        FilterResult,
-    )
+    from genotools.qc import filter_callrate, CallrateConfig, FilterResult
 
-    # Run a single step
     data = GenotypeData.from_path(Path("input"))
     result = filter_callrate(data, CallrateConfig(mind=0.05), Path("output"))
-
-    # Or compose into a pipeline
-    pipeline = QCPipeline(
-        steps=[
-            ("callrate", filter_callrate, CallrateConfig(mind=0.05)),
-            ("sex", filter_sex, SexConfig()),
-        ]
-    )
-    qc_result = pipeline.run(data, Path("output_dir"))
 """
 
 from genotools.qc.config import (
@@ -51,8 +36,7 @@ from genotools.qc.config import (
     RelatedConfig,
     SexConfig,
 )
-from genotools.qc.pipeline import QCPipeline
-from genotools.qc.results import FilterResult, QCResult
+from genotools.qc.results import FilterResult
 from genotools.qc.steps import (
     filter_callrate,
     filter_case_control,
@@ -67,11 +51,8 @@ from genotools.qc.steps import (
 )
 
 __all__ = [
-    # Pipeline
-    "QCPipeline",
     # Results
     "FilterResult",
-    "QCResult",
     # Configs
     "CallrateConfig",
     "CaseControlConfig",
