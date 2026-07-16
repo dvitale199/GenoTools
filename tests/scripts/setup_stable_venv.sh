@@ -46,6 +46,33 @@ trap 'git -C "${ROOT}" worktree remove --force "${WORKTREE}" 2>/dev/null || true
 # by umap-learn==0.5.3) and psutil (imported by the old ancestry.py).
 "${ROOT}/.venv-stable/bin/pip" install --quiet "setuptools<81" psutil
 
+# Pre-cache KING (Linux only). The pre-refactor genotools runs check_king() at
+# *module import* (top-level in qc.py), so on Linux merely starting the old CLI
+# downloads KING from kingrelatedness.com -- a slow, flaky host -- even for QC/
+# GWAS steps that never use KING. That download hung CI for 17 min of retries.
+# Fetch the binary once here so the old CLI finds it and skips the download.
+# (macOS: check_king() returns None, so there is nothing to do.)
+if [ "$(uname -s)" = "Linux" ]; then
+    KING_DIR="${GENOTOOLS_DEP_DIR:-${HOME}/.genotools/misc/executables}"
+    if [ -x "${KING_DIR}/king" ]; then
+        echo ">> KING already cached at ${KING_DIR}/king"
+    else
+        echo ">> Pre-caching KING for the old baseline (Linux)..."
+        mkdir -p "${KING_DIR}"
+        if curl -fsSL --retry 3 --retry-delay 5 --max-time 180 \
+             -o /tmp/king.tar.gz \
+             https://www.kingrelatedness.com/executables/Linux-king232.tar.gz; then
+            tar -xzf /tmp/king.tar.gz -C "${KING_DIR}" && chmod +x "${KING_DIR}/king"
+            echo ">> KING cached at ${KING_DIR}/king"
+        else
+            echo "!! WARNING: could not download KING (kingrelatedness.com unreachable)."
+            echo "!! The old baseline calls check_king() at import, so on Linux the old"
+            echo "!! CLI may hang trying to fetch it. Retry, or drop a 'king' binary at"
+            echo "!! ${KING_DIR}/king (any executable works -- parity steps never call it)."
+        fi
+    fi
+fi
+
 echo ">> Done. Old baseline installed at:"
 echo "   ${ROOT}/.venv-stable/bin/genotools"
 echo ">> Run parity tests with:"

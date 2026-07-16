@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, refactor/main]
   pull_request:
+  workflow_dispatch:  # allow manual runs from the Actions tab (any branch)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -20,6 +21,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Cache external tools (PLINK/PLINK2/KING)
+        uses: actions/cache@v4
+        with:
+          path: ~/.genotools
+          key: genotools-deps-${{ runner.os }}-${{ hashFiles('genotools/dependencies.py') }}
 
       - name: Install genotools + test deps
         run: |
@@ -53,6 +60,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Cache external tools (PLINK/PLINK2/KING)
+        uses: actions/cache@v4
+        with:
+          path: ~/.genotools
+          key: genotools-deps-${{ runner.os }}-${{ hashFiles('genotools/dependencies.py') }}
 
       - name: Install genotools (new) + test deps
         run: |
