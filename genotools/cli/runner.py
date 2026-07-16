@@ -218,7 +218,7 @@ class PipelineRunner:
         )
 
         # Import Ancestry module
-        from ..ancestry import AncestryModel, ReferencePanel, AncestryConfig
+        from ..ancestry import AncestryModel, AncestryConfig
 
         # Store module references
         self._new_modules = {
@@ -235,7 +235,6 @@ class PipelineRunner:
             "run_gwas_association": run_gwas_association,
             "GenotypeData": GenotypeData,
             "AncestryModel": AncestryModel,
-            "ReferencePanel": ReferencePanel,
         }
 
         # Store config classes

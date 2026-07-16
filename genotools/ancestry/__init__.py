@@ -19,17 +19,11 @@ This module provides a clean ML-pattern interface for ancestry prediction
 using PCA, UMAP, and XGBoost classification.
 
 Basic Usage:
-    >>> from genotools.ancestry import AncestryModel, ReferencePanel, AncestryConfig
+    >>> from genotools.ancestry import AncestryModel, AncestryConfig
     >>>
-    >>> # Load reference panel
-    >>> ref = ReferencePanel.load(
-    ...     geno_path=Path("/path/to/ref_panel"),
-    ...     labels_path=Path("/path/to/labels.txt")
-    ... )
-    >>>
-    >>> # Create and train model
+    >>> # Create and train model on reference genotypes + labels
     >>> model = AncestryModel()
-    >>> model.fit(ref)
+    >>> model.fit(raw_ref_data, labels)
     >>>
     >>> # Predict ancestry
     >>> predictions = model.predict(test_data)
@@ -91,13 +85,6 @@ from genotools.ancestry.results import (
     SplitResult,
 )
 
-# Reference panel management
-from genotools.ancestry.reference import (
-    ReferencePanel,
-    get_default_model_path,
-    validate_model_files,
-)
-
 # Main model class
 from genotools.ancestry.model import (
     AncestryModel,
@@ -117,7 +104,6 @@ from genotools.ancestry.reducers import (
 __all__ = [
     # Main classes
     "AncestryModel",
-    "ReferencePanel",
     # Configuration
     "AncestryConfig",
     "PCAConfig",
@@ -137,8 +123,6 @@ __all__ = [
     "UMAPResult",
     "SplitResult",
     # Utilities
-    "get_default_model_path",
-    "validate_model_files",
     "load_trained_pipeline",
     # Reducers
     "PCAReducer",
