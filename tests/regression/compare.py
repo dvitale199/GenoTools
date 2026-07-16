@@ -405,6 +405,175 @@ def _export_traw(prefix: Path, plink2_exec: str, out_prefix: Path) -> Path:
     return traw
 
 
+# ---------------------------------------------------------------------------
+# GWAS result comparison
+#
+# GWAS output is NOT a pfile: it is a PLINK2 --glm association table
+# ({out}.PHENO1.glm.logistic.hybrid or .glm.linear). GWAS was broken until the
+# last hardening PR, so old-vs-new GWAS parity had never been checked. These
+# helpers align the two result tables on variant ID and compare per-variant
+# p-values (and the genomic-inflation lambda derived from them) within a small
+# tolerance.
+# ---------------------------------------------------------------------------
+
+
+def find_gwas_output(out_prefix: Path) -> Optional[Path]:
+    """Locate a PLINK2 --glm output file for a run output prefix.
+
+    Matches both logistic (``.glm.logistic.hybrid``) and linear
+    (``.glm.linear``) results, regardless of phenotype name.
+
+    Args:
+        out_prefix: Run output prefix (without extension).
+
+    Returns:
+        Path to the glm results file, or None if not found.
+    """
+    out_prefix = Path(out_prefix)
+    patterns = ["*.glm.logistic.hybrid", "*.glm.linear"]
+    for pattern in patterns:
+        matches = sorted(out_prefix.parent.glob(f"{out_prefix.name}{pattern}"))
+        if matches:
+            return matches[0]
+    return None
+
+
+def _lambda_gc(pvalues) -> float:
+    """Compute the genomic inflation factor (lambda GC) from p-values.
+
+    lambda_gc = median(chi2) / expected_median, with chi2 the 1-df chi-squared
+    quantiles of (1 - p). Matches the approach used by the production inflation
+    code so a comparison here is meaningful.
+    """
+    from scipy.stats import chi2
+
+    p = pd.to_numeric(pd.Series(pvalues), errors="coerce").to_numpy()
+    p = p[~pd.isna(p)]
+    if len(p) == 0:
+        return float("nan")
+    chi2_stats = chi2.isf(p, 1)
+    expected_median = chi2.ppf(0.5, 1)
+    import numpy as np
+
+    return float(np.nanmedian(chi2_stats) / expected_median)
+
+
+def compare_gwas_results(
+    expected: Path,
+    actual: Path,
+    p_tolerance: float = 1e-6,
+    lambda_tolerance: float = 1e-3,
+) -> ComparisonResult:
+    """Compare two PLINK2 --glm association tables, order-independently.
+
+    Aligns on variant ID (and TEST, when present), then compares per-variant
+    p-values within ``p_tolerance`` and the derived lambda GC within
+    ``lambda_tolerance``. ``mismatched_variants`` lists variants whose p-value
+    differs beyond tolerance.
+
+    Args:
+        expected: Path to the expected .glm.* file.
+        actual: Path to the actual .glm.* file.
+        p_tolerance: Absolute tolerance for per-variant p-value comparison.
+        lambda_tolerance: Absolute tolerance for lambda GC comparison.
+
+    Returns:
+        ComparisonResult over the association tables.
+    """
+    import numpy as np
+
+    exp = pd.read_csv(expected, sep=r"\s+", dtype={"#CHROM": str}, low_memory=False)
+    act = pd.read_csv(actual, sep=r"\s+", dtype={"#CHROM": str}, low_memory=False)
+
+    # Restrict to the additive test if a TEST column is present.
+    if "TEST" in exp.columns:
+        exp = exp[exp["TEST"] == "ADD"]
+    if "TEST" in act.columns:
+        act = act[act["TEST"] == "ADD"]
+
+    exp = exp.set_index("ID")
+    act = act.set_index("ID")
+
+    exp_ids, act_ids = set(exp.index), set(act.index)
+    missing = exp_ids - act_ids
+    extra = act_ids - exp_ids
+    common = sorted(exp_ids & act_ids)
+
+    mismatched_variants: list[str] = []
+    if common:
+        e = exp.loc[common]
+        a = act.loc[common]
+        e_p = pd.to_numeric(e["P"], errors="coerce").to_numpy()
+        a_p = pd.to_numeric(a["P"], errors="coerce").to_numpy()
+        both_nan = pd.isna(e_p) & pd.isna(a_p)
+        # Treat matching NaNs as equal; compare finite p-values within tolerance.
+        diff = ~both_nan & ~(np.abs(e_p - a_p) <= p_tolerance)
+        mismatched_variants = [common[i] for i in np.where(diff)[0]]
+
+    lambda_exp = _lambda_gc(exp["P"]) if "P" in exp.columns else float("nan")
+    lambda_act = _lambda_gc(act["P"]) if "P" in act.columns else float("nan")
+    lambda_ok = (
+        (pd.isna(lambda_exp) and pd.isna(lambda_act))
+        or abs(lambda_exp - lambda_act) <= lambda_tolerance
+    )
+
+    equal = (
+        len(missing) == 0
+        and len(extra) == 0
+        and len(mismatched_variants) == 0
+        and lambda_ok
+    )
+
+    message = (
+        f"variants: missing {len(missing)}, extra {len(extra)}, "
+        f"p-mismatches {len(mismatched_variants)}; "
+        f"lambda expected {lambda_exp:.5f} vs actual {lambda_act:.5f} "
+        f"(ok={lambda_ok})"
+    )
+
+    return ComparisonResult(
+        equal=equal,
+        sample_diff=0,
+        variant_diff=len(missing) + len(extra) + len(mismatched_variants),
+        mismatched_samples=[],
+        mismatched_variants=sorted(missing | extra) + mismatched_variants,
+        message=message,
+    )
+
+
+def compare_gwas(expected_prefix: Path, actual_prefix: Path, **kwargs) -> ComparisonResult:
+    """Compare GWAS output for two run prefixes.
+
+    Locates each run's .glm.* file and compares them via
+    :func:`compare_gwas_results`.
+
+    Args:
+        expected_prefix: Expected run output prefix (without extension).
+        actual_prefix: Actual run output prefix (without extension).
+        **kwargs: Forwarded to compare_gwas_results (tolerances).
+
+    Returns:
+        ComparisonResult, non-equal with an explanatory message if either
+        glm file is missing.
+    """
+    exp_glm = find_gwas_output(Path(expected_prefix))
+    act_glm = find_gwas_output(Path(actual_prefix))
+
+    if exp_glm is None or act_glm is None:
+        return ComparisonResult(
+            equal=False,
+            sample_diff=0,
+            variant_diff=0,
+            mismatched_samples=[],
+            mismatched_variants=[],
+            message=(
+                f"GWAS output missing: expected={exp_glm}, actual={act_glm}"
+            ),
+        )
+
+    return compare_gwas_results(exp_glm, act_glm, **kwargs)
+
+
 def compare_genotypes(
     expected_prefix: Path,
     actual_prefix: Path,

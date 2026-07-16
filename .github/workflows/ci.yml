@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, refactor/main]
+  pull_request:
+  workflow_dispatch:  # allow manual runs from the Actions tab (any branch)
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Cache external tools (PLINK/PLINK2/KING)
+        uses: actions/cache@v4
+        with:
+          path: ~/.genotools
+          key: genotools-deps-${{ runner.os }}-${{ hashFiles('genotools/dependencies.py') }}
+
+      - name: Install genotools + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Download PLINK / PLINK2
+        # The genotools dependency resolver fetches the Linux binaries into
+        # ~/.genotools/misc/executables so the QC/GWAS steps (and the parity
+        # genotype comparator) can find them.
+        run: |
+          python -c "from genotools.dependencies import check_plink, check_plink2; print(check_plink()); print(check_plink2())"
+
+      - name: Run unit + regression tests
+        # Parity tests under tests/regression skip cleanly here (no .venv-stable);
+        # they run in the dedicated parity job below.
+        run: pytest tests/unit tests/regression -q
+
+  parity:
+    name: Old-vs-new parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the pre-refactor baseline ref (origin/main) is
+          # available to build .venv-stable from.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Cache external tools (PLINK/PLINK2/KING)
+        uses: actions/cache@v4
+        with:
+          path: ~/.genotools
+          key: genotools-deps-${{ runner.os }}-${{ hashFiles('genotools/dependencies.py') }}
+
+      - name: Install genotools (new) + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Download PLINK / PLINK2
+        run: |
+          python -c "from genotools.dependencies import check_plink, check_plink2; print(check_plink()); print(check_plink2())"
+
+      - name: Fetch pre-refactor baseline ref
+        run: git fetch origin main:refs/remotes/origin/main
+
+      - name: Build .venv-stable (pre-refactor baseline)
+        # umap-learn==0.5.3 (old dep) needs Python <=3.11, matched by this job.
+        run: PYTHON=python bash tests/scripts/setup_stable_venv.sh origin/main
+
+      - name: Run old-vs-new parity tests
+        run: pytest tests/regression/test_parity.py -v

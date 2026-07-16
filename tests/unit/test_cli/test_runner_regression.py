@@ -63,6 +63,29 @@ def _fake_step_factory(failing_step: str):
     return fake_single_step
 
 
+def _write_traceable_pfiles(prefix: Path) -> None:
+    """Create pfiles whose contents encode their own prefix.
+
+    This lets a test tell *which* step's output ended up promoted to the final
+    output path (the bytes are copied verbatim by shutil.copy2).
+    """
+    for ext in (".pgen", ".pvar", ".psam"):
+        Path(f"{prefix}{ext}").write_text(f"{prefix.name}{ext}")
+
+
+def _traceable_step_factory(failing_step: str):
+    """Like _fake_step_factory but passing steps write traceable pfiles."""
+    def fake_single_step(
+        step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if step == failing_step:
+            raise QCError(f"{step} failed")
+        _write_traceable_pfiles(Path(step_output))
+        return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+    return fake_single_step
+
+
 class TestWarnModeContinuesAfterRaisingStep:
     """Regression: refactored steps RAISE on failure, but _run_qc_pipeline had no
     try/except, so under --warn a raising step aborted the entire run instead of
@@ -92,6 +115,62 @@ class TestWarnModeContinuesAfterRaisingStep:
         """Without --warn, a raising step must propagate (fail-fast), not be swallowed."""
         runner, geno, out = _make_runner(tmp_path, warn_only=False)
         monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("sex"))
+
+        with pytest.raises(QCError):
+            runner._run_qc_pipeline(
+                steps=["callrate", "sex", "het"],
+                geno_path=str(geno),
+                out_path=str(out),
+            )
+
+
+class TestWarnModeFinalStepFailurePromotesLastPassedOutput:
+    """Regression: when the LAST step raises under --warn, the pipeline must still
+    produce final output pfiles at {out}.pgen/.pvar/.psam by promoting the output
+    of the last step that passed (handled by _handle_final_step_failure). Only a
+    *middle* raising step was previously covered; a terminal failure left no final
+    output at all.
+    """
+
+    def test_terminal_failure_promotes_last_passed_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        # het is the LAST step and raises; callrate + sex pass.
+        monkeypatch.setattr(
+            runner, "_run_single_step", _traceable_step_factory("het")
+        )
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+
+        pf = out_dict["pass_fail"]
+        assert pf["callrate"]["status"] is True
+        assert pf["sex"]["status"] is True
+        assert pf["het"]["status"] is False  # terminal failure recorded, not raised
+
+        # Final output must exist despite the terminal failure...
+        for ext in (".pgen", ".pvar", ".psam"):
+            final = Path(f"{out}{ext}")
+            assert final.exists(), f"final output {final.name} was not produced"
+
+        # ...and it must be the LAST PASSED step's output (sex), not the raw input
+        # or the callrate output. sex ran on the callrate output, so its prefix is
+        # "{out}_callrate_sex".
+        expected_prefix = f"{out}_callrate_sex"
+        assert Path(f"{out}.pgen").read_text() == f"{Path(expected_prefix).name}.pgen"
+
+    def test_terminal_failure_without_warn_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sanity check: without --warn a terminal failure still fails fast."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        monkeypatch.setattr(
+            runner, "_run_single_step", _traceable_step_factory("het")
+        )
 
         with pytest.raises(QCError):
             runner._run_qc_pipeline(

@@ -54,6 +54,7 @@ setup(
         'pandas>=2.0.3',
         'Pillow>=9.3.0',
         'plotly>=5.11.0',
+        'psutil>=5.9.0',
         'requests>=2.28.1',
         'scikit_learn>=1.3.0',
         'scipy>=1.9.3',
