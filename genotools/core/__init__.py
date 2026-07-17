@@ -24,6 +24,9 @@ Usage:
 # Genotype data representation
 from .genotypes import GenotypeData
 
+# Input validation
+from .validation import validate_input
+
 # Exception hierarchy
 from .exceptions import (
     GenoToolsError,
@@ -72,6 +75,8 @@ from .config import (
 __all__ = [
     # Genotype data
     "GenotypeData",
+    # Validation
+    "validate_input",
     # Exceptions
     "GenoToolsError",
     "ValidationError",

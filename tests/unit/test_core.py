@@ -375,3 +375,48 @@ class TestImportPerformance:
             sys.stderr = old_stderr
 
         assert captured == "", f"Import produced unexpected output: {captured}"
+
+
+class TestValidation:
+    """Tests for core.validation.validate_input."""
+
+    @pytest.fixture
+    def geno(self) -> Path:
+        return Path("tests/data/synthetic/genotools_test")
+
+    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, capsys):
+        from genotools.core.validation import validate_input
+        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
+        out = capsys.readouterr().out
+        assert "breakdown" in out.lower()
+
+    def test_raises_on_missing_pgen(self, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        with pytest.raises(FileNotFoundError):
+            validate_input(tmp_path / "nope", tmp_path / "out", skip_fails=False)
+
+    def test_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        log = tmp_path / "out_all_logs.log"
+        log.write_text("prior run\n")
+        with pytest.raises(ValidationError):
+            validate_input(geno, tmp_path / "out", skip_fails=False)
+
+    def test_skip_fails_ignores_existing_log(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        (tmp_path / "out_all_logs.log").write_text("prior\n")
+        validate_input(geno, tmp_path / "out", skip_fails=True)  # no raise
+
+    def test_raises_on_missing_sex_column(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        import pandas as pd
+        # Build a pfile-shaped fixture whose psam lacks SEX
+        bad = tmp_path / "bad"
+        bad.with_suffix(".pgen").write_bytes((geno.with_suffix(".pgen")).read_bytes())
+        bad.with_suffix(".pvar").write_bytes((geno.with_suffix(".pvar")).read_bytes())
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam.drop(columns=["SEX"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
+        with pytest.raises(ValidationError):
+            validate_input(bad, tmp_path / "out2", skip_fails=False)

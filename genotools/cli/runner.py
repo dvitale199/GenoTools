@@ -324,11 +324,13 @@ class PipelineRunner:
             GenotypeData.from_vcf(str(self.args.input.vcf))
 
         # Run upfront validation
-        if not self.args.output.skip_fails:
-            from ..utils import upfront_check
+        from ..core.validation import validate_input
 
-            legacy_dict = self.args.to_legacy_dict()
-            upfront_check(str(self.args.geno_path), legacy_dict)
+        validate_input(
+            self.args.geno_path,
+            self.args.out_path,
+            skip_fails=self.args.output.skip_fails,
+        )
 
     def _run_with_ancestry(self, steps: List[str]) -> PipelineOutput:
         """Run pipeline with ancestry prediction.
