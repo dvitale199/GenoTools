@@ -201,6 +201,60 @@ failures), parity green. CI green; merged to `refactor/main`. Design + plan:
 `docs/superpowers/specs/2026-07-16-retire-dead-abstractions-design.md`,
 `docs/superpowers/plans/2026-07-16-retire-dead-abstractions.md`.
 
+### Round 5 (`refactor/decouple-from-legacy`, item #6)
+
+Decoupled the new modular pipeline from the legacy flat modules so the new code
+imports **zero** top-level legacy modules — the prerequisite for the Phase 5/6
+legacy removal. Two parts, both verified against the pre-refactor baseline.
+
+**6a — import decoupling (behavior-preserving).**
+1. `gt_header` → `core/logging.py::banner()` (byte-identical string).
+2. bfile/vcf input conversion → `core.GenotypeData.to_pfile` + new
+   `GenotypeData.from_vcf()` (faithful to legacy `bfiles_to_pfiles`/`vcf_to_pfiles`).
+3. `upfront_check` → new `core/validation.py::validate_input()` (checks + data
+   breakdown only; the legacy data-driven **step-skip** logic is intentionally
+   **not** ported — see deferred, below).
+4. `genotools/ancestry.py` → `git mv` to `genotools/ancestry/legacy.py`; the
+   runner's importlib `spec_from_file_location` hack replaced with a normal
+   `from ..ancestry.legacy import Ancestry`. Legacy `Ancestry` stays the default
+   `genotools` engine.
+
+**6b — finish the new ancestry path (faithful ports).** Ported the three legacy
+`Ancestry` helpers the `genotools-new` path still leaned on into the new package
+(`ancestry/preprocessing.py`: `get_raw_files`, `get_common_snps`, `clean_up_files`;
+`ancestry/cohort.py`: `split_cohort_by_ancestry`) and rewired
+`_run_ancestry_prediction_new`/`_run_training_mode`/`_run_inference_mode` to use
+them — so `genotools-new` no longer touches legacy `Ancestry`. The inference
+common-SNP round-trip (write list → fake `model_path`) was collapsed to passing
+the file directly; the never-reached container branch was not ported. Each port is
+guarded by a **differential test** that runs the *actual legacy code* as the oracle
+on identical synthetic inputs and asserts byte/frame equality (train + inference
+incl. the missing-column fill loop; cohort retained/pruned/subset branches).
+
+**Verification:** full suite **394 passed**; old-vs-new **parity 8/8** (proves 6a
+conversion/validation are identical to legacy); per-port differential tests green;
+a real end-to-end `genotools-new --ancestry` run on synthetic data completed
+(split pfiles + JSON + saved model dir), validating the rewire's runtime wiring.
+Static gate: zero `from ..utils`/`importlib` in new code. Design + plan:
+`docs/superpowers/specs/2026-07-17-decouple-from-legacy-design.md`,
+`docs/superpowers/plans/2026-07-17-decouple-from-legacy.md`.
+
+**Deferred (gated on item #1, real-data parity) — NOT done here:** flipping the
+default `genotools` engine to new ancestry; deleting the legacy `Ancestry` class
+and the `genotools-new` A/B entry point; the wholesale Phase 5/6 deletion of the
+legacy cluster (`utils.py`, `ancestry/legacy.py`, `gwas.py`, `imputation.py`).
+Also deferred: re-implementing `upfront_check`'s data-driven step auto-skips
+(skip sex if no X chrom, skip het if <50 samples, etc.) — a **pre-existing** gap
+(the old new-runner already discarded them), belongs with the parity work.
+
+**Intentional behavior delta (recorded):** `genotools-new` now runs the input
+validation checks + data breakdown even under `--skip_fails` (previously skipped
+entirely) — this **converges** the new path toward legacy `genotools` behavior and
+does not change genotype output. **Follow-ups (non-blocking):** bump
+`python_requires` ≥3.10 to match the PEP-604 annotations used across the refactor;
+drop the unused `var` read in `validate_input` (or `# noqa`); the f-string→`shlex`
+command construction (paths-with-spaces) is a repo-wide pre-existing rough edge.
+
 ### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
 The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
@@ -251,9 +305,11 @@ Priority order for making the refactor mergeable to `main`:
 4. ✅ **Add CI** — DONE in round 2 (`.github/workflows/ci.yml`): unit+regression
    job (auto-downloads PLINK/PLINK2) + parity job (builds `.venv-stable`).
 5. ✅ **Declare `psutil`** — DONE in round 2.
-6. **Decouple from legacy** — new CLI still imports `utils.py`
-   (`gt_header`/`bfiles_to_pfiles`/`vcf_to_pfiles`/`upfront_check`) and loads
-   `ancestry.py` via an importlib file-path hack. Blocks legacy removal (Phase 5/6).
+6. ✅ **Decouple from legacy** — DONE in round 5 (see above). New code
+   (`cli`/`core`/`qc`/`gwas` + new `ancestry` package) now imports **zero**
+   top-level legacy modules; the `utils.py` imports and the `ancestry.py`
+   importlib hack are gone, and `genotools-new`'s ancestry path is fully
+   standalone. Legacy files retained (default engine + Phase 5/6 deletion).
 7. ✅ **Retire dead abstractions** — DONE in round 4 (PR #248): removed
    `QCPipeline`/`QCResult`/`QCStepProtocol` and the unadopted `ReferencePanel`
    module. `ancestry/results.py` was found to be live (not removed).
