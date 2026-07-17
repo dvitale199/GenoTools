@@ -295,9 +295,9 @@ class PipelineRunner:
             os.remove(cleaned_logs)
 
         # Create new log files with header
-        from ..utils import gt_header
+        from ..core.logging import banner
 
-        header = gt_header()
+        header = banner()
         with open(all_logs, "w") as fp:
             fp.write(header)
             fp.write("\n")

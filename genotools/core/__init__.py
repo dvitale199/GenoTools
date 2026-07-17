@@ -44,6 +44,7 @@ from .logging import (
     clear_step,
     step_context,
     current_step,
+    banner,
 )
 
 # External tool execution
@@ -87,6 +88,7 @@ __all__ = [
     "clear_step",
     "step_context",
     "current_step",
+    "banner",
     # Executors
     "get_plink",
     "get_plink2",

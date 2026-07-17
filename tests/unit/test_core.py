@@ -273,6 +273,23 @@ class TestConfig:
             config_invalid.validate()
 
 
+class TestBanner:
+    """Tests for the ASCII banner."""
+
+    def test_banner_returns_ascii_header(self):
+        from genotools.core.logging import banner
+        b = banner()
+        assert isinstance(b, str)
+        assert "█" in b            # box-drawing art present
+        assert b.count("\n") >= 5  # multi-line
+
+    def test_banner_matches_legacy(self):
+        # Faithful copy of legacy gt_header (differential; drop when utils.py is removed)
+        from genotools.core.logging import banner
+        from genotools.utils import gt_header
+        assert banner() == gt_header()
+
+
 class TestImportPerformance:
     """Tests for import performance."""
 
