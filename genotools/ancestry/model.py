@@ -24,14 +24,10 @@ style fit/predict interface for ancestry prediction. The model uses:
 
 Example:
     >>> from genotools.ancestry.model import AncestryModel
-    >>> from genotools.ancestry.reference import ReferencePanel
     >>>
-    >>> # Load reference panel
-    >>> ref = ReferencePanel.load(ref_path, labels_path)
-    >>>
-    >>> # Create and train model
+    >>> # Create and train model on reference genotypes + labels
     >>> model = AncestryModel()
-    >>> model.fit(ref)
+    >>> model.fit(raw_ref_data, labels)
     >>>
     >>> # Predict ancestry
     >>> predictions = model.predict(test_data)
@@ -91,11 +87,10 @@ class AncestryModel:
     The model combines PCA, UMAP, and XGBoost into a prediction pipeline.
 
     The typical workflow is:
-    1. Load reference panel with ReferencePanel.load()
-    2. Create model: AncestryModel(config)
-    3. Fit on reference: model.fit(reference)
-    4. Predict on new samples: model.predict(new_data)
-    5. Optionally save: model.save(path)
+    1. Create model: AncestryModel(config)
+    2. Fit on reference genotypes + labels: model.fit(raw_ref_data, labels)
+    3. Predict on new samples: model.predict(new_data)
+    4. Optionally save: model.save(path)
 
     Attributes:
         config: Full ancestry configuration.
