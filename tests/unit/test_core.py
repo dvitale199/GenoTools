@@ -222,6 +222,22 @@ class TestGenotypeData:
         with pytest.raises(FileNotFoundError):
             GenotypeData.from_vcf(tmp_path / "nope.vcf")
 
+    def test_to_pfile_from_bfile_in_place(self, test_data_path: Path, tmp_path: Path):
+        """bfile -> pfile at the same prefix (the runner's bfile input branch)."""
+        from genotools.core import GenotypeData
+        bfile_prefix = tmp_path / "bf_input"
+        src = GenotypeData.from_path(test_data_path)
+        src.to_bfile(bfile_prefix)
+        assert (bfile_prefix.with_suffix(".bed")).exists()
+
+        bf = GenotypeData.from_path(bfile_prefix)
+        assert bf.format == "bfile"
+        result = bf.to_pfile(bfile_prefix)
+        assert result.format == "pfile"
+        assert (bfile_prefix.with_suffix(".pgen")).exists()
+        assert result.sample_count == src.sample_count
+        assert result.variant_count == src.variant_count
+
 
 class TestConfig:
     """Tests for configuration classes."""
