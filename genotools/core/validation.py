@@ -10,7 +10,7 @@ from typing import Union
 
 import pandas as pd
 
-from genotools.core.exceptions import ValidationError
+from .exceptions import ValidationError
 
 
 def validate_input(

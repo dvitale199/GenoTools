@@ -420,3 +420,15 @@ class TestValidation:
         psam.drop(columns=["SEX"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
         with pytest.raises(ValidationError):
             validate_input(bad, tmp_path / "out2", skip_fails=False)
+
+    def test_raises_on_missing_pheno_column(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        import pandas as pd
+        bad = tmp_path / "bad_pheno"
+        bad.with_suffix(".pgen").write_bytes((geno.with_suffix(".pgen")).read_bytes())
+        bad.with_suffix(".pvar").write_bytes((geno.with_suffix(".pvar")).read_bytes())
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam.drop(columns=["PHENO1"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
+        with pytest.raises(ValidationError):
+            validate_input(bad, tmp_path / "outp", skip_fails=False)

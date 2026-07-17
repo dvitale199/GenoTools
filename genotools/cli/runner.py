@@ -140,10 +140,10 @@ class PipelineRunner:
         self._initialize_modules()
 
         # Convert input format if needed (must happen before logging setup
-        # because upfront_check validates that log files don't exist)
+        # because validate_input validates that log files don't exist)
         self._convert_input_format()
 
-        # Set up logging (after upfront_check so log file creation doesn't trigger error)
+        # Set up logging (after validate_input so log file creation doesn't trigger error)
         self._setup_logging()
 
         # Validate we have something to do
@@ -274,7 +274,7 @@ class PipelineRunner:
     def _setup_logging(self) -> None:
         """Set up the consolidated run log.
 
-        Runs *after* upfront_check (which errors if ``{out}_all_logs.log``
+        Runs *after* validate_input (which errors if ``{out}_all_logs.log``
         already exists), so it can safely (re)create the log. Beyond creating
         the legacy-named files, this attaches the structured logging file
         handler so every step's ``logger.info``/``error`` is aggregated into
