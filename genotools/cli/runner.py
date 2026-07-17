@@ -315,14 +315,13 @@ class PipelineRunner:
         """Convert input format to pfiles if needed."""
         input_format = self.args.input.input_format
 
+        from ..core import GenotypeData
+
         if input_format == "bfile":
-            from ..utils import bfiles_to_pfiles
-
-            bfiles_to_pfiles(bfile_path=str(self.args.input.bfile))
+            bfile = str(self.args.input.bfile)
+            GenotypeData.from_path(bfile).to_pfile(bfile)
         elif input_format == "vcf":
-            from ..utils import vcf_to_pfiles
-
-            vcf_to_pfiles(vcf_path=str(self.args.input.vcf))
+            GenotypeData.from_vcf(str(self.args.input.vcf))
 
         # Run upfront validation
         if not self.args.output.skip_fails:

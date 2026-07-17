@@ -105,6 +105,58 @@ class GenotypeData:
             variant_count=variant_count
         )
 
+    @classmethod
+    def from_vcf(
+        cls,
+        vcf_path: Path | str,
+        plink2_path: Optional[Path | str] = None,
+    ) -> "GenotypeData":
+        """Convert a VCF to pfile format at the VCF's prefix.
+
+        Faithful reimplementation of legacy utils.vcf_to_pfiles: VCF -> bfile
+        -> pfile, removing the intermediate bed/bim/fam. Returns a GenotypeData
+        for the resulting pfile.
+
+        Raises:
+            FileNotFoundError: if the VCF is missing or a conversion produces no output.
+            ExternalToolError: if PLINK2 fails.
+        """
+        from genotools.core.executors import run_command, get_plink2
+
+        vcf_path = Path(vcf_path)
+        if not vcf_path.is_file():
+            raise FileNotFoundError(f"{vcf_path} does not exist.")
+
+        if plink2_path is None:
+            plink2_path = get_plink2()
+
+        # Prefix = VCF path with .vcf/.vcf.gz stripped (matches legacy split('.vcf'))
+        prefix = Path(str(vcf_path).split(".vcf")[0])
+
+        run_command(
+            f"{plink2_path} --vcf {vcf_path} --make-bed --out {prefix}",
+            tool_name="plink2",
+        )
+        if not prefix.with_suffix(".bed").is_file():
+            raise FileNotFoundError(
+                f"{prefix} bed/bim/fam files do not exist. Conversion from VCF failed"
+            )
+
+        bfile = cls.from_path(prefix)
+        pfile = bfile.to_pfile(prefix, plink2_path=plink2_path)
+
+        if prefix.with_suffix(".pgen").is_file():
+            for ext in (".bed", ".bim", ".fam"):
+                p = prefix.with_suffix(ext)
+                if p.exists():
+                    p.unlink()
+        else:
+            raise FileNotFoundError(
+                f"{prefix} pgen/pvar/psam files do not exist. "
+                f"Conversion from bed/bim/fam failed."
+            )
+        return pfile
+
     @staticmethod
     def _detect_format(path: Path) -> Literal["pfile", "bfile"]:
         """Detect genotype file format from existing files.

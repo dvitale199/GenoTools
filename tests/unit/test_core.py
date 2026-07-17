@@ -195,6 +195,33 @@ class TestGenotypeData:
         assert "pfile" in s
         assert "500" in s  # sample count
 
+    def test_from_vcf_creates_pfile(self, test_data_path: Path, tmp_path: Path):
+        """from_vcf converts a VCF to pfile and cleans up intermediates."""
+        from genotools.core import GenotypeData
+        from genotools.core.executors import get_plink2
+        # Make a VCF from the synthetic pfile
+        vcf_prefix = tmp_path / "from_vcf_input"
+        import subprocess
+        subprocess.run(
+            [str(get_plink2()), "--pfile", str(test_data_path),
+             "--autosome", "--export", "vcf", "--out", str(vcf_prefix)],
+            check=True, capture_output=True,
+        )
+        vcf_file = vcf_prefix.with_suffix(".vcf")
+        assert vcf_file.exists()
+
+        data = GenotypeData.from_vcf(vcf_file)
+
+        assert data.format == "pfile"
+        assert (vcf_prefix.with_suffix(".pgen")).exists()
+        # intermediate bfile removed
+        assert not (vcf_prefix.with_suffix(".bed")).exists()
+
+    def test_from_vcf_raises_on_missing(self, tmp_path: Path):
+        from genotools.core import GenotypeData
+        with pytest.raises(FileNotFoundError):
+            GenotypeData.from_vcf(tmp_path / "nope.vcf")
+
 
 class TestConfig:
     """Tests for configuration classes."""
