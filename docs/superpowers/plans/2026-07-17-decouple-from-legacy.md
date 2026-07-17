@@ -165,7 +165,7 @@ Add to `tests/unit/test_core.py` inside `TestGenotypeData` (uses the existing `t
         import subprocess
         subprocess.run(
             [str(get_plink2()), "--pfile", str(test_data_path),
-             "--export", "vcf", "--out", str(vcf_prefix)],
+             "--autosome", "--export", "vcf", "--out", str(vcf_prefix)],
             check=True, capture_output=True,
         )
         vcf_file = vcf_prefix.with_suffix(".vcf")
