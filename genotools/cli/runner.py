@@ -255,20 +255,9 @@ class PipelineRunner:
             "AncestryConfig": AncestryConfig,
         }
 
-        # Load legacy ancestry module (ancestry.py) via importlib
-        # since genotools.ancestry is the new package directory
-        import importlib.util
-        import sys
-        from pathlib import Path as PathLib
+        # Legacy ancestry engine (still the default; A/B control until Phase 5/6)
+        from ..ancestry.legacy import Ancestry
 
-        genotools_dir = PathLib(__file__).parent.parent
-        ancestry_spec = importlib.util.spec_from_file_location(
-            "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
-        )
-        legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)  # type: ignore
-        sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
-        ancestry_spec.loader.exec_module(legacy_ancestry)  # type: ignore
-        Ancestry = legacy_ancestry.Ancestry
         self._ancestry = Ancestry()
 
     def _setup_logging(self) -> None:

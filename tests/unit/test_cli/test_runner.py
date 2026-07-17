@@ -281,3 +281,13 @@ class TestPipelineRunnerValidation:
         steps = args.get_all_enabled_steps()
         assert steps == []
         assert args.ancestry.run_ancestry is False
+
+
+class TestLegacyAncestryImport:
+    def test_legacy_ancestry_importable(self):
+        from genotools.ancestry.legacy import Ancestry
+        assert Ancestry is not None
+
+    def test_entry_points_import(self):
+        from genotools.cli import main, main_new
+        assert callable(main) and callable(main_new)
