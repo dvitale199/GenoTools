@@ -873,36 +873,55 @@ def test_get_raw_files_train_matches_legacy(synth_ref_bfile, synth_ref_labels, s
 
 
 def test_get_raw_files_inference_matches_legacy(synth_ref_bfile, synth_ref_labels, synth_geno_pfile, tmp_path):
-    """Inference-mode raw_geno matches legacy (extract-from-common-SNPs + reorder path)."""
+    """Inference-mode raw_geno matches legacy, exercising the missing-column fill loop.
+
+    The inference geno is built MISSING chr22 while the reference panel and the
+    common-SNP set retain it, so the inference-only fill loop (`np.repeat(2, ...)`
+    + reorder to ref columns) actually runs — and the differential comparison
+    validates it against legacy byte-for-byte.
+    """
     import shutil
+    from unittest.mock import patch
+    import genotools.ancestry.preprocessing as prep
     from genotools.ancestry.preprocessing import get_raw_files as new_fn
     from genotools.ancestry.legacy import Ancestry
+    from genotools.core.executors import run_command, get_plink2
 
     ref, labels, geno = str(synth_ref_bfile), str(synth_ref_labels), str(synth_geno_pfile)
 
-    # Produce a common_snps file via a train run (new impl)
-    prep = tmp_path / "prep"; prep.mkdir()
+    # Produce a common_snps file via a train run on the FULL geno (includes chr22)
+    prep_dir = tmp_path / "prep"; prep_dir.mkdir()
     train_res = new_fn(geno_path=geno, ref_panel=ref, ref_labels=labels,
-                       out_path=str(prep / "out"), train=True)
+                       out_path=str(prep_dir / "out"), train=True)
     common_snps_src = train_res["out_paths"]["common_snps"]
+
+    # Inference geno MISSING chr22 -> ref's chr22 common SNPs must be filled in
+    subset_geno = tmp_path / "subset_geno"
+    run_command(
+        f"{get_plink2()} --pfile {geno} --not-chr 22 "
+        f"--make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {subset_geno}",
+        tool_name="plink2",
+    )
 
     # Legacy inference derives the common_snps path from model_path: <dir>/model.common_snps
     ld = tmp_path / "legacy"; ld.mkdir()
     shutil.copy2(common_snps_src, ld / "model.common_snps")
     anc = Ancestry()
-    anc.geno_path, anc.ref_panel, anc.ref_labels = geno, ref, labels
+    anc.geno_path, anc.ref_panel, anc.ref_labels = str(subset_geno), ref, labels
     anc.out_path = str(ld / "out")
     anc.train = False
     anc.model_path = str(ld / "model.pkl")
     anc.containerized = False
     legacy_res = anc.get_raw_files()
 
-    # New inference takes the common_snps file directly
+    # New inference takes the common_snps file directly; spy proves the fill loop ran
     nd = tmp_path / "new"; nd.mkdir()
     shutil.copy2(common_snps_src, nd / "model.common_snps")
-    new_res = new_fn(geno_path=geno, ref_panel=ref, ref_labels=labels,
-                     out_path=str(nd / "out"), train=False,
-                     common_snps_file=str(nd / "model.common_snps"))
+    with patch.object(prep.np, "repeat", wraps=prep.np.repeat) as spy:
+        new_res = new_fn(geno_path=str(subset_geno), ref_panel=ref, ref_labels=labels,
+                         out_path=str(nd / "out"), train=False,
+                         common_snps_file=str(nd / "model.common_snps"))
+    assert spy.called, "missing-column fill loop was not exercised (degenerate test)"
 
     pd.testing.assert_frame_equal(
         _sorted_df(legacy_res["raw_geno"]), _sorted_df(new_res["raw_geno"]),
