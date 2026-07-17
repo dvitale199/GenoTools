@@ -445,10 +445,10 @@ class PipelineRunner:
     def _run_ancestry_prediction_new(self) -> Dict[str, Any]:
         """Run ancestry prediction using the new AncestryModel.
 
-        Uses legacy get_raw_files() for PLINK preprocessing, then
+        Uses the ported ``get_raw_files`` for PLINK preprocessing, then
         delegates to new AncestryModel for the ML pipeline (PCA, UMAP,
-        XGBoost, admixture detection). Cohort splitting reuses legacy
-        split_cohort_ancestry().
+        XGBoost, admixture detection). Cohort splitting uses the ported
+        ``split_cohort_by_ancestry``.
 
         Supports two modes:
         - **Training** (default): Train a new model from reference panel.
@@ -479,25 +479,6 @@ class PipelineRunner:
         model_path = self.args.ancestry.model_path
         is_inference = model_path is not None
 
-        # Configure shared legacy Ancestry fields
-        self._ancestry.geno_path = str(self.state.geno_path)
-        self._ancestry.out_path = actual_out
-        self._ancestry.final_out_path = out_path
-        self._ancestry.ref_panel = (
-            str(self.args.ancestry.ref_panel)
-            if self.args.ancestry.ref_panel
-            else None
-        )
-        self._ancestry.ref_labels = (
-            str(self.args.ancestry.ref_labels)
-            if self.args.ancestry.ref_labels
-            else None
-        )
-        self._ancestry.containerized = False
-        self._ancestry.singularity = False
-        self._ancestry.subset = self.args.ancestry.subset_ancestry
-        self._ancestry.min_samples = self.args.ancestry.min_samples
-
         if is_inference:
             model, predictions, ref_pca, raw = self._run_inference_mode(
                 AncestryModel, model_path, actual_out
@@ -524,10 +505,16 @@ class PipelineRunner:
                 params=model.best_params,
             )
 
-        # Cohort splitting (reuse legacy)
+        # Cohort splitting (ported; legacy-free)
+        from ..ancestry.cohort import split_cohort_by_ancestry
+
         labels_path = f"{actual_out}_umap_linearsvc_predicted_labels.txt"
-        ancestry_split = self._ancestry.split_cohort_ancestry(
-            labels_path=labels_path
+        ancestry_split = split_cohort_by_ancestry(
+            labels_path=labels_path,
+            geno_path=str(self.state.geno_path),
+            out_path=actual_out,
+            min_samples=self.args.ancestry.min_samples,
+            subset=self.args.ancestry.subset_ancestry,
         )
 
         # Build legacy-format result dict
@@ -588,7 +575,9 @@ class PipelineRunner:
             raw["out_paths"].get("bed", ""),
             f"{actual_out}_common_snps",
         ]
-        self._ancestry.clean_up(files_to_clean)
+        from ..ancestry.preprocessing import clean_up_files
+
+        clean_up_files(files_to_clean)
 
         # Move files if ancestry-only and not full output
         if not has_qc_steps and not self.args.full_output:
@@ -612,11 +601,16 @@ class PipelineRunner:
         Returns:
             Tuple of (model, predictions, ref_pca, raw).
         """
-        self._ancestry.model_path = None
-        self._ancestry.train = True
+        from ..ancestry.preprocessing import get_raw_files
 
-        # PLINK preprocessing
-        raw = self._ancestry.get_raw_files()
+        # PLINK preprocessing (ported; legacy-free)
+        raw = get_raw_files(
+            geno_path=str(self.state.geno_path),
+            ref_panel=str(self.args.ancestry.ref_panel),
+            ref_labels=str(self.args.ancestry.ref_labels),
+            out_path=actual_out,
+            train=True,
+        )
         raw_ref = raw["raw_ref"]
         raw_geno = raw["raw_geno"]
 
@@ -676,37 +670,32 @@ class PipelineRunner:
         model = AncestryModel.load(model_path)
         logger.info(f"Loaded pre-trained ancestry model from: {model_path}")
 
-        # Write common SNPs to temp file for legacy get_raw_files(train=False)
+        # Write the model's common SNPs to a file for the ported preprocessing
         if model.common_snps is not None:
             common_snps_file = f"{actual_out}_loaded_model.common_snps"
             with open(common_snps_file, "w") as f:
                 for snp in model.common_snps:
                     f.write(f"{snp}\n")
-            # Legacy get_raw_files() derives .common_snps path from model_path
-            self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
         else:
-            # Fall back: try common_snps.txt in model directory
             model_dir = Path(model_path)
-            if model_dir.is_dir():
-                snps_file = model_dir / "common_snps.txt"
-                if snps_file.exists():
-                    common_snps_file = f"{actual_out}_loaded_model.common_snps"
-                    shutil.copy2(snps_file, common_snps_file)
-                    self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
-                else:
-                    raise FileNotFoundError(
-                        f"No common_snps found in model: {model_path}"
-                    )
+            snps_file = model_dir / "common_snps.txt" if model_dir.is_dir() else None
+            if snps_file and snps_file.exists():
+                common_snps_file = f"{actual_out}_loaded_model.common_snps"
+                shutil.copy2(snps_file, common_snps_file)
             else:
-                raise FileNotFoundError(
-                    f"No common_snps in model and path is not a directory: "
-                    f"{model_path}"
-                )
+                raise FileNotFoundError(f"No common_snps found in model: {model_path}")
 
-        self._ancestry.train = False
+        from ..ancestry.preprocessing import get_raw_files
 
-        # PLINK preprocessing (uses common SNPs for feature alignment)
-        raw = self._ancestry.get_raw_files()
+        # PLINK preprocessing (ported; legacy-free)
+        raw = get_raw_files(
+            geno_path=str(self.state.geno_path),
+            ref_panel=str(self.args.ancestry.ref_panel),
+            ref_labels=str(self.args.ancestry.ref_labels),
+            out_path=actual_out,
+            train=False,
+            common_snps_file=common_snps_file,
+        )
         raw_geno = raw["raw_geno"]
         geno_data = raw_geno.drop(columns=["label"])
         geno_ids = raw_geno[["FID", "IID"]]

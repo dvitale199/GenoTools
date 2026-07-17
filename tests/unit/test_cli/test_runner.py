@@ -291,3 +291,33 @@ class TestLegacyAncestryImport:
     def test_entry_points_import(self):
         from genotools.cli import main, main_new
         assert callable(main) and callable(main_new)
+
+
+class TestNewAncestryStandalone:
+    def test_new_path_uses_ported_functions_not_legacy(self, monkeypatch):
+        """The new ancestry training path calls ancestry.preprocessing.get_raw_files,
+        not the legacy Ancestry.get_raw_files."""
+        import genotools.ancestry.preprocessing as prep
+        calls = {"new_get_raw_files": 0}
+
+        real = prep.get_raw_files
+        def spy(*a, **k):
+            calls["new_get_raw_files"] += 1
+            return real(*a, **k)
+        monkeypatch.setattr(prep, "get_raw_files", spy)
+
+        # Guard: legacy get_raw_files must not be called from the new path
+        from genotools.ancestry.legacy import Ancestry
+        def boom(self):
+            raise AssertionError("new path called legacy Ancestry.get_raw_files")
+        monkeypatch.setattr(Ancestry, "get_raw_files", boom)
+
+        # Static guard is the primary check here (full ancestry run needs a ref panel):
+        import inspect
+        from genotools.cli import runner
+        src = inspect.getsource(runner.PipelineRunner._run_training_mode)
+        src += inspect.getsource(runner.PipelineRunner._run_inference_mode)
+        src += inspect.getsource(runner.PipelineRunner._run_ancestry_prediction_new)
+        assert "self._ancestry.get_raw_files" not in src
+        assert "self._ancestry.split_cohort_ancestry" not in src
+        assert "self._ancestry.clean_up" not in src
