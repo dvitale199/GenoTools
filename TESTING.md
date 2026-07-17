@@ -40,7 +40,7 @@ PLINK/PLINK2 are downloaded automatically the first time a step needs them
   parity, to the pre-refactor CLI. Tests that need something absent (PLINK, the
   `.venv-stable` baseline, golden files) **skip cleanly** rather than fail.
 
-Everything green today: **397 passed** with `.venv-stable` present.
+Everything green today: **374 passed** with `.venv-stable` present.
 
 ---
 

@@ -172,6 +172,35 @@ pytest tests/regression/test_parity.py -v             # old vs new
    Both verified to fail against the pre-fix runner and pass after; they skip
    cleanly without `.venv-stable`/plink2. Suite: 391 → 397 tests.
 
+### Round 4 (`refactor/retire-dead-abstractions`, PR #248)
+
+Retired two confirmed-orphaned, runtime-unreachable abstractions (item #7).
+Deletion-only; no execution path touched, so it did not disturb the in-flight
+real-data parity run.
+
+1. **`QCPipeline` removed** — `qc/pipeline.py` (`QCPipeline` + `QCStepProtocol`)
+   plus its `QCResult` return type (`qc/results.py`) and their exports/self-tests.
+   The CLI runner never used it (it reimplements orchestration in
+   `_run_single_step`/`_run_qc_pipeline`), and its golden coverage was redundant
+   with the direct step-function golden tests, which remain. `FilterResult` kept.
+2. **`ReferencePanel` removed** — `ancestry/reference.py` in full (`ReferencePanel`
+   + `get_default_model_path` + `validate_model_files`), its `ancestry/__init__`
+   exports, and the dead `_new_modules["ReferencePanel"]` registration in the
+   runner. It was a public export referenced only in docstrings, never
+   constructed, zero tests. Also corrected `AncestryModel` docstrings that showed
+   a stale `ReferencePanel`-based `fit()` workflow (`fit()` takes a DataFrame +
+   labels).
+3. **`container/` intentionally retained** — the orphaned harness (`run.py`,
+   `Dockerfile`, bundled `*.pkl`, `requirements.txt`) is kept as a historical
+   reference for rebuilding containerized inference later (maintainer decision);
+   its `setup.py` `package_data` entry stays. Not part of "dead abstractions."
+
+Verified: zero remaining references, import smoke, CLI smoke, full suite **397 →
+374** (the 23 removed are the deleted QCPipeline/QCResult self-tests, not
+failures), parity green. CI green; merged to `refactor/main`. Design + plan:
+`docs/superpowers/specs/2026-07-16-retire-dead-abstractions-design.md`,
+`docs/superpowers/plans/2026-07-16-retire-dead-abstractions.md`.
+
 ### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
 The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
@@ -225,8 +254,10 @@ Priority order for making the refactor mergeable to `main`:
 6. **Decouple from legacy** — new CLI still imports `utils.py`
    (`gt_header`/`bfiles_to_pfiles`/`vcf_to_pfiles`/`upfront_check`) and loads
    `ancestry.py` via an importlib file-path hack. Blocks legacy removal (Phase 5/6).
-7. **Retire dead abstractions** — `QCPipeline` (unused; runner reimplements
-   orchestration), unused `ReferencePanel`/results, `container/run.py`.
+7. ✅ **Retire dead abstractions** — DONE in round 4 (PR #248): removed
+   `QCPipeline`/`QCResult`/`QCStepProtocol` and the unadopted `ReferencePanel`
+   module. `ancestry/results.py` was found to be live (not removed).
+   `container/` intentionally **retained** as a historical reference (not deleted).
 8. ✅ **GWAS arg parity** — DONE in round 3 (see above). `n_pcs`, `--covars`,
    and `--covar-names` now reach the assoc step; parity harness guards both.
 9. **Tier 2 — parallelize per-ancestry groups** (perf): process pool over the
