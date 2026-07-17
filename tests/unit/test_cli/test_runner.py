@@ -294,30 +294,26 @@ class TestLegacyAncestryImport:
 
 
 class TestNewAncestryStandalone:
-    def test_new_path_uses_ported_functions_not_legacy(self, monkeypatch):
-        """The new ancestry training path calls ancestry.preprocessing.get_raw_files,
-        not the legacy Ancestry.get_raw_files."""
-        import genotools.ancestry.preprocessing as prep
-        calls = {"new_get_raw_files": 0}
-
-        real = prep.get_raw_files
-        def spy(*a, **k):
-            calls["new_get_raw_files"] += 1
-            return real(*a, **k)
-        monkeypatch.setattr(prep, "get_raw_files", spy)
-
-        # Guard: legacy get_raw_files must not be called from the new path
-        from genotools.ancestry.legacy import Ancestry
-        def boom(self):
-            raise AssertionError("new path called legacy Ancestry.get_raw_files")
-        monkeypatch.setattr(Ancestry, "get_raw_files", boom)
-
-        # Static guard is the primary check here (full ancestry run needs a ref panel):
+    def test_new_ancestry_path_is_legacy_free(self):
+        """The new ancestry path must call the ported functions, never the legacy
+        Ancestry helper methods. A full ancestry run needs a trained model/ref panel
+        (out of scope for a unit test), so this is a static source guard over the
+        three methods that make up the new path; the ported functions themselves are
+        differentially verified against legacy in tests/unit/test_ancestry/, and the
+        end-to-end genotools-new path was validated by a manual smoke run."""
         import inspect
         from genotools.cli import runner
-        src = inspect.getsource(runner.PipelineRunner._run_training_mode)
-        src += inspect.getsource(runner.PipelineRunner._run_inference_mode)
-        src += inspect.getsource(runner.PipelineRunner._run_ancestry_prediction_new)
+
+        src = (
+            inspect.getsource(runner.PipelineRunner._run_ancestry_prediction_new)
+            + inspect.getsource(runner.PipelineRunner._run_training_mode)
+            + inspect.getsource(runner.PipelineRunner._run_inference_mode)
+        )
+        # No legacy reach-back:
         assert "self._ancestry.get_raw_files" not in src
         assert "self._ancestry.split_cohort_ancestry" not in src
         assert "self._ancestry.clean_up" not in src
+        # Ported functions are used instead:
+        assert "get_raw_files(" in src
+        assert "split_cohort_by_ancestry(" in src
+        assert "clean_up_files(" in src
