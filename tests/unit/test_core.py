@@ -195,6 +195,49 @@ class TestGenotypeData:
         assert "pfile" in s
         assert "500" in s  # sample count
 
+    def test_from_vcf_creates_pfile(self, test_data_path: Path, tmp_path: Path):
+        """from_vcf converts a VCF to pfile and cleans up intermediates."""
+        from genotools.core import GenotypeData
+        from genotools.core.executors import get_plink2
+        # Make a VCF from the synthetic pfile
+        vcf_prefix = tmp_path / "from_vcf_input"
+        import subprocess
+        subprocess.run(
+            [str(get_plink2()), "--pfile", str(test_data_path),
+             "--autosome", "--export", "vcf", "--out", str(vcf_prefix)],
+            check=True, capture_output=True,
+        )
+        vcf_file = vcf_prefix.with_suffix(".vcf")
+        assert vcf_file.exists()
+
+        data = GenotypeData.from_vcf(vcf_file)
+
+        assert data.format == "pfile"
+        assert (vcf_prefix.with_suffix(".pgen")).exists()
+        # intermediate bfile removed
+        assert not (vcf_prefix.with_suffix(".bed")).exists()
+
+    def test_from_vcf_raises_on_missing(self, tmp_path: Path):
+        from genotools.core import GenotypeData
+        with pytest.raises(FileNotFoundError):
+            GenotypeData.from_vcf(tmp_path / "nope.vcf")
+
+    def test_to_pfile_from_bfile_in_place(self, test_data_path: Path, tmp_path: Path):
+        """bfile -> pfile at the same prefix (the runner's bfile input branch)."""
+        from genotools.core import GenotypeData
+        bfile_prefix = tmp_path / "bf_input"
+        src = GenotypeData.from_path(test_data_path)
+        src.to_bfile(bfile_prefix)
+        assert (bfile_prefix.with_suffix(".bed")).exists()
+
+        bf = GenotypeData.from_path(bfile_prefix)
+        assert bf.format == "bfile"
+        result = bf.to_pfile(bfile_prefix)
+        assert result.format == "pfile"
+        assert (bfile_prefix.with_suffix(".pgen")).exists()
+        assert result.sample_count == src.sample_count
+        assert result.variant_count == src.variant_count
+
 
 class TestConfig:
     """Tests for configuration classes."""
@@ -273,6 +316,23 @@ class TestConfig:
             config_invalid.validate()
 
 
+class TestBanner:
+    """Tests for the ASCII banner."""
+
+    def test_banner_returns_ascii_header(self):
+        from genotools.core.logging import banner
+        b = banner()
+        assert isinstance(b, str)
+        assert "█" in b            # box-drawing art present
+        assert b.count("\n") >= 5  # multi-line
+
+    def test_banner_matches_legacy(self):
+        # Faithful copy of legacy gt_header (differential; drop when utils.py is removed)
+        from genotools.core.logging import banner
+        from genotools.utils import gt_header
+        assert banner() == gt_header()
+
+
 class TestImportPerformance:
     """Tests for import performance."""
 
@@ -315,3 +375,60 @@ class TestImportPerformance:
             sys.stderr = old_stderr
 
         assert captured == "", f"Import produced unexpected output: {captured}"
+
+
+class TestValidation:
+    """Tests for core.validation.validate_input."""
+
+    @pytest.fixture
+    def geno(self) -> Path:
+        return Path("tests/data/synthetic/genotools_test")
+
+    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, capsys):
+        from genotools.core.validation import validate_input
+        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
+        out = capsys.readouterr().out
+        assert "breakdown" in out.lower()
+
+    def test_raises_on_missing_pgen(self, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        with pytest.raises(FileNotFoundError):
+            validate_input(tmp_path / "nope", tmp_path / "out", skip_fails=False)
+
+    def test_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        log = tmp_path / "out_all_logs.log"
+        log.write_text("prior run\n")
+        with pytest.raises(ValidationError):
+            validate_input(geno, tmp_path / "out", skip_fails=False)
+
+    def test_skip_fails_ignores_existing_log(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        (tmp_path / "out_all_logs.log").write_text("prior\n")
+        validate_input(geno, tmp_path / "out", skip_fails=True)  # no raise
+
+    def test_raises_on_missing_sex_column(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        import pandas as pd
+        # Build a pfile-shaped fixture whose psam lacks SEX
+        bad = tmp_path / "bad"
+        bad.with_suffix(".pgen").write_bytes((geno.with_suffix(".pgen")).read_bytes())
+        bad.with_suffix(".pvar").write_bytes((geno.with_suffix(".pvar")).read_bytes())
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam.drop(columns=["SEX"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
+        with pytest.raises(ValidationError):
+            validate_input(bad, tmp_path / "out2", skip_fails=False)
+
+    def test_raises_on_missing_pheno_column(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        from genotools.core.exceptions import ValidationError
+        import pandas as pd
+        bad = tmp_path / "bad_pheno"
+        bad.with_suffix(".pgen").write_bytes((geno.with_suffix(".pgen")).read_bytes())
+        bad.with_suffix(".pvar").write_bytes((geno.with_suffix(".pvar")).read_bytes())
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam.drop(columns=["PHENO1"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
+        with pytest.raises(ValidationError):
+            validate_input(bad, tmp_path / "outp", skip_fails=False)

@@ -24,6 +24,9 @@ Usage:
 # Genotype data representation
 from .genotypes import GenotypeData
 
+# Input validation
+from .validation import validate_input
+
 # Exception hierarchy
 from .exceptions import (
     GenoToolsError,
@@ -44,6 +47,7 @@ from .logging import (
     clear_step,
     step_context,
     current_step,
+    banner,
 )
 
 # External tool execution
@@ -71,6 +75,8 @@ from .config import (
 __all__ = [
     # Genotype data
     "GenotypeData",
+    # Validation
+    "validate_input",
     # Exceptions
     "GenoToolsError",
     "ValidationError",
@@ -87,6 +93,7 @@ __all__ = [
     "clear_step",
     "step_context",
     "current_step",
+    "banner",
     # Executors
     "get_plink",
     "get_plink2",

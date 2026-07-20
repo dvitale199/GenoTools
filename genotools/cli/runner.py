@@ -140,10 +140,10 @@ class PipelineRunner:
         self._initialize_modules()
 
         # Convert input format if needed (must happen before logging setup
-        # because upfront_check validates that log files don't exist)
+        # because validate_input validates that log files don't exist)
         self._convert_input_format()
 
-        # Set up logging (after upfront_check so log file creation doesn't trigger error)
+        # Set up logging (after validate_input so log file creation doesn't trigger error)
         self._setup_logging()
 
         # Validate we have something to do
@@ -255,26 +255,15 @@ class PipelineRunner:
             "AncestryConfig": AncestryConfig,
         }
 
-        # Load legacy ancestry module (ancestry.py) via importlib
-        # since genotools.ancestry is the new package directory
-        import importlib.util
-        import sys
-        from pathlib import Path as PathLib
+        # Legacy ancestry engine (still the default; A/B control until Phase 5/6)
+        from ..ancestry.legacy import Ancestry
 
-        genotools_dir = PathLib(__file__).parent.parent
-        ancestry_spec = importlib.util.spec_from_file_location(
-            "genotools.legacy_ancestry", genotools_dir / "ancestry.py"
-        )
-        legacy_ancestry = importlib.util.module_from_spec(ancestry_spec)  # type: ignore
-        sys.modules["genotools.legacy_ancestry"] = legacy_ancestry
-        ancestry_spec.loader.exec_module(legacy_ancestry)  # type: ignore
-        Ancestry = legacy_ancestry.Ancestry
         self._ancestry = Ancestry()
 
     def _setup_logging(self) -> None:
         """Set up the consolidated run log.
 
-        Runs *after* upfront_check (which errors if ``{out}_all_logs.log``
+        Runs *after* validate_input (which errors if ``{out}_all_logs.log``
         already exists), so it can safely (re)create the log. Beyond creating
         the legacy-named files, this attaches the structured logging file
         handler so every step's ``logger.info``/``error`` is aggregated into
@@ -295,9 +284,9 @@ class PipelineRunner:
             os.remove(cleaned_logs)
 
         # Create new log files with header
-        from ..utils import gt_header
+        from ..core.logging import banner
 
-        header = gt_header()
+        header = banner()
         with open(all_logs, "w") as fp:
             fp.write(header)
             fp.write("\n")
@@ -315,21 +304,22 @@ class PipelineRunner:
         """Convert input format to pfiles if needed."""
         input_format = self.args.input.input_format
 
+        from ..core import GenotypeData
+
         if input_format == "bfile":
-            from ..utils import bfiles_to_pfiles
-
-            bfiles_to_pfiles(bfile_path=str(self.args.input.bfile))
+            bfile = str(self.args.input.bfile)
+            GenotypeData.from_path(bfile).to_pfile(bfile)
         elif input_format == "vcf":
-            from ..utils import vcf_to_pfiles
-
-            vcf_to_pfiles(vcf_path=str(self.args.input.vcf))
+            GenotypeData.from_vcf(str(self.args.input.vcf))
 
         # Run upfront validation
-        if not self.args.output.skip_fails:
-            from ..utils import upfront_check
+        from ..core.validation import validate_input
 
-            legacy_dict = self.args.to_legacy_dict()
-            upfront_check(str(self.args.geno_path), legacy_dict)
+        validate_input(
+            self.args.geno_path,
+            self.args.out_path,
+            skip_fails=self.args.output.skip_fails,
+        )
 
     def _run_with_ancestry(self, steps: List[str]) -> PipelineOutput:
         """Run pipeline with ancestry prediction.
@@ -455,10 +445,10 @@ class PipelineRunner:
     def _run_ancestry_prediction_new(self) -> Dict[str, Any]:
         """Run ancestry prediction using the new AncestryModel.
 
-        Uses legacy get_raw_files() for PLINK preprocessing, then
+        Uses the ported ``get_raw_files`` for PLINK preprocessing, then
         delegates to new AncestryModel for the ML pipeline (PCA, UMAP,
-        XGBoost, admixture detection). Cohort splitting reuses legacy
-        split_cohort_ancestry().
+        XGBoost, admixture detection). Cohort splitting uses the ported
+        ``split_cohort_by_ancestry``.
 
         Supports two modes:
         - **Training** (default): Train a new model from reference panel.
@@ -489,25 +479,6 @@ class PipelineRunner:
         model_path = self.args.ancestry.model_path
         is_inference = model_path is not None
 
-        # Configure shared legacy Ancestry fields
-        self._ancestry.geno_path = str(self.state.geno_path)
-        self._ancestry.out_path = actual_out
-        self._ancestry.final_out_path = out_path
-        self._ancestry.ref_panel = (
-            str(self.args.ancestry.ref_panel)
-            if self.args.ancestry.ref_panel
-            else None
-        )
-        self._ancestry.ref_labels = (
-            str(self.args.ancestry.ref_labels)
-            if self.args.ancestry.ref_labels
-            else None
-        )
-        self._ancestry.containerized = False
-        self._ancestry.singularity = False
-        self._ancestry.subset = self.args.ancestry.subset_ancestry
-        self._ancestry.min_samples = self.args.ancestry.min_samples
-
         if is_inference:
             model, predictions, ref_pca, raw = self._run_inference_mode(
                 AncestryModel, model_path, actual_out
@@ -534,10 +505,16 @@ class PipelineRunner:
                 params=model.best_params,
             )
 
-        # Cohort splitting (reuse legacy)
+        # Cohort splitting (ported; legacy-free)
+        from ..ancestry.cohort import split_cohort_by_ancestry
+
         labels_path = f"{actual_out}_umap_linearsvc_predicted_labels.txt"
-        ancestry_split = self._ancestry.split_cohort_ancestry(
-            labels_path=labels_path
+        ancestry_split = split_cohort_by_ancestry(
+            labels_path=labels_path,
+            geno_path=str(self.state.geno_path),
+            out_path=actual_out,
+            min_samples=self.args.ancestry.min_samples,
+            subset=self.args.ancestry.subset_ancestry,
         )
 
         # Build legacy-format result dict
@@ -598,7 +575,9 @@ class PipelineRunner:
             raw["out_paths"].get("bed", ""),
             f"{actual_out}_common_snps",
         ]
-        self._ancestry.clean_up(files_to_clean)
+        from ..ancestry.preprocessing import clean_up_files
+
+        clean_up_files(files_to_clean)
 
         # Move files if ancestry-only and not full output
         if not has_qc_steps and not self.args.full_output:
@@ -622,11 +601,16 @@ class PipelineRunner:
         Returns:
             Tuple of (model, predictions, ref_pca, raw).
         """
-        self._ancestry.model_path = None
-        self._ancestry.train = True
+        from ..ancestry.preprocessing import get_raw_files
 
-        # PLINK preprocessing
-        raw = self._ancestry.get_raw_files()
+        # PLINK preprocessing (ported; legacy-free)
+        raw = get_raw_files(
+            geno_path=str(self.state.geno_path),
+            ref_panel=str(self.args.ancestry.ref_panel),
+            ref_labels=str(self.args.ancestry.ref_labels),
+            out_path=actual_out,
+            train=True,
+        )
         raw_ref = raw["raw_ref"]
         raw_geno = raw["raw_geno"]
 
@@ -686,37 +670,32 @@ class PipelineRunner:
         model = AncestryModel.load(model_path)
         logger.info(f"Loaded pre-trained ancestry model from: {model_path}")
 
-        # Write common SNPs to temp file for legacy get_raw_files(train=False)
+        # Write the model's common SNPs to a file for the ported preprocessing
         if model.common_snps is not None:
             common_snps_file = f"{actual_out}_loaded_model.common_snps"
             with open(common_snps_file, "w") as f:
                 for snp in model.common_snps:
                     f.write(f"{snp}\n")
-            # Legacy get_raw_files() derives .common_snps path from model_path
-            self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
         else:
-            # Fall back: try common_snps.txt in model directory
             model_dir = Path(model_path)
-            if model_dir.is_dir():
-                snps_file = model_dir / "common_snps.txt"
-                if snps_file.exists():
-                    common_snps_file = f"{actual_out}_loaded_model.common_snps"
-                    shutil.copy2(snps_file, common_snps_file)
-                    self._ancestry.model_path = f"{actual_out}_loaded_model.pkl"
-                else:
-                    raise FileNotFoundError(
-                        f"No common_snps found in model: {model_path}"
-                    )
+            snps_file = model_dir / "common_snps.txt" if model_dir.is_dir() else None
+            if snps_file and snps_file.exists():
+                common_snps_file = f"{actual_out}_loaded_model.common_snps"
+                shutil.copy2(snps_file, common_snps_file)
             else:
-                raise FileNotFoundError(
-                    f"No common_snps in model and path is not a directory: "
-                    f"{model_path}"
-                )
+                raise FileNotFoundError(f"No common_snps found in model: {model_path}")
 
-        self._ancestry.train = False
+        from ..ancestry.preprocessing import get_raw_files
 
-        # PLINK preprocessing (uses common SNPs for feature alignment)
-        raw = self._ancestry.get_raw_files()
+        # PLINK preprocessing (ported; legacy-free)
+        raw = get_raw_files(
+            geno_path=str(self.state.geno_path),
+            ref_panel=str(self.args.ancestry.ref_panel),
+            ref_labels=str(self.args.ancestry.ref_labels),
+            out_path=actual_out,
+            train=False,
+            common_snps_file=common_snps_file,
+        )
         raw_geno = raw["raw_geno"]
         geno_data = raw_geno.drop(columns=["label"])
         geno_ids = raw_geno[["FID", "IID"]]

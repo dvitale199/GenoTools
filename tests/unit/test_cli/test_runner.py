@@ -281,3 +281,39 @@ class TestPipelineRunnerValidation:
         steps = args.get_all_enabled_steps()
         assert steps == []
         assert args.ancestry.run_ancestry is False
+
+
+class TestLegacyAncestryImport:
+    def test_legacy_ancestry_importable(self):
+        from genotools.ancestry.legacy import Ancestry
+        assert Ancestry is not None
+
+    def test_entry_points_import(self):
+        from genotools.cli import main, main_new
+        assert callable(main) and callable(main_new)
+
+
+class TestNewAncestryStandalone:
+    def test_new_ancestry_path_is_legacy_free(self):
+        """The new ancestry path must call the ported functions, never the legacy
+        Ancestry helper methods. A full ancestry run needs a trained model/ref panel
+        (out of scope for a unit test), so this is a static source guard over the
+        three methods that make up the new path; the ported functions themselves are
+        differentially verified against legacy in tests/unit/test_ancestry/, and the
+        end-to-end genotools-new path was validated by a manual smoke run."""
+        import inspect
+        from genotools.cli import runner
+
+        src = (
+            inspect.getsource(runner.PipelineRunner._run_ancestry_prediction_new)
+            + inspect.getsource(runner.PipelineRunner._run_training_mode)
+            + inspect.getsource(runner.PipelineRunner._run_inference_mode)
+        )
+        # No legacy reach-back:
+        assert "self._ancestry.get_raw_files" not in src
+        assert "self._ancestry.split_cohort_ancestry" not in src
+        assert "self._ancestry.clean_up" not in src
+        # Ported functions are used instead:
+        assert "get_raw_files(" in src
+        assert "split_cohort_by_ancestry(" in src
+        assert "clean_up_files(" in src
