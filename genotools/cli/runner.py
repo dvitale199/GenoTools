@@ -36,6 +36,7 @@ import pandas as pd
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 from ..core.exceptions import GenoToolsError
+from ..core.validation import ValidationDecisions
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class PipelineRunner:
         self.args = args
         self.state: Optional[PipelineState] = None
         self._use_new_ancestry = use_new_ancestry
+        self._validation_decisions = ValidationDecisions()
 
         # These will be set up during run()
         self._ancestry: Any = None
@@ -147,7 +149,7 @@ class PipelineRunner:
         self._setup_logging()
 
         # Validate we have something to do
-        steps = self.args.get_all_enabled_steps()
+        steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
         if not steps and not self.args.ancestry.run_ancestry:
             raise ValueError("No QC steps or ancestry prediction requested")
 
@@ -315,10 +317,15 @@ class PipelineRunner:
         # Run upfront validation
         from ..core.validation import validate_input
 
-        validate_input(
+        self._validation_decisions = validate_input(
             self.args.geno_path,
             self.args.out_path,
             skip_fails=self.args.output.skip_fails,
+            sex_requested=self.args.sample_qc.run_sex,
+            het_requested=self.args.sample_qc.run_het,
+            hwe_requested=self.args.variant_qc.run_hwe,
+            filter_controls=self.args.variant_qc.filter_controls,
+            case_control_requested=self.args.variant_qc.run_case_control,
         )
 
     def _run_with_ancestry(self, steps: List[str]) -> PipelineOutput:
@@ -367,6 +374,18 @@ class PipelineRunner:
             )
 
         return self._build_output()
+
+    def _filter_steps_by_decisions(self, steps: List[str]) -> List[str]:
+        """Drop steps the input breakdown says to skip (ported upfront_check)."""
+        d = self._validation_decisions
+        result = list(steps)
+        if d.skip_sex and "sex" in result:
+            result.remove("sex")
+        if d.skip_case_control and "case_control" in result:
+            result.remove("case_control")
+        if d.skip_het and "het" in result:
+            result.remove("het")
+        return result
 
     def _run_qc_only(self, steps: List[str]) -> PipelineOutput:
         """Run QC pipeline without ancestry prediction.
@@ -775,6 +794,8 @@ class PipelineRunner:
         legacy_args = self.args.to_legacy_dict()
         if het_values is not None:
             legacy_args["het"] = het_values
+        if self._validation_decisions.disable_filter_controls:
+            legacy_args["filter_controls"] = False
 
         # Run each step
         for i, step in enumerate(steps):
