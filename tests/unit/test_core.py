@@ -432,3 +432,82 @@ class TestValidation:
         psam.drop(columns=["PHENO1"]).to_csv(bad.with_suffix(".psam"), sep="\t", index=False)
         with pytest.raises(ValidationError):
             validate_input(bad, tmp_path / "outp", skip_fails=False)
+
+    # --- data-driven step-skip decisions (ported from legacy upfront_check) ---
+
+    def _pfile_with(self, geno: Path, dst: Path, *, psam=None, pvar_rows=None):
+        """Copy geno's pgen; write a crafted psam (DataFrame) and/or truncate pvar."""
+        import pandas as pd
+        dst.with_suffix(".pgen").write_bytes(geno.with_suffix(".pgen").read_bytes())
+        if psam is None:
+            dst.with_suffix(".psam").write_bytes(geno.with_suffix(".psam").read_bytes())
+        else:
+            psam.to_csv(dst.with_suffix(".psam"), sep="\t", index=False)
+        src_pvar = geno.with_suffix(".pvar").read_text().splitlines()
+        if pvar_rows is None:
+            dst.with_suffix(".pvar").write_text("\n".join(src_pvar) + "\n")
+        else:
+            header = [ln for ln in src_pvar if ln.startswith("#")]
+            body = [ln for ln in src_pvar if not ln.startswith("#")][:pvar_rows]
+            dst.with_suffix(".pvar").write_text("\n".join(header + body) + "\n")
+
+    def test_skip_sex_when_no_sex_data(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["SEX"] = 0
+        bad = tmp_path / "nosex"
+        self._pfile_with(geno, bad, psam=psam)
+        d = validate_input(bad, tmp_path / "o1", sex_requested=True)
+        assert d.skip_sex is True
+
+    def test_skip_sex_when_no_x_chrom(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        # Keep only chr-1 variants (no X) by truncating to the first block.
+        bad = tmp_path / "nox"
+        self._pfile_with(geno, bad, pvar_rows=100)
+        d = validate_input(bad, tmp_path / "o2", sex_requested=True)
+        assert d.skip_sex is True
+
+    def test_disable_filter_controls_when_no_controls(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = 2  # all cases, no controls
+        bad = tmp_path / "nocontrol"
+        self._pfile_with(geno, bad, psam=psam)
+        d = validate_input(bad, tmp_path / "o3", hwe_requested=True, filter_controls=True)
+        assert d.disable_filter_controls is True
+
+    def test_skip_case_control_when_only_cases(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = 2
+        bad = tmp_path / "onlycases"
+        self._pfile_with(geno, bad, psam=psam)
+        d = validate_input(bad, tmp_path / "o4", case_control_requested=True)
+        assert d.skip_case_control is True
+
+    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        bad = tmp_path / "fewvar"
+        self._pfile_with(geno, bad, pvar_rows=40)  # < 50 variants
+        d = validate_input(bad, tmp_path / "o5", het_requested=True)
+        assert d.skip_het is True
+
+    def test_no_decisions_when_skip_fails(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["SEX"] = 0
+        bad = tmp_path / "sf"
+        self._pfile_with(geno, bad, psam=psam)
+        d = validate_input(bad, tmp_path / "o6", skip_fails=True, sex_requested=True)
+        assert d.skip_sex is False
+
+    def test_no_decisions_when_not_requested(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import validate_input
+        d = validate_input(geno, tmp_path / "o7")  # nothing requested
+        assert (d.skip_sex, d.skip_case_control, d.skip_het, d.disable_filter_controls) \
+            == (False, False, False, False)
