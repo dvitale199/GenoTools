@@ -320,3 +320,45 @@ class TestAssocStepPcaProducesRequestedPcs:
         eigenvec = out_assoc.with_suffix(".eigenvec")
         assert eigenvec.exists(), "PCA did not write an eigenvec file"
         assert _count_pc_columns(eigenvec) == 3  # was 10
+
+
+from genotools.core.validation import ValidationDecisions
+
+
+class TestValidationDecisionsApplied:
+    """Round-6: data-driven step-skip decisions from validate_input must be
+    applied by the runner (skipped steps dropped; filter_controls forced off)."""
+
+    def test_filter_steps_drops_decided_steps(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        runner._validation_decisions = ValidationDecisions(
+            skip_sex=True, skip_case_control=True, skip_het=True
+        )
+        kept = runner._filter_steps_by_decisions(
+            ["callrate", "sex", "het", "case_control", "hwe"]
+        )
+        assert kept == ["callrate", "hwe"]
+
+    def test_filter_steps_noop_by_default(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        steps = ["callrate", "sex", "het"]
+        assert runner._filter_steps_by_decisions(steps) == steps
+
+    def test_disable_filter_controls_reaches_legacy_args(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        # Args request filter_controls=True; the decision must force it False,
+        # so the assertion is non-trivial (default is already False).
+        runner.args.variant_qc.filter_controls = True
+        runner._validation_decisions = ValidationDecisions(disable_filter_controls=True)
+        captured: Dict[str, Any] = {}
+
+        def fake_single_step(step, step_input, step_output, legacy_args):
+            captured["filter_controls"] = legacy_args["filter_controls"]
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", fake_single_step)
+        runner._run_qc_pipeline(steps=["hwe"], geno_path=str(geno), out_path=str(out))
+        assert captured["filter_controls"] is False

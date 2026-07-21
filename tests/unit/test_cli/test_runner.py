@@ -283,14 +283,16 @@ class TestPipelineRunnerValidation:
         assert args.ancestry.run_ancestry is False
 
 
-class TestLegacyAncestryImport:
-    def test_legacy_ancestry_importable(self):
-        from genotools.ancestry.legacy import Ancestry
-        assert Ancestry is not None
+class TestDefaultEntryPoint:
+    def test_only_main_entry_point(self):
+        import genotools.cli as cli
+        assert callable(cli.main)
+        assert not hasattr(cli, "main_new")
 
-    def test_entry_points_import(self):
-        from genotools.cli import main, main_new
-        assert callable(main) and callable(main_new)
+    def test_run_pipeline_has_no_ab_flag(self):
+        import inspect
+        from genotools.cli import run_pipeline
+        assert "use_new_ancestry" not in inspect.signature(run_pipeline).parameters
 
 
 class TestNewAncestryStandalone:

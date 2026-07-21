@@ -252,8 +252,70 @@ validation checks + data breakdown even under `--skip_fails` (previously skipped
 entirely) — this **converges** the new path toward legacy `genotools` behavior and
 does not change genotype output. **Follow-ups (non-blocking):** bump
 `python_requires` ≥3.10 to match the PEP-604 annotations used across the refactor;
-drop the unused `var` read in `validate_input` (or `# noqa`); the f-string→`shlex`
+the `var` read in `validate_input` is now used by round 6 (chr_counts + het-skip),
+so the earlier "unused var" note is obsolete; the f-string→`shlex`
 command construction (paths-with-spaces) is a repo-wide pre-existing rough edge.
+
+### Round 6 (`refactor/flip-default-cleave-legacy`)
+
+Made `refactor/main` a **legacy-free** candidate for the real-data parity gate:
+flipped the default engine to the new `AncestryModel` and deleted the dead legacy
+modules. Four parts.
+
+**1 — Flip the default.** `genotools` (via `python -m genotools` → `cli:main` →
+`run_pipeline(args)`) now always runs the new `AncestryModel` path
+(`_run_ancestry_prediction_new`). Removed the `use_new_ancestry` A/B switch from
+`PipelineRunner`/`run_pipeline`, the legacy `_run_ancestry_prediction` method, the
+`self._ancestry`/`from ..ancestry.legacy import Ancestry` wiring, the `main_new()`
+entry point, and the `genotools-new` console script.
+
+**2 — Delete dead legacy modules.** `git rm` of `genotools/ancestry/legacy.py`
+(no longer imported by any non-test module after the flip) and `genotools/gwas.py`
+(orphan file shadowed by the `gwas/` package — all real imports use
+`genotools.gwas.<submodule>`; the two `from genotools.gwas import run_association`
+hits were docstring examples). Also removed the now-obsolete A/B script
+`tests/scripts/test_ancestry_ab.py`.
+
+**3 — Golden-convert the differential tests.** The four ancestry differential
+tests (which ran legacy as the oracle) lose that oracle when `legacy.py` is
+deleted, so they were converted to **golden**: while legacy still existed, a
+one-time generator (kept in scratchpad, **uncommitted**) asserted new == legacy
+byte/frame-for-frame — including split genotype content via
+`compare_genotypes` — then wrote the new output as committed fixtures under
+`tests/unit/test_ancestry/golden/`. The committed tests now compare new vs golden
+with **zero** legacy imports (preprocessing train/inference incl. the
+`np.repeat` missing-column fill spy; cohort retained/pruned/subset). Fixtures use a
+reduced **chr21+22** reference panel (path-complete but tiny); input fixtures are
+staged into a temp dir per run so the committed `golden/` dir stays read-only.
+`TestLegacyAncestryImport` was deleted; a `TestDefaultEntryPoint` guard replaced it.
+
+**4 — Fix the `upfront_check` skip-gap.** Re-implemented legacy `upfront_check`'s
+data-driven step auto-skips (deferred in round 5) as
+`core/validation.py::validate_input` now returning a typed `ValidationDecisions`
+(`skip_sex`, `skip_case_control`, `skip_het`, `disable_filter_controls`); the
+runner applies them (`_filter_steps_by_decisions` + a `filter_controls` override).
+Faithful to legacy, incl. the **preserved quirk** that het-skip triggers on the
+*variant* count (`var.shape[0] < 50`) despite the "less than 50 samples" warning
+text. `validate_input` takes primitive request flags (not `PipelineArgs`) to keep
+`core/` decoupled from `cli/`.
+
+**Verification:** full suite **404 passed**; old-vs-new **parity 8/8** (unaffected —
+the harness exercises QC/GWAS only and shells out to `.venv-stable`, not repo
+legacy); static gate clean (no `genotools-new`/`use_new_ancestry`/`ancestry.legacy`/
+legacy `_run_ancestry_prediction`/`gwas.py` refs in `genotools/`); a real
+end-to-end **default** `genotools --ancestry` run on synthetic data trained a new
+`AncestryModel` (GridSearchCV + UMAP) and produced split pfiles (AFR/EUR/CAH),
+JSON, and a saved model dir. Design + plan:
+`docs/superpowers/specs/2026-07-20-flip-default-cleave-legacy-design.md`,
+`docs/superpowers/plans/2026-07-20-flip-default-cleave-legacy.md`.
+
+**Still deferred (Phase 5/6 / gated on item #1):** `genotools/utils.py` and
+`genotools/imputation.py` (kept as a pair — `imputation.py` imports
+`utils.shell_do`; two differential tests still use `utils.banner`/`get_common_snps`)
+and `genotools/container/`. **Follow-ups (non-blocking):** committed golden
+fixtures total ~2.6 MB (reducible via fewer samples, needs re-running the oracle);
+bump `python_requires` ≥3.10 (PEP-604 annotations); guard `str(ref_panel)` in
+`_run_training_mode` for a clean error when `--ref-panel` is omitted.
 
 ### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
 
@@ -309,7 +371,11 @@ Priority order for making the refactor mergeable to `main`:
    (`cli`/`core`/`qc`/`gwas` + new `ancestry` package) now imports **zero**
    top-level legacy modules; the `utils.py` imports and the `ancestry.py`
    importlib hack are gone, and `genotools-new`'s ancestry path is fully
-   standalone. Legacy files retained (default engine + Phase 5/6 deletion).
+   standalone. **Round 6 (see above)** then flipped the default engine to the new
+   `AncestryModel`, deleted `ancestry/legacy.py`/`gwas.py`, golden-converted the
+   ancestry differential tests, and re-implemented the round-5-deferred
+   `upfront_check` data-driven step auto-skips in `core/validation.py`. Remaining
+   legacy files (`utils.py`, `imputation.py`, `container/`) retained for Phase 5/6.
 7. ✅ **Retire dead abstractions** — DONE in round 4 (PR #248): removed
    `QCPipeline`/`QCResult`/`QCStepProtocol` and the unadopted `ReferencePanel`
    module. `ancestry/results.py` was found to be live (not removed).

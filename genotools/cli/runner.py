@@ -36,6 +36,7 @@ import pandas as pd
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 from ..core.exceptions import GenoToolsError
+from ..core.validation import ValidationDecisions
 
 logger = logging.getLogger(__name__)
 
@@ -108,19 +109,17 @@ class PipelineRunner:
     SAMPLE_STEPS = ["callrate", "sex", "het", "related", "kinship_check"]
     VARIANT_STEPS = ["geno", "case_control", "haplotype", "hwe", "ld"]
 
-    def __init__(self, args: PipelineArgs, use_new_ancestry: bool = False) -> None:
+    def __init__(self, args: PipelineArgs) -> None:
         """Initialize the pipeline runner.
 
         Args:
             args: Validated pipeline arguments.
-            use_new_ancestry: If True, use new AncestryModel instead of legacy.
         """
         self.args = args
         self.state: Optional[PipelineState] = None
-        self._use_new_ancestry = use_new_ancestry
+        self._validation_decisions = ValidationDecisions()
 
         # These will be set up during run()
-        self._ancestry: Any = None
         self._new_modules: Dict[str, Any] = {}
         self._config_classes: Dict[str, Any] = {}
 
@@ -147,7 +146,7 @@ class PipelineRunner:
         self._setup_logging()
 
         # Validate we have something to do
-        steps = self.args.get_all_enabled_steps()
+        steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
         if not steps and not self.args.ancestry.run_ancestry:
             raise ValueError("No QC steps or ancestry prediction requested")
 
@@ -255,11 +254,6 @@ class PipelineRunner:
             "AncestryConfig": AncestryConfig,
         }
 
-        # Legacy ancestry engine (still the default; A/B control until Phase 5/6)
-        from ..ancestry.legacy import Ancestry
-
-        self._ancestry = Ancestry()
-
     def _setup_logging(self) -> None:
         """Set up the consolidated run log.
 
@@ -315,10 +309,15 @@ class PipelineRunner:
         # Run upfront validation
         from ..core.validation import validate_input
 
-        validate_input(
+        self._validation_decisions = validate_input(
             self.args.geno_path,
             self.args.out_path,
             skip_fails=self.args.output.skip_fails,
+            sex_requested=self.args.sample_qc.run_sex,
+            het_requested=self.args.sample_qc.run_het,
+            hwe_requested=self.args.variant_qc.run_hwe,
+            filter_controls=self.args.variant_qc.filter_controls,
+            case_control_requested=self.args.variant_qc.run_case_control,
         )
 
     def _run_with_ancestry(self, steps: List[str]) -> PipelineOutput:
@@ -333,10 +332,7 @@ class PipelineRunner:
         assert self.state is not None
 
         # Run ancestry prediction
-        if self._use_new_ancestry:
-            ancestry_result = self._run_ancestry_prediction_new()
-        else:
-            ancestry_result = self._run_ancestry_prediction()
+        ancestry_result = self._run_ancestry_prediction_new()
         self.state.ancestry_result = ancestry_result
         self.state.labels_list = ancestry_result["data"]["labels_list"]
 
@@ -368,6 +364,18 @@ class PipelineRunner:
 
         return self._build_output()
 
+    def _filter_steps_by_decisions(self, steps: List[str]) -> List[str]:
+        """Drop steps the input breakdown says to skip (ported upfront_check)."""
+        d = self._validation_decisions
+        result = list(steps)
+        if d.skip_sex and "sex" in result:
+            result.remove("sex")
+        if d.skip_case_control and "case_control" in result:
+            result.remove("case_control")
+        if d.skip_het and "het" in result:
+            result.remove("het")
+        return result
+
     def _run_qc_only(self, steps: List[str]) -> PipelineOutput:
         """Run QC pipeline without ancestry prediction.
 
@@ -386,61 +394,6 @@ class PipelineRunner:
         )
 
         return self._build_output()
-
-    def _run_ancestry_prediction(self) -> Dict[str, Any]:
-        """Run ancestry prediction.
-
-        Returns:
-            Ancestry result dictionary.
-        """
-        assert self.state is not None
-
-        # Determine output path
-        has_qc_steps = self.args.has_any_qc_steps()
-        if has_qc_steps:
-            out_path = f"{self.state.out_path}_ancestry"
-        else:
-            out_path = str(self.state.out_path)
-
-        # Use temporary directory if not full output
-        if not self.args.full_output:
-            out_name = pathlib.PurePath(out_path).name
-            actual_out = f"{self.state.tmp_dir.name}/{out_name}"  # type: ignore[union-attr]
-        else:
-            actual_out = out_path
-
-        # Configure ancestry object
-        self._ancestry.geno_path = str(self.state.geno_path)
-        self._ancestry.out_path = actual_out
-        self._ancestry.final_out_path = out_path
-        self._ancestry.ref_panel = (
-            str(self.args.ancestry.ref_panel)
-            if self.args.ancestry.ref_panel
-            else None
-        )
-        self._ancestry.ref_labels = (
-            str(self.args.ancestry.ref_labels)
-            if self.args.ancestry.ref_labels
-            else None
-        )
-        self._ancestry.model_path = (
-            str(self.args.ancestry.model_path)
-            if self.args.ancestry.model_path
-            else None
-        )
-        self._ancestry.containerized = self.args.ancestry.use_container
-        self._ancestry.singularity = self.args.ancestry.use_singularity
-        self._ancestry.subset = self.args.ancestry.subset_ancestry
-        self._ancestry.min_samples = self.args.ancestry.min_samples
-
-        # Run prediction
-        result = self._ancestry.run_ancestry()
-
-        # Move files if ancestry-only and not full output
-        if not has_qc_steps and not self.args.full_output:
-            self._move_ancestry_files(result)
-
-        return result
 
     def _run_ancestry_prediction_new(self) -> Dict[str, Any]:
         """Run ancestry prediction using the new AncestryModel.
@@ -775,6 +728,8 @@ class PipelineRunner:
         legacy_args = self.args.to_legacy_dict()
         if het_values is not None:
             legacy_args["het"] = het_values
+        if self._validation_decisions.disable_filter_controls:
+            legacy_args["filter_controls"] = False
 
         # Run each step
         for i, step in enumerate(steps):
@@ -1178,17 +1133,16 @@ class PipelineRunner:
         )
 
 
-def run_pipeline(args: PipelineArgs, use_new_ancestry: bool = False) -> PipelineOutput:
+def run_pipeline(args: PipelineArgs) -> PipelineOutput:
     """Run the GenoTools pipeline.
 
     This is the main entry point for running the pipeline programmatically.
 
     Args:
         args: Validated pipeline arguments.
-        use_new_ancestry: If True, use new AncestryModel instead of legacy.
 
     Returns:
         PipelineOutput containing all results.
     """
-    runner = PipelineRunner(args, use_new_ancestry=use_new_ancestry)
+    runner = PipelineRunner(args)
     return runner.run()
