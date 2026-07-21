@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .conftest import GOLDEN
+
 
 def _read_bim_snps(prefix: str) -> set:
     bim = pd.read_csv(f"{prefix}.bim", sep=r"\s+", header=None)
@@ -33,94 +35,53 @@ def _sorted_df(df):
     return df.reindex(sorted(df.columns), axis=1)
 
 
-def test_get_raw_files_train_matches_legacy(synth_ref_bfile, synth_ref_labels, synth_geno_pfile, tmp_path):
-    """Train-mode raw_ref/raw_geno match legacy Ancestry.get_raw_files byte-for-byte."""
-    from genotools.ancestry.preprocessing import get_raw_files as new_fn
-    from genotools.ancestry.legacy import Ancestry
-
-    ref, labels, geno = str(synth_ref_bfile), str(synth_ref_labels), str(synth_geno_pfile)
-
-    # Legacy
-    legacy_dir = tmp_path / "legacy"; legacy_dir.mkdir()
-    anc = Ancestry()
-    anc.geno_path = geno
-    anc.ref_panel = ref
-    anc.ref_labels = labels
-    anc.out_path = str(legacy_dir / "out")
-    anc.train = True
-    anc.model_path = None
-    anc.containerized = False
-    legacy_res = anc.get_raw_files()
-
-    # New
+def test_get_raw_files_train_golden(ref21_22_bfile, ref21_22_labels, geno21_22_pfile, tmp_path):
+    """Train-mode raw_ref/raw_geno match the committed golden (== legacy at capture)."""
+    from genotools.ancestry.preprocessing import get_raw_files
     new_dir = tmp_path / "new"; new_dir.mkdir()
-    new_res = new_fn(
-        geno_path=geno, ref_panel=ref, ref_labels=labels,
-        out_path=str(new_dir / "out"), train=True,
-    )
-
-    pd.testing.assert_frame_equal(
-        _sorted_df(legacy_res["raw_ref"]), _sorted_df(new_res["raw_ref"]),
+    res = get_raw_files(
+        geno_path=str(geno21_22_pfile), ref_panel=str(ref21_22_bfile),
+        ref_labels=str(ref21_22_labels), out_path=str(new_dir / "out"), train=True,
     )
     pd.testing.assert_frame_equal(
-        _sorted_df(legacy_res["raw_geno"]), _sorted_df(new_res["raw_geno"]),
-    )
+        _sorted_df(res["raw_ref"]), pd.read_parquet(GOLDEN / "raw_ref_train.parquet"))
+    pd.testing.assert_frame_equal(
+        _sorted_df(res["raw_geno"]), pd.read_parquet(GOLDEN / "raw_geno_train.parquet"))
 
 
-def test_get_raw_files_inference_matches_legacy(synth_ref_bfile, synth_ref_labels, synth_geno_pfile, tmp_path):
-    """Inference-mode raw_geno matches legacy, exercising the missing-column fill loop.
-
-    The inference geno is built MISSING chr22 while the reference panel and the
-    common-SNP set retain it, so the inference-only fill loop (`np.repeat(2, ...)`
-    + reorder to ref columns) actually runs — and the differential comparison
-    validates it against legacy byte-for-byte.
-    """
+def test_get_raw_files_inference_golden(ref21_22_bfile, ref21_22_labels, geno21_22_pfile, tmp_path):
+    """Inference-mode raw_geno matches golden; the np.repeat spy proves the
+    missing-column fill loop ran (chr22 excluded from the inference geno)."""
     import shutil
     from unittest.mock import patch
     import genotools.ancestry.preprocessing as prep
-    from genotools.ancestry.preprocessing import get_raw_files as new_fn
-    from genotools.ancestry.legacy import Ancestry
+    from genotools.ancestry.preprocessing import get_raw_files
     from genotools.core.executors import run_command, get_plink2
 
-    ref, labels, geno = str(synth_ref_bfile), str(synth_ref_labels), str(synth_geno_pfile)
-
-    # Produce a common_snps file via a train run on the FULL geno (includes chr22)
+    # common_snps from a train run on the full (chr21+22) reduced geno
     prep_dir = tmp_path / "prep"; prep_dir.mkdir()
-    train_res = new_fn(geno_path=geno, ref_panel=ref, ref_labels=labels,
-                       out_path=str(prep_dir / "out"), train=True)
+    train_res = get_raw_files(
+        geno_path=str(geno21_22_pfile), ref_panel=str(ref21_22_bfile),
+        ref_labels=str(ref21_22_labels), out_path=str(prep_dir / "out"), train=True)
     common_snps_src = train_res["out_paths"]["common_snps"]
 
-    # Inference geno MISSING chr22 -> ref's chr22 common SNPs must be filled in
+    # inference geno MISSING chr22 -> ref chr22 common SNPs must be filled
     subset_geno = tmp_path / "subset_geno"
     run_command(
-        f"{get_plink2()} --pfile {geno} --not-chr 22 "
+        f"{get_plink2()} --pfile {geno21_22_pfile} --not-chr 22 "
         f"--make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out {subset_geno}",
-        tool_name="plink2",
-    )
+        tool_name="plink2")
 
-    # Legacy inference derives the common_snps path from model_path: <dir>/model.common_snps
-    ld = tmp_path / "legacy"; ld.mkdir()
-    shutil.copy2(common_snps_src, ld / "model.common_snps")
-    anc = Ancestry()
-    anc.geno_path, anc.ref_panel, anc.ref_labels = str(subset_geno), ref, labels
-    anc.out_path = str(ld / "out")
-    anc.train = False
-    anc.model_path = str(ld / "model.pkl")
-    anc.containerized = False
-    legacy_res = anc.get_raw_files()
-
-    # New inference takes the common_snps file directly; spy proves the fill loop ran
     nd = tmp_path / "new"; nd.mkdir()
     shutil.copy2(common_snps_src, nd / "model.common_snps")
     with patch.object(prep.np, "repeat", wraps=prep.np.repeat) as spy:
-        new_res = new_fn(geno_path=str(subset_geno), ref_panel=ref, ref_labels=labels,
-                         out_path=str(nd / "out"), train=False,
-                         common_snps_file=str(nd / "model.common_snps"))
+        res = get_raw_files(
+            geno_path=str(subset_geno), ref_panel=str(ref21_22_bfile),
+            ref_labels=str(ref21_22_labels), out_path=str(nd / "out"), train=False,
+            common_snps_file=str(nd / "model.common_snps"))
     assert spy.called, "missing-column fill loop was not exercised (degenerate test)"
-
     pd.testing.assert_frame_equal(
-        _sorted_df(legacy_res["raw_geno"]), _sorted_df(new_res["raw_geno"]),
-    )
+        _sorted_df(res["raw_geno"]), pd.read_parquet(GOLDEN / "raw_geno_inference.parquet"))
 
 
 def test_clean_up_files_removes_extensions(tmp_path):

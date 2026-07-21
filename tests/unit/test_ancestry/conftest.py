@@ -6,6 +6,7 @@ import pytest
 from genotools.core.executors import run_command, get_plink2
 
 SYNTH = Path("tests/data/synthetic/genotools_test")
+GOLDEN = Path(__file__).parent / "golden"
 
 
 @pytest.fixture(scope="session")
@@ -37,3 +38,24 @@ def synth_ref_labels(synth_ref_bfile: Path, tmp_path_factory) -> Path:
     path = tmp_path_factory.mktemp("reflabels") / "ref_labels.txt"
     labels.to_csv(path, sep="\t", header=False, index=False)
     return path
+
+
+@pytest.fixture(scope="session")
+def ref21_22_bfile() -> Path:
+    """Committed chr21+22 reference bfile (small; retains chr22)."""
+    p = GOLDEN / "ref21_22"
+    assert p.with_suffix(".bed").exists(), "run the golden generator first"
+    return p
+
+
+@pytest.fixture(scope="session")
+def ref21_22_labels() -> Path:
+    return GOLDEN / "ref21_22_labels.txt"
+
+
+@pytest.fixture(scope="session")
+def geno21_22_pfile() -> Path:
+    """Committed chr21+22 geno pfile (all 500 samples, small)."""
+    p = GOLDEN / "geno21_22"
+    assert p.with_suffix(".pgen").exists(), "run the golden generator first"
+    return p
