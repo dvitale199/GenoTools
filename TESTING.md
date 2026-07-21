@@ -163,7 +163,7 @@ genomic-inflation **lambda still agrees** and the **tested-variant set is
 identical**.
 
 This was ratified as an intentional correctness fix ("decision B" in
-`REFACTOR_HARDENING.md`): excluding those regions before PCA is standard practice.
+`REFACTOR.md`): excluding those regions before PCA is standard practice.
 So on **real data, expect GWAS per-variant p-values to differ slightly from the
 pre-refactor baseline** — that is correct, not a regression. Parity is asserted
 at the tested-variant-set + lambda level. A guard test
@@ -225,5 +225,5 @@ external download hosts are hit at most once per cache key.
 
 ---
 
-See `REFACTOR_HARDENING.md` for the full audit scorecard, what's been hardened,
+See `REFACTOR.md` for the full audit scorecard, what's been hardened,
 and remaining work before `refactor/main` → `main`.

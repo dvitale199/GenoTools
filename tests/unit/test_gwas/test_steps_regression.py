@@ -122,7 +122,7 @@ class TestGwasGlmOptionsAreTokenized:
 
 
 class TestPcaExcludesHighLdRegions:
-    """Ratified behavior (REFACTOR_HARDENING.md, decision B): PCA pruning excludes
+    """Ratified behavior (REFACTOR.md, decision B): PCA pruning excludes
     the high-LD/MHC regions via PLINK2 `--exclude range`. The pre-refactor code
     used `--exclude <rangefile>`, which PLINK2 treats as a variant-ID list -- a
     no-op that excluded none of those regions. Excluding them before PCA is

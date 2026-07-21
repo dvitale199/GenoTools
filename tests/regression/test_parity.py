@@ -26,7 +26,7 @@ They skip cleanly when .venv-stable is absent. To enable:
 
     bash tests/scripts/setup_stable_venv.sh        # installs old genotools
 
-See REFACTOR_HARDENING.md for the parity workflow.
+See REFACTOR.md for the parity workflow.
 """
 
 import shutil
@@ -212,7 +212,7 @@ def test_old_vs_new_gwas_parity(
     high-LD/MHC regions (`--exclude range`) that the old code left in
     (`--exclude`, a no-op on a ranges file), so the PCA covariates -- and hence
     every GWAS p-value -- differ slightly. That divergence is a *ratified,
-    intentional* correctness fix (decision B in REFACTOR_HARDENING.md): excluding
+    intentional* correctness fix (decision B in REFACTOR.md): excluding
     those regions before PCA is standard practice, so GWAS parity is asserted at
     the tested-variant-set + lambda level, not per-variant, by design.
     """
