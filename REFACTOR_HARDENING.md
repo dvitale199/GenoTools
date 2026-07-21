@@ -353,6 +353,44 @@ Implications for the harness:
 
 Priority order for making the refactor mergeable to `main`:
 
+0. **⭐ NEXT — Logging / pipeline-visibility redesign (do this before #1 and the
+   perf items).** Maintainer decision (2026-07-20): before adding features or
+   running the real-data parity push, redesign logging so each pipeline step's
+   behavior is clearly visible. The current logging **scored 6.5/10** in a
+   session audit — a well-built structured core (`core/logging.py`:
+   `ContextVar` step context + `StepContextFilter`, `step_context` used across
+   all 10 QC steps + GWAS steps; `all_logs.log` gets banner + structured
+   records) let down by an incomplete integration:
+   - **Raw PLINK output is dropped from disk.** `FilterResult.log` captures
+     `result.stderr` (exact variant/sample counts, PLINK warnings) but the runner
+     never persists it — it lives only in the in-memory result dict. The legacy
+     `concat_logs` used to aggregate every PLINK `.log`.
+   - **`cleaned_logs.log` is created 0-byte and never populated** (legacy filled
+     it via `process_log`); it's a misleading dead artifact.
+   - **Three uncoordinated user-facing channels** — `print()` (runner
+     "Running: step…", the `validate_input` data breakdown), `logging`
+     (structured), and `warnings.warn` (round-6 skip decisions). At runtime
+     `setup_logging(..., console=False)`, so the polished `[step]` structured
+     records **never reach the terminal**; the screen shows scattered prints +
+     warnings while the good stream is file-only.
+   - Minor: `logging.getLogger(__name__)` (steps) vs `get_logger(__name__)`
+     (executors) — two idioms.
+
+   **Decision already taken this session:** raw PLINK output → **per-step raw
+   `.log` files** on disk **plus** the structured consolidated summary (keep both,
+   cleanly separated). **Still open:** `cleaned_logs.log` fate (remove as
+   redundant vs. populate a distilled view) and console-mirroring behavior — a
+   fresh brainstorm should resolve these.
+
+   **Design freedom / constraints:** the only log-format test is
+   `tests/regression/test_logging.py` (asserts `all_logs.log` exists, is >400
+   chars, contains `[callrate_prune]`/`[geno_prune]` markers + "filtering
+   complete"); the parity harness does **not** compare logs; there is no exact
+   legacy format to preserve. `concat_logs`/`process_log` live in the
+   deferred-for-deletion `utils.py`, so this pairs naturally with the eventual
+   `utils.py` removal. **This is a `superpowers:brainstorming → writing-plans →
+   subagent-driven-development` round of its own** (design not yet finalized).
+
 1. **Prove parity on real data** — run `test_parity.py` on representative real
    cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
    GWAS. This is the gate before merging to `main`. (Harness extended in round 2:
