@@ -252,7 +252,8 @@ validation checks + data breakdown even under `--skip_fails` (previously skipped
 entirely) — this **converges** the new path toward legacy `genotools` behavior and
 does not change genotype output. **Follow-ups (non-blocking):** bump
 `python_requires` ≥3.10 to match the PEP-604 annotations used across the refactor;
-drop the unused `var` read in `validate_input` (or `# noqa`); the f-string→`shlex`
+the `var` read in `validate_input` is now used by round 6 (chr_counts + het-skip),
+so the earlier "unused var" note is obsolete; the f-string→`shlex`
 command construction (paths-with-spaces) is a repo-wide pre-existing rough edge.
 
 ### Round 6 (`refactor/flip-default-cleave-legacy`)
