@@ -41,7 +41,6 @@ setup(
     entry_points={
         'console_scripts': [
             'genotools=genotools.cli:main',
-            'genotools-new=genotools.cli:main_new',
             'genotools-download=genotools.download_refs:handle_download',
         ]
     },
