@@ -21,7 +21,6 @@ QC steps, ancestry prediction, and GWAS analysis.
 
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 import platform
@@ -36,9 +35,10 @@ import pandas as pd
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 from ..core.exceptions import GenoToolsError
-from ..core.validation import ValidationDecisions
+from ..core.logging import RunLog, get_logger, install_run_logging, step_context
+from ..core.validation import ValidationDecisions, guard_output_not_exists
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -118,6 +118,7 @@ class PipelineRunner:
         self.args = args
         self.state: Optional[PipelineState] = None
         self._validation_decisions = ValidationDecisions()
+        self._runlog: Optional[RunLog] = None
 
         # These will be set up during run()
         self._new_modules: Dict[str, Any] = {}
@@ -138,12 +139,22 @@ class PipelineRunner:
         # Initialize modules
         self._initialize_modules()
 
-        # Convert input format if needed (must happen before logging setup
-        # because validate_input validates that log files don't exist)
-        self._convert_input_format()
+        # Re-run guard runs *before* logging setup, since setup creates the
+        # consolidated log file the guard checks for. (Decoupled from
+        # validate_input so validate_input can log into the fresh log.)
+        guard_output_not_exists(self.args.out_path, self.args.output.skip_fails)
 
-        # Set up logging (after validate_input so log file creation doesn't trigger error)
+        # Set up logging (builds the RunLog, installs handlers, writes banner).
         self._setup_logging()
+
+        # Convert input format if needed + run input validation, inside a section
+        # so conversion PLINK output and the data breakdown land in the log.
+        self._begin_section("input_preparation")
+        try:
+            with step_context("input"):
+                self._convert_input_format()
+        finally:
+            self._end_section(f"{self.args.out_path}_input_preparation.log")
 
         # Validate we have something to do
         steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
@@ -157,11 +168,14 @@ class PipelineRunner:
             else:
                 result = self._run_qc_only(steps)
 
+            self._emit_run_summary()
             return result
         finally:
             # Cleanup temporary directory
             if self.state and self.state.tmp_dir:
                 self.state.tmp_dir.cleanup()
+            if self._runlog is not None:
+                self._runlog.close()
 
     def _initialize_state(self) -> None:
         """Initialize pipeline state."""
@@ -255,44 +269,78 @@ class PipelineRunner:
         }
 
     def _setup_logging(self) -> None:
-        """Set up the consolidated run log.
+        """Build the consolidated run log and install logging handlers.
 
-        Runs *after* validate_input (which errors if ``{out}_all_logs.log``
-        already exists), so it can safely (re)create the log. Beyond creating
-        the legacy-named files, this attaches the structured logging file
-        handler so every step's ``logger.info``/``error`` is aggregated into
-        ``{out}_all_logs.log``. Without this call ``setup_logging`` is never
-        invoked at runtime and the root logger's WARNING default drops all step
-        logs, leaving the consolidated log header-only.
+        Installs a :class:`RunLog` that owns ``{out}_all_logs.log`` (banner +
+        per-step sections + summary) and registers it as the run-scoped raw sink
+        so the executor harvests each PLINK/KING ``.log`` into it. Also attaches
+        a concise console handler for the curated progress stream. Runs after the
+        re-run guard (which checks the log does not already exist) and before any
+        step, so every ``logger.info``/``warning``/``error`` — including the
+        input breakdown — is captured.
         """
         assert self.state is not None
         out_path = str(self.state.out_path)
+        self._runlog = install_run_logging(out_path, level="INFO", console=True)
 
-        # Clear existing log files
-        all_logs = f"{out_path}_all_logs.log"
-        cleaned_logs = f"{out_path}_cleaned_logs.log"
+    def _begin_section(self, title: str) -> None:
+        """Open a consolidated-log section (no-op when logging isn't installed)."""
+        if self._runlog is not None:
+            self._runlog.begin_section(title)
 
-        if os.path.exists(all_logs):
-            os.remove(all_logs)
-        if os.path.exists(cleaned_logs):
-            os.remove(cleaned_logs)
+    def _end_section(self, raw_log_path: Optional[str] = None) -> None:
+        """Flush a section's buffered raw output (no-op without a RunLog)."""
+        if self._runlog is not None:
+            self._runlog.end_section(raw_log_path)
 
-        # Create new log files with header
-        from ..core.logging import banner
+    def _emit_run_summary(self) -> None:
+        """Emit the end-of-run summary table to the console and consolidated log."""
+        assert self.state is not None
+        rows = self._collect_summary_rows()
+        if not rows:
+            return
+        logger.info("Run summary:")
+        for label, removed, passed in rows:
+            status = "PASS" if passed else "FAIL"
+            logger.info(f"  {label}: {removed} removed [{status}]")
+        if self._runlog is not None:
+            self._runlog.write_summary(rows)
 
-        header = banner()
-        with open(all_logs, "w") as fp:
-            fp.write(header)
-            fp.write("\n")
-        with open(cleaned_logs, "w") as fp:
-            pass
+    def _collect_summary_rows(self) -> List[tuple]:
+        """Assemble (label, outliers_removed, passed) rows from pipeline state.
 
-        # Route all genotools step/runner logs into the consolidated log file.
-        # setup_logging() opens the file in append mode, so the banner header
-        # written above stays at the top and structured records follow it.
-        from ..core.logging import setup_logging
+        Covers the plain QC path (``state.pass_fail`` + ``state.step_results``)
+        and the per-ancestry path (``state.ancestry_results``), labeling
+        per-ancestry rows ``{label}/{step}``.
+        """
+        assert self.state is not None
 
-        setup_logging(level="INFO", log_file=Path(all_logs), console=False)
+        def _removed(metrics: Dict[str, Any]) -> int:
+            metrics = metrics or {}
+            if "outlier_count" in metrics:
+                return int(metrics["outlier_count"])
+            return int(
+                metrics.get("related_count", 0)
+                + metrics.get("duplicated_count", 0)
+            )
+
+        rows: List[tuple] = []
+        # Plain QC path.
+        for step, record in self.state.pass_fail.items():
+            result = self.state.step_results.get(step)
+            removed = _removed(result.metrics) if result else 0
+            rows.append((step, removed, record.status))
+
+        # Per-ancestry path.
+        ancestry_results = getattr(self.state, "ancestry_results", {})
+        for label, out_dict in ancestry_results.items():
+            pf = out_dict.get("pass_fail", {})
+            for step, rec in pf.items():
+                step_result = out_dict.get(step, {})
+                removed = _removed(step_result.get("metrics", {}))
+                rows.append((f"{label}/{step}", removed, rec.get("status", False)))
+
+        return rows
 
     def _convert_input_format(self) -> None:
         """Convert input format to pfiles if needed."""
@@ -331,8 +379,14 @@ class PipelineRunner:
         """
         assert self.state is not None
 
-        # Run ancestry prediction
-        ancestry_result = self._run_ancestry_prediction_new()
+        # Run ancestry prediction (sectioned; the ported preprocessing runs many
+        # PLINK invocations, all harvested under the "ancestry" step context).
+        self._begin_section("ancestry_prediction")
+        try:
+            with step_context("ancestry"):
+                ancestry_result = self._run_ancestry_prediction_new()
+        finally:
+            self._end_section(f"{self.args.out_path}_ancestry_prediction.log")
         self.state.ancestry_result = ancestry_result
         self.state.labels_list = ancestry_result["data"]["labels_list"]
 
@@ -744,62 +798,72 @@ class PipelineRunner:
             )
 
             step_paths.append(step_output)
-            logger.info(
-                f"Running: {step} with input {step_input} and output: {step_output}"
-            )
-            print(f"Running: {step} with input {step_input} and output: {step_output}")
 
-            # Check if input exists
-            if self.args.warn_only and not os.path.isfile(f"{step_input}.pgen"):
-                print(
-                    f"Step {step} cannot be run! "
-                    "All samples or variants were pruned in a previous step!"
-                )
-                pass_fail[step] = PassFailRecord(
-                    status=False, input_path=step_input, output_path=step_output
-                )
-                continue
-
-            # Run the step. Refactored steps signal failure by raising a
-            # GenoToolsError (QCError/ExternalToolError/...). Under --warn we
-            # record the failure and continue from the last passed output;
-            # otherwise we fail fast.
+            # Open a consolidated-log section for this step. Raw PLINK output
+            # harvested during the step is buffered and flushed (to the section
+            # and to a per-step {out}_{step}.log) by _end_section. Logs always
+            # persist at the stable out_path location regardless of full_output.
+            section_title = step if ancestry_label == "all" else f"{ancestry_label} / {step}"
+            raw_log_path = f"{out_path}_{step}.log"
+            self._begin_section(section_title)
             try:
-                result = self._run_single_step(
-                    step=step,
-                    step_input=step_input,
-                    step_output=step_output,
-                    legacy_args=legacy_args,
-                )
-            except GenoToolsError as e:
-                logger.error(f"Step {step} failed: {e}")
-                if not self.args.warn_only:
-                    raise
-                print(f"Step {step} failed but continuing (--warn): {e}")
-                pass_fail[step] = PassFailRecord(
-                    status=False,
-                    input_path=step_input,
-                    output_path=step_output,
-                    error=str(e),
-                )
-                continue
-
-            if result is not None:
-                out_dict[step] = result
-                pass_fail[step] = PassFailRecord(
-                    status=result.get("pass", False),
-                    input_path=step_input,
-                    output_path=step_output,
+                logger.info(
+                    f"Running: {step} with input {step_input} and output: {step_output}"
                 )
 
-                # Clean up intermediate files
-                self._cleanup_intermediate_files(
-                    step=step,
-                    pass_fail=pass_fail,
-                    out_dict=out_dict,
-                    out_path=out_path,
-                    geno_path=geno_path,
-                )
+                # Check if input exists
+                if self.args.warn_only and not os.path.isfile(f"{step_input}.pgen"):
+                    logger.warning(
+                        f"Step {step} cannot be run! "
+                        "All samples or variants were pruned in a previous step!"
+                    )
+                    pass_fail[step] = PassFailRecord(
+                        status=False, input_path=step_input, output_path=step_output
+                    )
+                    continue
+
+                # Run the step. Refactored steps signal failure by raising a
+                # GenoToolsError (QCError/ExternalToolError/...). Under --warn we
+                # record the failure and continue from the last passed output;
+                # otherwise we fail fast.
+                try:
+                    result = self._run_single_step(
+                        step=step,
+                        step_input=step_input,
+                        step_output=step_output,
+                        legacy_args=legacy_args,
+                    )
+                except GenoToolsError as e:
+                    logger.error(f"Step {step} failed: {e}")
+                    if not self.args.warn_only:
+                        raise
+                    logger.warning(f"Step {step} failed but continuing (--warn): {e}")
+                    pass_fail[step] = PassFailRecord(
+                        status=False,
+                        input_path=step_input,
+                        output_path=step_output,
+                        error=str(e),
+                    )
+                    continue
+
+                if result is not None:
+                    out_dict[step] = result
+                    pass_fail[step] = PassFailRecord(
+                        status=result.get("pass", False),
+                        input_path=step_input,
+                        output_path=step_output,
+                    )
+
+                    # Clean up intermediate files
+                    self._cleanup_intermediate_files(
+                        step=step,
+                        pass_fail=pass_fail,
+                        out_dict=out_dict,
+                        out_path=out_path,
+                        geno_path=geno_path,
+                    )
+            finally:
+                self._end_section(raw_log_path)
 
         # Handle final step failure with --warn
         self._handle_final_step_failure(steps, pass_fail, out_path, geno_path, working_geno)
@@ -951,7 +1015,7 @@ class PipelineRunner:
 
         elif step == "kinship_check":
             if platform.system() != "Linux":
-                print("Relatedness Assessment can only run on a Linux OS!")
+                logger.warning("Relatedness Assessment can only run on a Linux OS!")
                 return None
             result = self._new_modules["verify_kinship"](data, Path(step_output))
             return result.to_dict()
