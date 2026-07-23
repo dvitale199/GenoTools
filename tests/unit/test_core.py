@@ -1,5 +1,6 @@
 """Unit tests for genotools.core module."""
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from genotools.core import (
     BaseConfig,
     ThresholdConfig,
 )
+from genotools.core.logging import RunLog, install_run_logging, raw_sink
 
 
 class TestExceptions:
@@ -95,6 +97,106 @@ class TestLogging:
         logger = get_logger(__name__)
         assert logger is not None
         assert "genotools" in logger.name
+
+
+def _info_record(msg: str, step: str = "") -> logging.LogRecord:
+    """Build an INFO LogRecord with an optional bracketed step tag."""
+    rec = logging.LogRecord(
+        name="genotools.test", level=logging.INFO, pathname=__file__,
+        lineno=1, msg=msg, args=(), exc_info=None,
+    )
+    rec.step = f"[{step}]" if step else ""
+    return rec
+
+
+class TestRunLog:
+    """Tests for the consolidated-log RunLog writer (round 7)."""
+
+    def test_banner_header_structured_then_raw_order(self, tmp_path: Path):
+        """Within a section: header, then structured lines, then buffered raw."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.begin_section("callrate_prune")
+        rl.write_record(_info_record("Filtering samples (mind=0.02)", "callrate_prune"))
+        rl.write_record(_info_record("filtering complete: 5 removed", "callrate_prune"))
+        rl.append_raw("plink2 --geno --out x", "PLINK log line: 5 samples removed.")
+        rl.end_section(None)
+        rl.close()
+
+        content = log_path.read_text()
+        # Banner present.
+        assert "GENOTOOLS" in content or "██" in content
+        # Section header present.
+        i_header = content.index("===== callrate_prune =====")
+        # Structured lines present and after header.
+        i_struct = content.index("filtering complete: 5 removed")
+        # Raw present and AFTER the structured summary.
+        i_raw = content.index("PLINK log line: 5 samples removed.")
+        assert i_header < i_struct < i_raw
+        # Structured line carries the step tag.
+        assert "[callrate_prune]" in content
+
+    def test_end_section_writes_per_step_raw_file(self, tmp_path: Path):
+        """end_section(raw_path) writes the buffered raw to a per-step file too."""
+        log_path = tmp_path / "out_all_logs.log"
+        raw_path = tmp_path / "out_callrate.log"
+        rl = RunLog(log_path)
+        rl.begin_section("callrate_prune")
+        rl.append_raw("plink2 --out x", "raw plink content here")
+        rl.end_section(raw_path)
+        rl.close()
+
+        assert raw_path.exists()
+        assert "raw plink content here" in raw_path.read_text()
+        # Consolidated also contains it.
+        assert "raw plink content here" in log_path.read_text()
+
+    def test_append_raw_buffers_until_end_section(self, tmp_path: Path):
+        """append_raw does not hit disk until end_section flushes it."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.begin_section("geno_prune")
+        rl.append_raw("plink2 --out x", "DEFERRED_RAW_MARKER")
+        # Not flushed yet.
+        assert "DEFERRED_RAW_MARKER" not in log_path.read_text()
+        rl.end_section(None)
+        assert "DEFERRED_RAW_MARKER" in log_path.read_text()
+        rl.close()
+
+    def test_write_summary_appends_block(self, tmp_path: Path):
+        """write_summary appends a recognizable summary block at the tail."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.write_summary([("callrate_prune", 5, True), ("geno_prune", 112, True)])
+        rl.close()
+        content = log_path.read_text()
+        assert "summary" in content.lower()
+        assert "callrate_prune" in content
+        assert "112" in content
+
+    def test_close_is_idempotent(self, tmp_path: Path):
+        """Double close does not raise."""
+        rl = RunLog(tmp_path / "out_all_logs.log")
+        rl.close()
+        rl.close()
+
+    def test_install_run_logging_sets_sink_and_banner(self, tmp_path: Path):
+        """install_run_logging writes the banner and registers the raw sink."""
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=False)
+        try:
+            assert raw_sink.get() is rl
+            assert Path(f"{out}_all_logs.log").exists()
+            # A genotools logger record now flows into the consolidated log.
+            get_logger("genotools.test").info("hello from a step")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "hello from a step" in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
 
 
 class TestGenotypeData:

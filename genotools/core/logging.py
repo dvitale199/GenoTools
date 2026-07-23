@@ -24,12 +24,16 @@ import logging
 import sys
 from contextvars import ContextVar, Token
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 
 # Context variable for tracking the current QC step
 # This allows log messages to automatically include which step is running
 current_step: ContextVar[str] = ContextVar("current_step", default="")
+
+# Full detailed format used for the consolidated on-disk log.
+FILE_FORMAT = "%(asctime)s [%(levelname)s] %(step)s %(name)s: %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 class StepContextFilter(logging.Filter):
@@ -191,3 +195,170 @@ def banner() -> str:
     ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
     ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
     """
+
+
+# ---------------------------------------------------------------------------
+# Consolidated run log (round 7: logging / pipeline-visibility redesign)
+# ---------------------------------------------------------------------------
+
+# A summary row: (step_label, outliers_removed, passed).
+SummaryRow = Tuple[str, int, bool]
+
+# Run-scoped raw-output sink. The executor reads this after every PLINK/KING
+# invocation and, if set, hands the harvested native .log to the RunLog. Unset
+# (None) => harvesting is a silent no-op, so library/unit callers are unaffected.
+raw_sink: ContextVar[Optional["RunLog"]] = ContextVar("raw_sink", default=None)
+
+
+class RunLog:
+    """Single writer that owns the consolidated ``{out}_all_logs.log`` file.
+
+    One object owns the file handle so structured records, section headers, and
+    buffered raw PLINK blocks land in a deterministic order. Per step the layout
+    is: a ``===== step =====`` header, the structured summary lines (written live
+    via :meth:`write_record`), then the verbatim harvested PLINK output for that
+    step (buffered via :meth:`append_raw`, flushed by :meth:`end_section`). The
+    same buffered raw is also written to a per-step ``{out}_{step}.log`` file.
+    """
+
+    def __init__(self, path: Union[str, Path]) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Truncate: each run starts a fresh consolidated log. The runner's
+        # re-run guard already prevents clobbering a prior run's output.
+        self._fh: Optional[object] = open(self.path, "w", encoding="utf-8")
+        self._formatter = logging.Formatter(FILE_FORMAT, datefmt=DATE_FORMAT)
+        self._raw_buffer: List[str] = []
+
+    # -- header / sections --------------------------------------------------
+
+    def write_banner(self) -> None:
+        self._write(banner() + "\n")
+
+    def begin_section(self, title: str) -> None:
+        """Open a section: flush any stray raw, write the header, reset buffer."""
+        self._raw_buffer = []
+        self._write(f"\n===== {title} =====\n")
+
+    def write_record(self, record: logging.LogRecord) -> None:
+        """Write a structured log record live (full detailed format)."""
+        if not hasattr(record, "step"):
+            record.step = ""  # type: ignore[attr-defined]
+        self._write(self._formatter.format(record) + "\n")
+
+    def append_raw(self, command: str, text: str) -> None:
+        """Buffer a harvested raw PLINK block; flushed at :meth:`end_section`."""
+        block = f"$ {command}\n{text.rstrip()}\n" if command else f"{text.rstrip()}\n"
+        self._raw_buffer.append(block)
+
+    def end_section(self, raw_log_path: Optional[Union[str, Path]] = None) -> None:
+        """Flush buffered raw into the consolidated log and per-step file."""
+        if self._raw_buffer:
+            raw = "".join(self._raw_buffer)
+            self._write(raw)
+            if raw_log_path is not None:
+                try:
+                    Path(raw_log_path).write_text(raw, encoding="utf-8")
+                except OSError:
+                    pass
+        self._raw_buffer = []
+
+    # -- summary ------------------------------------------------------------
+
+    def write_summary(self, rows: Sequence[SummaryRow]) -> None:
+        """Append the end-of-run summary table."""
+        lines = ["\n===== run summary =====\n"]
+        for label, removed, passed in rows:
+            status = "PASS" if passed else "FAIL"
+            lines.append(f"  {label:<28} {removed:>10} removed   {status}\n")
+        self._write("".join(lines))
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def _write(self, text: str) -> None:
+        if self._fh is not None:
+            self._fh.write(text)
+            self._fh.flush()
+
+    def close(self) -> None:
+        """Close the file handle. Idempotent."""
+        if self._fh is not None:
+            try:
+                self._fh.close()
+            finally:
+                self._fh = None
+
+
+class _RunLogHandler(logging.Handler):
+    """Routes ``genotools.*`` structured records into a :class:`RunLog`."""
+
+    def __init__(self, runlog: RunLog, level: int = logging.INFO) -> None:
+        super().__init__(level)
+        self._runlog = runlog
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._runlog.write_record(record)
+        except Exception:  # pragma: no cover - never let logging crash a run
+            self.handleError(record)
+
+
+class _ConsoleFormatter(logging.Formatter):
+    """Concise, step-tagged console format: ``[step] message`` (``! `` on WARN+)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        if not hasattr(record, "step"):
+            record.step = ""  # type: ignore[attr-defined]
+        prefix = "! " if record.levelno >= logging.WARNING else ""
+        tag = f"{record.step} " if record.step else ""
+        return f"{prefix}{tag}{record.getMessage()}"
+
+
+def install_run_logging(
+    out_path: Union[str, Path],
+    level: Union[str, int] = "INFO",
+    console: bool = True,
+) -> RunLog:
+    """Configure runtime logging around a :class:`RunLog` and return it.
+
+    Builds the consolidated ``{out}_all_logs.log`` (banner written), attaches a
+    :class:`_RunLogHandler` (+ an optional concise console handler) to the
+    ``genotools`` logger, and registers the RunLog as the run-scoped raw sink so
+    the executor harvests PLINK ``.log`` output into it.
+
+    Args:
+        out_path: Output prefix; the log is ``{out_path}_all_logs.log``.
+        level: Log level for both handlers.
+        console: Whether to also emit the curated console stream.
+
+    Returns:
+        The RunLog (the caller owns its lifecycle; call ``close()`` when done).
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
+
+    runlog = RunLog(f"{out_path}_all_logs.log")
+    runlog.write_banner()
+
+    logger = logging.getLogger("genotools")
+    logger.setLevel(level)
+    for handler in logger.handlers[:]:
+        handler.close()
+    logger.handlers.clear()
+
+    context_filter = StepContextFilter()
+
+    run_handler = _RunLogHandler(runlog, level)
+    run_handler.addFilter(context_filter)
+    logger.addHandler(run_handler)
+
+    if console:
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setLevel(level)
+        console_handler.setFormatter(_ConsoleFormatter())
+        console_handler.addFilter(context_filter)
+        logger.addHandler(console_handler)
+
+    logger.propagate = False
+    raw_sink.set(runlog)
+    return runlog

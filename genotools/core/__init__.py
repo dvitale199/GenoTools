@@ -48,6 +48,9 @@ from .logging import (
     step_context,
     current_step,
     banner,
+    RunLog,
+    install_run_logging,
+    raw_sink,
 )
 
 # External tool execution
@@ -94,6 +97,9 @@ __all__ = [
     "step_context",
     "current_step",
     "banner",
+    "RunLog",
+    "install_run_logging",
+    "raw_sink",
     # Executors
     "get_plink",
     "get_plink2",
