@@ -147,21 +147,30 @@ class PipelineRunner:
         # Set up logging (builds the RunLog, installs handlers, writes banner).
         self._setup_logging()
 
-        # Convert input format if needed + run input validation, inside a section
-        # so conversion PLINK output and the data breakdown land in the log.
-        self._begin_section("input_preparation")
+        # Pre-flight: convert input + validate (logged into the consolidated log),
+        # then confirm there is work to do. A failure here happens *before* any
+        # output is produced, so tear down and REMOVE the freshly-created log so
+        # the output prefix isn't poisoned for the next run (restores the
+        # pre-redesign behavior where a failed validation left no log behind).
         try:
-            with step_context("input"):
-                self._convert_input_format()
-        finally:
-            self._end_section(f"{self.args.out_path}_input_preparation.log")
+            self._begin_section("input_preparation")
+            try:
+                with step_context("input"):
+                    self._convert_input_format()
+            finally:
+                self._end_section(f"{self.args.out_path}_input_preparation.log")
 
-        # Validate we have something to do
-        steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
-        if not steps and not self.args.ancestry.run_ancestry:
-            raise ValueError("No QC steps or ancestry prediction requested")
+            steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
+            if not steps and not self.args.ancestry.run_ancestry:
+                raise ValueError("No QC steps or ancestry prediction requested")
+        except Exception:
+            self._teardown_logging(remove_logs=True)
+            if self.state and self.state.tmp_dir:
+                self.state.tmp_dir.cleanup()
+            raise
 
-        # Run the pipeline
+        # Run the pipeline. From here the consolidated log persists even on
+        # failure (partial output may exist), matching the re-run guard's intent.
         try:
             if self.args.ancestry.run_ancestry:
                 result = self._run_with_ancestry(steps)
@@ -174,8 +183,7 @@ class PipelineRunner:
             # Cleanup temporary directory
             if self.state and self.state.tmp_dir:
                 self.state.tmp_dir.cleanup()
-            if self._runlog is not None:
-                self._runlog.close()
+            self._teardown_logging(remove_logs=False)
 
     def _initialize_state(self) -> None:
         """Initialize pipeline state."""
@@ -282,6 +290,28 @@ class PipelineRunner:
         assert self.state is not None
         out_path = str(self.state.out_path)
         self._runlog = install_run_logging(out_path, level="INFO", console=True)
+
+    def _teardown_logging(self, remove_logs: bool = False) -> None:
+        """Close the RunLog and unregister the raw sink.
+
+        With ``remove_logs=True`` (pre-flight failure), also delete the
+        freshly-created consolidated + input-prep logs so the output prefix is
+        not left poisoned for the next run.
+        """
+        from ..core.logging import raw_sink
+
+        if self._runlog is None:
+            return
+        log_path = self._runlog.path
+        self._runlog.close()
+        self._runlog = None
+        raw_sink.set(None)
+        if remove_logs:
+            for p in (log_path, Path(f"{self.args.out_path}_input_preparation.log")):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _begin_section(self, title: str) -> None:
         """Open a consolidated-log section (no-op when logging isn't installed)."""

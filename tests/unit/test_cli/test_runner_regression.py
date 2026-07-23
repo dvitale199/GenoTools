@@ -474,3 +474,61 @@ class TestRunSummary:
         assert "7 removed" in content and "PASS" in content
         # Also surfaced as log records (→ console).
         assert any("Run summary" in r.getMessage() for r in captured)
+
+
+class TestPreflightFailureDoesNotPoisonPrefix:
+    """Round 7 fix: logging is set up before validate_input so the breakdown is
+    captured, but a pre-flight failure (bad input / no steps) must remove the
+    freshly-created log so the output prefix isn't blocked on the next run."""
+
+    def test_validation_failure_removes_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from genotools.core.exceptions import ValidationError
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+        )
+        args.sample_qc.run_callrate = True
+        runner = PipelineRunner(args)
+
+        def boom() -> None:
+            raise ValidationError("bad input")
+
+        monkeypatch.setattr(runner, "_convert_input_format", boom)
+
+        with pytest.raises(ValidationError):
+            runner.run()
+
+        # The consolidated log created just before validation must be cleaned up,
+        # so a corrected re-run over the same --out is not blocked by the guard.
+        assert not Path(f"{out}_all_logs.log").exists()
+        assert runner._runlog is None
+        assert raw_sink.get() is None
+
+    def test_no_steps_failure_removes_log(self, tmp_path: Path) -> None:
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+        )
+        runner = PipelineRunner(args)
+        # No QC steps and no ancestry requested; _convert_input_format is a no-op
+        # for already-pfile input with a touched (empty) psam/pvar, so patch it
+        # out to isolate the "no steps" raise path.
+        runner._convert_input_format = lambda: None  # type: ignore[method-assign]
+
+        with pytest.raises(ValueError, match="No QC steps"):
+            runner.run()
+
+        assert not Path(f"{out}_all_logs.log").exists()
+        assert raw_sink.get() is None
