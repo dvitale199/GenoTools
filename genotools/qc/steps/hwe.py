@@ -18,17 +18,16 @@
 Removes variants violating Hardy-Weinberg equilibrium using PLINK 1.9.
 """
 
-import logging
 from pathlib import Path
 
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import HWEConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_hwe(

@@ -29,18 +29,17 @@ Usage:
     pca_result = run_pca(data, config, out_path)
 """
 
-import logging
 from pathlib import Path
 from typing import Optional
 
 from genotools.core.exceptions import ValidationError
 from genotools.core.executors import get_plink2, run_command, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.gwas.config import PCAConfig, PCAPruningConfig, get_exclusion_regions
 from genotools.gwas.results import PCAResult, PruningResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _write_exclusion_file(out_path: Path, build: str) -> Path:

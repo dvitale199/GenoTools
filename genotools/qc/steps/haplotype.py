@@ -19,7 +19,6 @@ Removes variants with non-random patterns of missing data using
 PLINK 1.9 --test-mishap.
 """
 
-import logging
 from pathlib import Path
 
 import pandas as pd
@@ -27,11 +26,11 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import HaplotypeConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_haplotype(
