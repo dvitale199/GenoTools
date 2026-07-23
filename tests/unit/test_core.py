@@ -486,29 +486,39 @@ class TestValidation:
     def geno(self) -> Path:
         return Path("tests/data/synthetic/genotools_test")
 
-    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, capsys):
+    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, caplog):
         from genotools.core.validation import validate_input
-        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
-        out = capsys.readouterr().out
-        assert "breakdown" in out.lower()
+        with caplog.at_level(logging.INFO, logger="genotools"):
+            validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
+        # Breakdown is logged (not printed) now.
+        assert any("breakdown" in r.message.lower() for r in caplog.records)
 
     def test_raises_on_missing_pgen(self, tmp_path: Path):
         from genotools.core.validation import validate_input
         with pytest.raises(FileNotFoundError):
             validate_input(tmp_path / "nope", tmp_path / "out", skip_fails=False)
 
-    def test_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+    def test_validate_input_does_not_guard_existing_log(self, geno: Path, tmp_path: Path):
+        """The re-run guard moved out of validate_input; it no longer raises here."""
         from genotools.core.validation import validate_input
-        from genotools.core.exceptions import ValidationError
-        log = tmp_path / "out_all_logs.log"
-        log.write_text("prior run\n")
-        with pytest.raises(ValidationError):
-            validate_input(geno, tmp_path / "out", skip_fails=False)
+        (tmp_path / "out_all_logs.log").write_text("prior run\n")
+        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
 
-    def test_skip_fails_ignores_existing_log(self, geno: Path, tmp_path: Path):
-        from genotools.core.validation import validate_input
+    def test_guard_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
+        from genotools.core.exceptions import ValidationError
+        (tmp_path / "out_all_logs.log").write_text("prior run\n")
+        with pytest.raises(ValidationError):
+            guard_output_not_exists(tmp_path / "out", skip_fails=False)
+
+    def test_guard_skip_fails_ignores_existing_log(self, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
         (tmp_path / "out_all_logs.log").write_text("prior\n")
-        validate_input(geno, tmp_path / "out", skip_fails=True)  # no raise
+        guard_output_not_exists(tmp_path / "out", skip_fails=True)  # no raise
+
+    def test_guard_passes_when_no_log(self, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
+        guard_output_not_exists(tmp_path / "fresh", skip_fails=False)  # no raise
 
     def test_raises_on_missing_sex_column(self, geno: Path, tmp_path: Path):
         from genotools.core.validation import validate_input
@@ -591,12 +601,19 @@ class TestValidation:
         d = validate_input(bad, tmp_path / "o4", case_control_requested=True)
         assert d.skip_case_control is True
 
-    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path):
+    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path, recwarn, caplog):
         from genotools.core.validation import validate_input
         bad = tmp_path / "fewvar"
         self._pfile_with(geno, bad, pvar_rows=40)  # < 50 variants
-        d = validate_input(bad, tmp_path / "o5", het_requested=True)
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            d = validate_input(bad, tmp_path / "o5", het_requested=True)
         assert d.skip_het is True
+        # Skip decisions are logged as warnings now, not emitted via warnings.warn.
+        assert any(
+            r.levelno == logging.WARNING and "het prune" in r.message.lower()
+            for r in caplog.records
+        )
+        assert not any("het prune" in str(w.message).lower() for w in recwarn.list)
 
     def test_no_decisions_when_skip_fails(self, geno: Path, tmp_path: Path):
         import pandas as pd

@@ -4,7 +4,6 @@ Ports the validation + data-breakdown behavior of legacy utils.upfront_check,
 including the data-driven step-skip decisions.
 """
 
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
@@ -12,6 +11,9 @@ from typing import Union
 import pandas as pd
 
 from .exceptions import ValidationError
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,23 @@ class ValidationDecisions:
     skip_case_control: bool = False
     skip_het: bool = False
     disable_filter_controls: bool = False
+
+
+def guard_output_not_exists(
+    out_path: Union[str, Path], skip_fails: bool = False
+) -> None:
+    """Guard against re-running over a prior run's output.
+
+    Raises ``ValidationError`` if ``{out_path}_all_logs.log`` already exists and
+    ``skip_fails`` is False. Decoupled from ``validate_input`` so the runner can
+    call it *before* logging is set up (logging setup creates that log file).
+    """
+    if Path(f"{out_path}_all_logs.log").is_file() and not skip_fails:
+        raise ValidationError(
+            f"{out_path}_all_logs.log exists, which means the pipeline has "
+            f"previously been run on this output file! Rerun with --skip_fails "
+            f"to ignore this, or write output to a new file name."
+        )
 
 
 def validate_input(
@@ -34,22 +53,17 @@ def validate_input(
     filter_controls: bool = False,
     case_control_requested: bool = False,
 ) -> ValidationDecisions:
-    """Validate pipeline input, print a data breakdown, and derive step-skip decisions.
+    """Validate pipeline input, log a data breakdown, and derive step-skip decisions.
+
+    The re-run guard (output already exists) lives in ``guard_output_not_exists``
+    so it can run before logging is configured; this function is pure validation.
 
     Raises:
-        ValidationError: if the output log already exists (and not skip_fails),
-            or the psam is missing SEX/PHENO1.
+        ValidationError: if the psam is missing SEX/PHENO1.
         FileNotFoundError: if the input pgen is missing.
     """
     geno_path = str(geno_path)
     out_path = str(out_path)
-
-    if Path(f"{out_path}_all_logs.log").is_file() and not skip_fails:
-        raise ValidationError(
-            f"{out_path}_all_logs.log exists, which means the pipeline has "
-            f"previously been run on this output file! Rerun with --skip_fails "
-            f"to ignore this, or write output to a new file name."
-        )
 
     if not Path(f"{geno_path}.pgen").is_file():
         raise FileNotFoundError(f"{geno_path} does not exist.")
@@ -73,24 +87,24 @@ def validate_input(
     sex_counts = sam["SEX"].value_counts().to_dict()
     pheno_counts = sam["PHENO1"].value_counts().to_dict()
 
-    print("Your data has the following breakdown:")
-    print("- Genetic Sex:")
+    logger.info("Your data has the following breakdown:")
+    logger.info("- Genetic Sex:")
     for sex in sex_counts:
         if sex == 1:
-            print(f"{sex_counts[sex]} Males \n")
+            logger.info(f"  {sex_counts[sex]} Males")
         if sex == 2:
-            print(f"{sex_counts[sex]} Females \n")
+            logger.info(f"  {sex_counts[sex]} Females")
         if sex in (0, -9):
-            print(f"{sex_counts[sex]} Unknown \n")
+            logger.info(f"  {sex_counts[sex]} Unknown")
 
-    print("- Phenotypes:")
+    logger.info("- Phenotypes:")
     for pheno in pheno_counts:
         if pheno == 2:
-            print(f"{pheno_counts[pheno]} Cases \n")
+            logger.info(f"  {pheno_counts[pheno]} Cases")
         if pheno == 1:
-            print(f"{pheno_counts[pheno]} Controls \n")
+            logger.info(f"  {pheno_counts[pheno]} Controls")
         if pheno in (0, -9):
-            print(f"{pheno_counts[pheno]} Missing \n")
+            logger.info(f"  {pheno_counts[pheno]} Missing")
 
     chr_counts = var["#CHROM"].value_counts().to_dict()
 
@@ -100,35 +114,34 @@ def validate_input(
     skip_sex = False
     if sex_requested:
         if (1 not in sex_counts) and (2 not in sex_counts):
-            warnings.warn(
+            logger.warning(
                 "You tried calling sex prune but no sample sex data is available. "
-                "Skipping...", stacklevel=2)
+                "Skipping...")
             skip_sex = True
         elif ("23" not in chr_counts) and ("X" not in chr_counts):
-            warnings.warn(
+            logger.warning(
                 "You tried calling sex prune but no X chromosome data is "
-                "available. Skipping...", stacklevel=2)
+                "available. Skipping...")
             skip_sex = True
 
     disable_filter_controls = False
     if hwe_requested and filter_controls and (1 not in pheno_counts):
-        warnings.warn(
+        logger.warning(
             "You tried calling hwe prune with controls filtered but no controls "
-            "are available. Skipping...", stacklevel=2)
+            "are available. Skipping...")
         disable_filter_controls = True
 
     skip_case_control = False
     if case_control_requested and ((1 not in pheno_counts) or (2 not in pheno_counts)):
-        warnings.warn(
+        logger.warning(
             "You tried calling case-control prune but only cases or controls are "
-            "available, not both. Skipping...", stacklevel=2)
+            "available, not both. Skipping...")
         skip_case_control = True
 
     skip_het = False
     if het_requested and (var.shape[0] < 50):
-        warnings.warn(
-            "You tried calling het prune with less than 50 samples. Skipping...",
-            stacklevel=2)
+        logger.warning(
+            "You tried calling het prune with less than 50 samples. Skipping...")
         skip_het = True
 
     return ValidationDecisions(
