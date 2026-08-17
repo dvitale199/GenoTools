@@ -40,7 +40,6 @@ Example:
 """
 
 import json
-import logging
 import os
 import pickle
 from dataclasses import dataclass, field
@@ -74,9 +73,10 @@ from genotools.ancestry.results import (
 )
 from genotools.core.exceptions import AncestryError
 from genotools.core.genotypes import GenotypeData
+from genotools.core.logging import get_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

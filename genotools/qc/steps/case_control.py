@@ -19,7 +19,6 @@ Removes variants with significantly different missing rates between
 cases and controls using PLINK 1.9 --test-missing.
 """
 
-import logging
 from pathlib import Path
 
 import pandas as pd
@@ -27,11 +26,11 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import CaseControlConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_case_control(
@@ -172,6 +171,5 @@ def filter_case_control(
                         bfile.unlink()
 
             raise QCError(
-                f"Case-control missingness test failed. "
-                f"Check {mis_tmp}.log for more information."
+                f"Case-control missingness test failed. {RAW_LOG_HINT}"
             )

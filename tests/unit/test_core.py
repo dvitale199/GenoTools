@@ -1,5 +1,6 @@
 """Unit tests for genotools.core module."""
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from genotools.core import (
     BaseConfig,
     ThresholdConfig,
 )
+from genotools.core.logging import RunLog, install_run_logging, raw_sink
 
 
 class TestExceptions:
@@ -95,6 +97,335 @@ class TestLogging:
         logger = get_logger(__name__)
         assert logger is not None
         assert "genotools" in logger.name
+
+
+def _info_record(msg: str, step: str = "") -> logging.LogRecord:
+    """Build an INFO LogRecord with an optional bracketed step tag."""
+    rec = logging.LogRecord(
+        name="genotools.test", level=logging.INFO, pathname=__file__,
+        lineno=1, msg=msg, args=(), exc_info=None,
+    )
+    rec.step = f"[{step}]" if step else ""
+    return rec
+
+
+class TestRunLog:
+    """Tests for the consolidated-log RunLog writer (round 7)."""
+
+    def test_banner_header_structured_then_raw_order(self, tmp_path: Path):
+        """Within a section: header, then structured lines, then buffered raw."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.begin_section("callrate_prune")
+        rl.write_record(_info_record("Filtering samples (mind=0.02)", "callrate_prune"))
+        rl.write_record(_info_record("filtering complete: 5 removed", "callrate_prune"))
+        rl.append_raw("plink2 --geno --out x", "PLINK log line: 5 samples removed.")
+        rl.end_section(None)
+        rl.close()
+
+        content = log_path.read_text()
+        # Banner present.
+        assert "GENOTOOLS" in content or "██" in content
+        # Section header present.
+        i_header = content.index("===== callrate_prune =====")
+        # Structured lines present and after header.
+        i_struct = content.index("filtering complete: 5 removed")
+        # Raw present and AFTER the structured summary.
+        i_raw = content.index("PLINK log line: 5 samples removed.")
+        assert i_header < i_struct < i_raw
+        # Structured line carries the step tag.
+        assert "[callrate_prune]" in content
+
+    def test_end_section_writes_per_step_raw_file(self, tmp_path: Path):
+        """end_section(raw_path) writes the buffered raw to a per-step file too."""
+        log_path = tmp_path / "out_all_logs.log"
+        raw_path = tmp_path / "out_callrate.log"
+        rl = RunLog(log_path)
+        rl.begin_section("callrate_prune")
+        rl.append_raw("plink2 --out x", "raw plink content here")
+        rl.end_section(raw_path)
+        rl.close()
+
+        assert raw_path.exists()
+        assert "raw plink content here" in raw_path.read_text()
+        # Consolidated also contains it.
+        assert "raw plink content here" in log_path.read_text()
+
+    def test_append_raw_buffers_until_end_section(self, tmp_path: Path):
+        """append_raw does not hit disk until end_section flushes it."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.begin_section("geno_prune")
+        rl.append_raw("plink2 --out x", "DEFERRED_RAW_MARKER")
+        # Not flushed yet.
+        assert "DEFERRED_RAW_MARKER" not in log_path.read_text()
+        rl.end_section(None)
+        assert "DEFERRED_RAW_MARKER" in log_path.read_text()
+        rl.close()
+
+    def test_write_summary_appends_block(self, tmp_path: Path):
+        """write_summary appends a recognizable summary block at the tail."""
+        log_path = tmp_path / "out_all_logs.log"
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.write_summary([("callrate_prune", 5, True), ("geno_prune", 112, True)])
+        rl.close()
+        content = log_path.read_text()
+        assert "summary" in content.lower()
+        assert "callrate_prune" in content
+        assert "112" in content
+
+    def test_close_is_idempotent(self, tmp_path: Path):
+        """Double close does not raise."""
+        rl = RunLog(tmp_path / "out_all_logs.log")
+        rl.close()
+        rl.close()
+
+    def test_install_run_logging_sets_sink_and_banner(self, tmp_path: Path):
+        """install_run_logging writes the banner and registers the raw sink."""
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=False)
+        try:
+            assert raw_sink.get() is rl
+            assert Path(f"{out}_all_logs.log").exists()
+            # A genotools logger record now flows into the consolidated log.
+            get_logger("genotools.test").info("hello from a step")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "hello from a step" in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+
+class TestRunLogRotation:
+    """A re-run must never silently destroy the previous run's log.
+
+    The re-run guard normally blocks a second run on the same prefix, but
+    ``--skip-fails`` bypasses it -- so RunLog rotates an existing log aside
+    instead of truncating it.
+    """
+
+    def test_existing_log_is_rotated_not_truncated(self, tmp_path: Path):
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR RUN CONTENT\n")
+
+        rl = RunLog(log_path)
+        try:
+            assert rl.rotated_from == tmp_path / "out_all_logs.log.1"
+            assert rl.rotated_from.read_text() == "PRIOR RUN CONTENT\n"
+            # The new log starts clean.
+            rl.write_banner()
+            assert "PRIOR RUN CONTENT" not in log_path.read_text()
+        finally:
+            rl.close()
+
+    def test_rotation_picks_next_free_index(self, tmp_path: Path):
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("run 2\n")
+        (tmp_path / "out_all_logs.log.1").write_text("run 1\n")
+
+        rl = RunLog(log_path)
+        try:
+            assert rl.rotated_from == tmp_path / "out_all_logs.log.2"
+            # The older rotation is untouched.
+            assert (tmp_path / "out_all_logs.log.1").read_text() == "run 1\n"
+            assert (tmp_path / "out_all_logs.log.2").read_text() == "run 2\n"
+        finally:
+            rl.close()
+
+    def test_no_rotation_when_no_existing_log(self, tmp_path: Path):
+        rl = RunLog(tmp_path / "out_all_logs.log")
+        try:
+            assert rl.rotated_from is None
+            assert not (tmp_path / "out_all_logs.log.1").exists()
+        finally:
+            rl.close()
+
+    def test_rotate_existing_false_truncates(self, tmp_path: Path):
+        """Opt-out for callers that explicitly want a clobber."""
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR\n")
+        rl = RunLog(log_path, rotate_existing=False)
+        try:
+            assert rl.rotated_from is None
+            assert not (tmp_path / "out_all_logs.log.1").exists()
+            assert log_path.read_text() == ""
+        finally:
+            rl.close()
+
+    def test_restore_rotated_puts_the_log_back(self, tmp_path: Path):
+        """Pre-flight failure: the fresh log is removed, the prior one restored."""
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR RUN CONTENT\n")
+
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.close()
+        log_path.unlink()  # what _teardown_logging(remove_logs=True) does
+        rl.restore_rotated()
+
+        assert log_path.read_text() == "PRIOR RUN CONTENT\n"
+        assert not (tmp_path / "out_all_logs.log.1").exists()
+        # Idempotent.
+        rl.restore_rotated()
+
+    def test_install_run_logging_announces_rotation(self, tmp_path: Path):
+        out = tmp_path / "out"
+        Path(f"{out}_all_logs.log").write_text("PRIOR\n")
+
+        rl = install_run_logging(str(out), console=False)
+        try:
+            assert rl.rotated_from is not None
+            # The notice reaches the new log (handlers are installed first).
+            content = Path(f"{out}_all_logs.log").read_text()
+            assert "out_all_logs.log.1" in content
+            assert "WARNING" in content
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+
+class TestSetupLoggingLibraryPath:
+    """``setup_logging`` is the library/embedded entry point (no RunLog).
+
+    It shares :func:`_reset_genotools_logger` with ``install_run_logging``, so
+    both configure the ``genotools`` logger identically; it deliberately does
+    *not* register a raw sink or write sections.
+    """
+
+    def test_writes_step_tagged_records_to_file(self, tmp_path: Path):
+        from genotools.core.logging import setup_logging
+
+        log_file = tmp_path / "library.log"
+        setup_logging(level="INFO", log_file=log_file, console=False)
+        try:
+            with step_context("callrate_prune"):
+                get_logger("genotools.test").info("library-mode message")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            content = log_file.read_text()
+            assert "library-mode message" in content
+            assert "[callrate_prune]" in content, "step context not applied"
+            assert "[INFO]" in content
+        finally:
+            logging.getLogger("genotools").handlers.clear()
+
+    def test_does_not_register_raw_sink(self, tmp_path: Path):
+        """No RunLog => the executor's harvest stays a no-op for library callers."""
+        from genotools.core.logging import setup_logging
+
+        setup_logging(level="INFO", log_file=tmp_path / "library.log", console=False)
+        try:
+            assert raw_sink.get() is None
+        finally:
+            logging.getLogger("genotools").handlers.clear()
+
+    def test_shares_logger_reset_with_install_run_logging(self, tmp_path: Path):
+        """Either entry point replaces the other's handlers, and kills propagation."""
+        from genotools.core.logging import _RunLogHandler, setup_logging
+
+        logger = logging.getLogger("genotools")
+
+        rl = install_run_logging(str(tmp_path / "out"), console=False)
+        try:
+            assert [type(h) for h in logger.handlers] == [_RunLogHandler]
+
+            setup_logging(log_file=tmp_path / "library.log", console=False)
+            # The RunLog handler is gone, replaced by the plain file handler.
+            assert [type(h) for h in logger.handlers] == [logging.FileHandler]
+            assert logger.propagate is False
+        finally:
+            logger.handlers.clear()
+            rl.close()
+            raw_sink.set(None)
+
+
+class TestLogRoutingMarkers:
+    """``extra`` markers that send a record to one destination only.
+
+    ``file_only`` keeps verbose detail (absolute temp paths) off the console;
+    ``console_only`` keeps content the RunLog renders itself (the summary table)
+    from being duplicated into the consolidated log.
+    """
+
+    def test_file_only_record_skips_console(self, tmp_path: Path, capsys):
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=True)
+        try:
+            logger = get_logger("genotools.test")
+            logger.info("VERBOSE_PATH_DETAIL", extra={"file_only": True})
+            logger.info("CURATED_LINE")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            console = capsys.readouterr().err
+            log_text = Path(f"{out}_all_logs.log").read_text()
+
+            assert "VERBOSE_PATH_DETAIL" not in console
+            assert "VERBOSE_PATH_DETAIL" in log_text
+            # A normal record still reaches both.
+            assert "CURATED_LINE" in console and "CURATED_LINE" in log_text
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_console_only_record_skips_consolidated_log(self, tmp_path: Path, capsys):
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=True)
+        try:
+            get_logger("genotools.test").info(
+                "SUMMARY_ROW", extra={"console_only": True}
+            )
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            assert "SUMMARY_ROW" in capsys.readouterr().err
+            assert "SUMMARY_ROW" not in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_console_false_still_writes_log_file(self, tmp_path: Path, capsys):
+        """``--quiet`` (console=False) keeps the on-disk log complete."""
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=False)
+        try:
+            get_logger("genotools.test").info("QUIET_MODE_RECORD")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            assert "QUIET_MODE_RECORD" not in capsys.readouterr().err
+            assert "QUIET_MODE_RECORD" in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_debug_level_captures_debug_records(self, tmp_path: Path):
+        """``--debug`` (level=DEBUG) lets DEBUG records through; INFO does not."""
+        out_debug = tmp_path / "dbg"
+        rl = install_run_logging(str(out_debug), level="DEBUG", console=False)
+        try:
+            get_logger("genotools.test").debug("DEBUG_DETAIL")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "DEBUG_DETAIL" in Path(f"{out_debug}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+        out_info = tmp_path / "inf"
+        rl = install_run_logging(str(out_info), level="INFO", console=False)
+        try:
+            get_logger("genotools.test").debug("DEBUG_DETAIL")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "DEBUG_DETAIL" not in Path(f"{out_info}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
 
 
 class TestGenotypeData:
@@ -384,29 +715,39 @@ class TestValidation:
     def geno(self) -> Path:
         return Path("tests/data/synthetic/genotools_test")
 
-    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, capsys):
+    def test_passes_on_valid_input(self, geno: Path, tmp_path: Path, caplog):
         from genotools.core.validation import validate_input
-        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
-        out = capsys.readouterr().out
-        assert "breakdown" in out.lower()
+        with caplog.at_level(logging.INFO, logger="genotools"):
+            validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
+        # Breakdown is logged (not printed) now.
+        assert any("breakdown" in r.message.lower() for r in caplog.records)
 
     def test_raises_on_missing_pgen(self, tmp_path: Path):
         from genotools.core.validation import validate_input
         with pytest.raises(FileNotFoundError):
             validate_input(tmp_path / "nope", tmp_path / "out", skip_fails=False)
 
-    def test_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+    def test_validate_input_does_not_guard_existing_log(self, geno: Path, tmp_path: Path):
+        """The re-run guard moved out of validate_input; it no longer raises here."""
         from genotools.core.validation import validate_input
-        from genotools.core.exceptions import ValidationError
-        log = tmp_path / "out_all_logs.log"
-        log.write_text("prior run\n")
-        with pytest.raises(ValidationError):
-            validate_input(geno, tmp_path / "out", skip_fails=False)
+        (tmp_path / "out_all_logs.log").write_text("prior run\n")
+        validate_input(geno, tmp_path / "out", skip_fails=False)  # no raise
 
-    def test_skip_fails_ignores_existing_log(self, geno: Path, tmp_path: Path):
-        from genotools.core.validation import validate_input
+    def test_guard_raises_when_log_exists(self, geno: Path, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
+        from genotools.core.exceptions import ValidationError
+        (tmp_path / "out_all_logs.log").write_text("prior run\n")
+        with pytest.raises(ValidationError):
+            guard_output_not_exists(tmp_path / "out", skip_fails=False)
+
+    def test_guard_skip_fails_ignores_existing_log(self, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
         (tmp_path / "out_all_logs.log").write_text("prior\n")
-        validate_input(geno, tmp_path / "out", skip_fails=True)  # no raise
+        guard_output_not_exists(tmp_path / "out", skip_fails=True)  # no raise
+
+    def test_guard_passes_when_no_log(self, tmp_path: Path):
+        from genotools.core.validation import guard_output_not_exists
+        guard_output_not_exists(tmp_path / "fresh", skip_fails=False)  # no raise
 
     def test_raises_on_missing_sex_column(self, geno: Path, tmp_path: Path):
         from genotools.core.validation import validate_input
@@ -489,12 +830,19 @@ class TestValidation:
         d = validate_input(bad, tmp_path / "o4", case_control_requested=True)
         assert d.skip_case_control is True
 
-    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path):
+    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path, recwarn, caplog):
         from genotools.core.validation import validate_input
         bad = tmp_path / "fewvar"
         self._pfile_with(geno, bad, pvar_rows=40)  # < 50 variants
-        d = validate_input(bad, tmp_path / "o5", het_requested=True)
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            d = validate_input(bad, tmp_path / "o5", het_requested=True)
         assert d.skip_het is True
+        # Skip decisions are logged as warnings now, not emitted via warnings.warn.
+        assert any(
+            r.levelno == logging.WARNING and "het prune" in r.message.lower()
+            for r in caplog.records
+        )
+        assert not any("het prune" in str(w.message).lower() for w in recwarn.list)
 
     def test_no_decisions_when_skip_fails(self, geno: Path, tmp_path: Path):
         import pandas as pd

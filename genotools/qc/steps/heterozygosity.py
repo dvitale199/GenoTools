@@ -18,7 +18,6 @@
 Removes samples with extreme heterozygosity rates using PLINK2.
 """
 
-import logging
 from pathlib import Path
 
 import pandas as pd
@@ -26,11 +25,11 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HetConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_heterozygosity(
@@ -106,8 +105,7 @@ def filter_heterozygosity(
         prune_in_file = het_tmp.with_suffix(".prune.in")
         if not prune_in_file.exists():
             raise QCError(
-                f"LD pruning failed - {prune_in_file} not found. "
-                f"Check {het_tmp}.log for details."
+                f"LD pruning failed - {prune_in_file} not found. {RAW_LOG_HINT}"
             )
 
         run_plink2(
@@ -203,6 +201,6 @@ def filter_heterozygosity(
         else:
             raise QCError(
                 f"Heterozygosity calculation failed - {het_file} not found. "
-                f"Check {het_tmp}.log, {het_tmp2}.log, or {het_tmp3}.log for details. "
+                f"{RAW_LOG_HINT} "
                 "Note: This can happen if there's only one sample in the genotype file."
             )

@@ -18,17 +18,16 @@
 Removes variants in high LD using PLINK2 --indep-pairwise.
 """
 
-import logging
 from pathlib import Path
 
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import LDConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def prune_ld(
@@ -131,6 +130,5 @@ def prune_ld(
             )
         else:
             raise QCError(
-                f"LD pruning failed - {prune_in_file} not found. "
-                f"Check {ld_tmp}.log or {out_path}.log for more information."
+                f"LD pruning failed - {prune_in_file} not found. {RAW_LOG_HINT}"
             )

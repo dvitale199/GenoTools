@@ -252,6 +252,8 @@ class OutputArgs:
     full_output: bool = False
     skip_fails: bool = False
     warn_only: bool = True  # Continue on step failure
+    quiet: bool = False  # Suppress the console stream (log files still written)
+    debug: bool = False  # Widen both streams to DEBUG level
 
 
 @dataclass
@@ -480,6 +482,16 @@ Examples:
         "--no-warn",
         action="store_true",
         help="Stop pipeline on first error (default: continue with warnings)",
+    )
+    output_group.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress console progress output (log files are still written)",
+    )
+    output_group.add_argument(
+        "--debug",
+        action="store_true",
+        help="Log at DEBUG level (console and consolidated log)",
     )
 
     # Sample QC group
@@ -861,6 +873,8 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         full_output=ns.full_output,
         skip_fails=ns.skip_fails,
         warn_only=not ns.no_warn,
+        quiet=ns.quiet,
+        debug=ns.debug,
     )
 
     sample_qc_args = SampleQCArgs(

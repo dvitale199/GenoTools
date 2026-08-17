@@ -11,11 +11,14 @@ import numpy as np
 import pandas as pd
 
 from genotools.core.executors import run_command, get_plink, get_plink2
+from genotools.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_common_snps(geno_path1: str, geno_path2: str, out_name: str) -> dict:
     """Extract SNPs common to two bfiles from geno_path1. Returns output paths."""
-    print("Getting Common SNPs")
+    logger.info("Getting Common SNPs")
     plink = get_plink()
     plink2 = get_plink2()
 
@@ -138,12 +141,8 @@ def get_raw_files(
     labeled_ref_raw = ref_raw.merge(ref_labeled, how="left", on=["FID", "IID"])
     labeled_ref_raw.drop(columns=[0, 1, 2, 3, 4, 5], inplace=True)
 
-    print()
-    print()
-    print("Labeled Reference Ancestry Counts:")
-    print(labeled_ref_raw.label.value_counts())
-    print()
-    print()
+    logger.info("Labeled Reference Ancestry Counts:")
+    logger.info(f"\n{labeled_ref_raw.label.value_counts()}")
 
     # get reference alleles from ref_common_snps
     ref_common_snps_ref_alleles = f"{ref_common_snps}.ref_allele"

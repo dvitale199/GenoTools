@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from genotools.core.exceptions import QCError
+from genotools.core.exceptions import QCError, ValidationError
 from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
 from genotools.cli.runner import PipelineRunner, PipelineState
 
@@ -362,3 +362,264 @@ class TestValidationDecisionsApplied:
         monkeypatch.setattr(runner, "_run_single_step", fake_single_step)
         runner._run_qc_pipeline(steps=["hwe"], geno_path=str(geno), out_path=str(out))
         assert captured["filter_controls"] is False
+
+
+class TestSetupLoggingArtifacts:
+    """Round 7: _setup_logging installs a RunLog and no longer creates the dead
+    cleaned_logs.log."""
+
+    def test_installs_runlog_and_no_cleaned_logs(self, tmp_path: Path) -> None:
+        from genotools.core.logging import raw_sink
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        try:
+            runner._setup_logging()
+            assert runner._runlog is not None
+            assert Path(f"{out}_all_logs.log").exists()
+            # The banner header is written at install time.
+            assert Path(f"{out}_all_logs.log").read_text().strip() != ""
+            # The dead 0-byte cleaned_logs.log is gone for good.
+            assert not Path(f"{out}_cleaned_logs.log").exists()
+        finally:
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+
+
+class TestRerunGuardRunsBeforeLogging:
+    """Round 7: the re-run guard is a standalone pre-check that runs BEFORE
+    logging setup truncates/creates the consolidated log."""
+
+    def test_run_raises_and_preserves_existing_log(self, tmp_path: Path) -> None:
+        from genotools.core.exceptions import ValidationError
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        # A prior run's consolidated log exists.
+        Path(f"{out}_all_logs.log").write_text("PRIOR RUN MARKER\n")
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, warn_only=False, full_output=True),
+        )
+        # Enable a step so run() has work; the guard should fire first regardless.
+        args.sample_qc.run_callrate = True
+        runner = PipelineRunner(args)
+
+        with pytest.raises(ValidationError):
+            runner.run()
+
+        # Guard ran before install_run_logging => the existing log was NOT
+        # truncated/overwritten with a fresh banner.
+        assert "PRIOR RUN MARKER" in Path(f"{out}_all_logs.log").read_text()
+
+
+class TestNoPrintInRunnerSource:
+    """Round 7: the four runtime print() calls are migrated to logging."""
+
+    def test_no_print_calls_left(self) -> None:
+        import genotools.cli.runner as runner_mod
+
+        source = Path(runner_mod.__file__).read_text()
+        assert "print(" not in source, "runner.py must route all output through logging"
+
+
+class TestRunSummary:
+    """Round 7: end-of-run summary table reaches the console and consolidated log."""
+
+    def test_summary_written_to_log_and_records(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import logging as _logging
+        from genotools.core.logging import raw_sink
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        runner._setup_logging()
+
+        # Capture the curated console stream directly off the genotools logger
+        # (install_run_logging sets propagate=False, so caplog's root handler
+        # would miss these records).
+        captured: List[_logging.LogRecord] = []
+
+        class _Capture(_logging.Handler):
+            def emit(self, record):
+                captured.append(record)
+
+        cap = _Capture()
+        _logging.getLogger("genotools").addHandler(cap)
+
+        def fake_single_step(step, step_input, step_output, legacy_args):
+            _touch_pfiles(Path(step_output))
+            return {
+                "pass": True, "step": step,
+                "metrics": {"outlier_count": 7}, "output": {},
+            }
+
+        monkeypatch.setattr(runner, "_run_single_step", fake_single_step)
+        try:
+            runner._run_qc_pipeline(
+                steps=["callrate", "geno"], geno_path=str(geno), out_path=str(out)
+            )
+            runner._emit_run_summary()
+        finally:
+            _logging.getLogger("genotools").removeHandler(cap)
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+
+        content = Path(f"{out}_all_logs.log").read_text()
+        assert "run summary" in content.lower()
+        assert "callrate" in content and "geno" in content
+        assert "7 removed" in content and "PASS" in content
+        # Also surfaced as log records (→ console).
+        assert any("Run summary" in r.getMessage() for r in captured)
+
+        # The summary is rendered ONCE on disk: the console rows are marked
+        # console_only so they don't duplicate the RunLog's aligned table.
+        assert content.count("7 removed") == 2, (  # one row per step, no duplicates
+            f"summary rows duplicated in the consolidated log:\n{content}"
+        )
+        assert "Run summary:" not in content, (
+            "console summary header leaked into the consolidated log"
+        )
+
+    def test_step_paths_are_logged_to_file_not_console(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The verbose "Running: <step> with input ..." line is file-only.
+
+        It carries absolute temp-dir paths that are essential when debugging but
+        pure noise on the curated console.
+        """
+        import logging as _logging
+        from genotools.core.logging import raw_sink
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        runner._setup_logging()
+
+        console_messages: List[str] = []
+
+        class _ConsoleCapture(_logging.Handler):
+            """Mimics the console handler, including its file_only filter."""
+
+            def emit(self, record):
+                if not getattr(record, "file_only", False):
+                    console_messages.append(record.getMessage())
+
+        cap = _ConsoleCapture()
+        _logging.getLogger("genotools").addHandler(cap)
+
+        def fake_single_step(step, step_input, step_output, legacy_args):
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", fake_single_step)
+        try:
+            runner._run_qc_pipeline(
+                steps=["callrate"], geno_path=str(geno), out_path=str(out)
+            )
+        finally:
+            _logging.getLogger("genotools").removeHandler(cap)
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+
+        assert not any("Running: callrate" in m for m in console_messages), (
+            f"verbose step-path line leaked to the console: {console_messages}"
+        )
+        # But it is preserved in the consolidated log, with the full paths.
+        content = Path(f"{out}_all_logs.log").read_text()
+        assert "Running: callrate" in content
+        assert str(out) in content
+
+
+class TestPreflightFailureDoesNotPoisonPrefix:
+    """Round 7 fix: logging is set up before validate_input so the breakdown is
+    captured, but a pre-flight failure (bad input / no steps) must remove the
+    freshly-created log so the output prefix isn't blocked on the next run."""
+
+    def test_validation_failure_removes_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from genotools.core.exceptions import ValidationError
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+        )
+        args.sample_qc.run_callrate = True
+        runner = PipelineRunner(args)
+
+        def boom() -> None:
+            raise ValidationError("bad input")
+
+        monkeypatch.setattr(runner, "_convert_input_format", boom)
+
+        with pytest.raises(ValidationError):
+            runner.run()
+
+        # The consolidated log created just before validation must be cleaned up,
+        # so a corrected re-run over the same --out is not blocked by the guard.
+        assert not Path(f"{out}_all_logs.log").exists()
+        assert runner._runlog is None
+        assert raw_sink.get() is None
+
+    def test_no_steps_failure_removes_log(self, tmp_path: Path) -> None:
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+        )
+        runner = PipelineRunner(args)
+        # No QC steps and no ancestry requested; _convert_input_format is a no-op
+        # for already-pfile input with a touched (empty) psam/pvar, so patch it
+        # out to isolate the "no steps" raise path.
+        runner._convert_input_format = lambda: None  # type: ignore[method-assign]
+
+        # A GenoToolsError subclass, so main() renders it as a message not a
+        # traceback (ValidationError is not a ValueError).
+        with pytest.raises(ValidationError, match="No QC steps"):
+            runner.run()
+
+        assert not Path(f"{out}_all_logs.log").exists()
+        assert raw_sink.get() is None
+
+    def test_preflight_failure_restores_a_rotated_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed re-run leaves the directory exactly as it found it.
+
+        With --skip-fails the guard is bypassed, so setup rotates the prior log
+        aside; if the run then dies in pre-flight, the fresh log is removed AND
+        the rotation is undone -- otherwise the prior log would be orphaned under
+        a .1 suffix.
+        """
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        Path(f"{out}_all_logs.log").write_text("PRIOR RUN CONTENT\n")
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True, skip_fails=True),
+        )
+        runner = PipelineRunner(args)
+        runner._convert_input_format = lambda: None  # type: ignore[method-assign]
+
+        with pytest.raises(ValidationError, match="No QC steps"):
+            runner.run()
+
+        assert Path(f"{out}_all_logs.log").read_text() == "PRIOR RUN CONTENT\n"
+        assert not Path(f"{out}_all_logs.log.1").exists()
+        assert raw_sink.get() is None

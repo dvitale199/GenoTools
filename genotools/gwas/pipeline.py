@@ -34,20 +34,19 @@ Usage:
     print(result.to_dict())  # Legacy format
 """
 
-import logging
 import warnings
 from pathlib import Path
 from typing import Optional
 
 from genotools.core.exceptions import GWASError, ValidationError
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.gwas.config import AssocConfig, CovariateConfig
 from genotools.gwas.results import AssocResult, PCAResult, GWASResult
 from genotools.gwas.steps.pca import run_pca
 from genotools.gwas.steps.association import run_gwas
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AssocPipeline:

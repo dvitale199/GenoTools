@@ -12,9 +12,10 @@ before merging to `main`.
 Workflow: feature branch → PR to `refactor/main` → one final test on real data →
 PR to `main`. **Never commit to `main`.**
 
-> **▶ Start here (next session):** the next work item is **#0 — Logging /
-> pipeline-visibility redesign** in [Remaining work](#remaining-work-tracked-not-yet-done).
-> It has the full audit, the settled decision, and the still-open questions.
+> **▶ Start here (next session):** item #0 (logging/pipeline-visibility redesign)
+> is **DONE** (round 7, below). The next work item is **#1 — Prove parity on real
+> data** in [Remaining work](#remaining-work-tracked-not-yet-done): the gate before
+> merging to `main`.
 
 ---
 
@@ -32,7 +33,7 @@ Tier list is the "easy wins" audit against `origin/refactor/main`.
 | 1e — stop destroying input files | ✅ Done | Guarded deletes; `shutil.copy2` not `os.rename`. |
 | 2 — parallelize per-ancestry groups | ❌ Open | Still a serial loop (`cli/runner.py:337-354`). Pure-function design makes it cheap to add. |
 | 3 — cache ancestry PCA | 🟡 Partial | `--model` inference reuses fitted PCA; no `(ref_panel, common_snps)` auto-cache; `get_raw_files` still re-extracts. |
-| logging (structured) | ✅ Wired here | `_setup_logging()` now calls `core.logging.setup_logging(log_file={out}_all_logs.log)` after `upfront_check`; step `logger.info`/`error` (with `[step]` markers) land in the consolidated log. Test: `tests/regression/test_logging.py`. |
+| logging (structured) | ✅ Wired here | `_setup_logging()` now calls `core.logging.setup_logging(log_file={out}_all_logs.log)` after `upfront_check`; step `logger.info`/`error` (with `[step]` markers) land in the consolidated log. Test: `tests/regression/test_logging.py`. **Superseded by round 7** (full visibility redesign — see below). |
 | tests | ✅ / parity unverified | 343→346 unit tests pass; golden = new-vs-new (self-consistency), not old-vs-new. |
 | CI | ✅ Added here | `.github/workflows/ci.yml`: (1) unit+regression on Python 3.11 with PLINK/PLINK2 auto-downloaded; (2) parity job builds `.venv-stable` and runs `test_parity.py`. |
 
@@ -351,55 +352,158 @@ Implications for the harness:
   `tests/unit/test_gwas/test_steps_regression.py::TestPcaExcludesHighLdRegions`
   asserts PCA pruning removes every variant inside the exclusion ranges.
 
+### Round 7 (`refactor/logging-visibility-redesign`, item #0)
+
+Redesigned logging so **each pipeline step's behavior is clearly visible** — on
+the terminal during a run and on disk afterwards. Resolves item #0 (the 6.5/10
+audit: raw PLINK output dropped from disk, dead 0-byte `cleaned_logs.log`, three
+uncoordinated `print`/`logging`/`warnings.warn` channels). Design + plan:
+`docs/superpowers/specs/2026-07-23-logging-visibility-redesign-design.md`,
+`docs/superpowers/plans/2026-07-23-logging-visibility-redesign.md`. The two open
+questions were settled with the maintainer via a grill session (see the spec's
+"Settled decisions").
+
+**1 — `RunLog` consolidated writer (`core/logging.py`).** A single `RunLog` object
+owns `{out}_all_logs.log`: banner → one `===== step =====` section per step
+(structured `[step]` summary lines written live via a thin `_RunLogHandler`, then
+the verbatim harvested PLINK output for that step, flushed at section end) → an
+end-of-run summary table. `install_run_logging(out)` wires the handler + a concise
+step-tagged console stream and registers the run-scoped `raw_sink` ContextVar.
+
+**2 — Executor harvests PLINK's native `.log` (`core/executors.py`).**
+`run_command` now harvests `{--out}.log` (KING: `{--prefix}.log`) after **every**
+invocation into the `raw_sink` — so compound steps (GWAS/PCA, ancestry
+preprocessing) are fully captured, not just their last call. Best-effort (never
+breaks a run); a no-op when no sink is registered (library/unit callers).
+
+**3 — Per-step raw files + logs always persist.** Each step's raw PLINK output is
+also written to `{out}_{step}.log` (`{out}_{label}_{step}.log` under `--ancestry`),
+harvested out of the temp dir **before** cleanup, so logs survive even without
+`--full_output` (which now governs only intermediate pfiles). `cleaned_logs.log`
+is **deleted** (file + all references in `genotools/`; the deferred `utils.py`
+still references the legacy name).
+
+**4 — Channels unified + guard decoupled (`cli/runner.py`, `core/validation.py`).**
+`print()`/`warnings.warn` on the pipeline path are retired → routed through
+`logging` (curated console = concise `[step] message`, `!` prefix on WARN+; raw
+PLINK is file-only). The re-run guard moved out of `validate_input` into
+`guard_output_not_exists`, which runs **before** logging setup so `validate_input`
+(now pure) logs its data breakdown + skip decisions into the fresh consolidated
+log. `run()` reordered: guard → `_setup_logging` (build `RunLog`) → sectioned
+input-prep/QC/ancestry. End-of-run **summary table** to console + log.
+`logging.getLogger(__name__)` standardized to `get_logger(__name__)` across 13
+pipeline modules.
+
+**5 — Console/verbosity polish (review pass).** Three blemishes found by re-reading
+the round-7 output on a real cohort:
+- The summary was written **twice** to the consolidated log (`logger.info` rows
+  landed at the tail of the last step's section, then `write_summary`'s table).
+- The `Running: {step} with input … and output: …` line put two absolute temp-dir
+  paths on the console — the longest and least useful line there.
+- Level/console were hardcoded (`"INFO"`, `console=True`): no way to quiet a
+  cluster job or widen output when debugging.
+
+Fixed with two `extra` routing markers on the `genotools` logger — `file_only`
+(dropped by a new `_ConsoleFilter` on the console handler) and `console_only`
+(dropped by `_RunLogHandler`) — so a record can target one destination without a
+second logging path. The step-path line is now `file_only` (full paths preserved
+in the log); the summary rows are `console_only` (the file keeps only the aligned
+table); a per-group `Ancestry group {label}: running N QC step(s)` console line
+replaces what the file-only line used to convey under `--ancestry`. New
+`--quiet` (drop the console stream; **all log files still written**) and
+`--debug` (DEBUG level on both streams) thread through `OutputArgs` into
+`install_run_logging`'s existing `level`/`console` params. Documented in
+`docs/cli_args.md`.
+
+**Verification:** full suite **437 passed** (unit + regression; +34 new: `RunLog`,
+`_harvest_raw_log`, guard/validation-logging, runner sectioning + summary, logging
+hygiene, and the rewritten `test_logging.py` asserting the sectioned/raw/summary
+contract); old-vs-new **parity 8/8** (logging changes don't touch genotype output);
+static gates clean (no `cleaned_logs`/`warnings.warn`/pipeline-path `print(` left in
+new code). Real end-to-end `--callrate --geno` and `--ancestry` runs on synthetic
+data produce the sectioned consolidated log, per-step raw files, summary table, and
+no `cleaned_logs.log`. After the part-5 polish pass the suite is **456 passed**
+(+9: console/file record routing, `--quiet`/`--debug` parsing + behavior,
+summary-not-duplicated, step-path line file-only) and parity is still 8/8; a real
+3661-sample × 1.95M-variant run gives a console of only step lines + summary.
+
+**6 — Failure-boundary + artifact cleanup (second review pass).** Cleared the four
+blemishes the part-5 pass had only recorded:
+
+1. **One logging API, two honest entry points.** `setup_logging` and
+   `install_run_logging` now share `_reset_genotools_logger` (level coercion,
+   handler close+clear, `propagate=False`), and the docstrings state the split:
+   `install_run_logging` is the pipeline's (RunLog, sections, raw harvest, curated
+   console); `setup_logging` is for **library/embedded** callers driving the step
+   functions directly. Previously untested, it now has a functional test
+   (step-tagged records reach the file; no raw sink registered) plus one pinning
+   that either call replaces the other's handlers.
+2. **Clean CLI failures.** `cli/__init__.py::main` catches `GenoToolsError`,
+   `FileNotFoundError`, and config-validation `ValueError`/`TypeError` → a one-line
+   `ERROR: <message>` on stderr with exit 1 instead of a traceback; `--debug`
+   re-raises, so the traceback is one flag away. Other exception types are bugs and
+   keep their traceback. The runner's "No QC steps" raise became a
+   `ValidationError` (was a bare `ValueError`) so it routes through that path.
+   Writing the tests surfaced two cases beyond the guard: a missing `--pfile`
+   (`FileNotFoundError`) and an out-of-range value like `--callrate 1.5` (range
+   checks live in the step config, not the parser) both used to traceback. Also
+   fixed the guard's own message, which told users to rerun with `--skip_fails` —
+   a spelling argparse **rejects** (it is `--skip-fails`).
+3. **Re-runs no longer destroy the prior log.** `RunLog` rotates an existing
+   consolidated log to the next free `{path}.N` instead of truncating it, and
+   announces it (`! An existing log was found …; the previous run's log is
+   preserved as …`). Only reachable via `--skip-fails`, the one path that bypasses
+   the guard. On a pre-flight failure `_teardown_logging` calls
+   `restore_rotated()`, so a failed re-run leaves the directory exactly as it found
+   it. Per-step raw files are still overwritten — their content is a subset of the
+   rotated consolidated log.
+4. **No stray tool logs.** `_harvest_raw_log` removes each `{prefix}.log` after
+   harvesting it (mirroring what `GenotypeData.to_pfile` already did, and what
+   legacy `concat_logs` did to the files it consumed), so `{out}.log`,
+   `{out}_{label}.log`, and the ancestry-preprocessing strays no longer sit beside
+   the real outputs duplicating `{out}_{step}.log`. Skipped when no sink is
+   registered, so library callers keep their tool logs. This made the 8 step error
+   messages that named a now-deleted `{tmp}.log`/`{out}.log` wrong, so they were
+   replaced with a shared `RAW_LOG_HINT` constant pointing at the consolidated +
+   per-step logs (several were **already** wrong pre-round-7, naming temp files the
+   cleanup had deleted).
+
+Suite **456 → 475 passed** (+19: rotation/restore, library-path `setup_logging`,
+harvest removal, and a new `tests/regression/test_cli_errors.py` covering the
+failure boundary end-to-end).
+
+**Follow-ups (non-blocking):**
+- The per-ancestry consolidated log is single-file/sectioned; item #9
+  parallelization will need per-group log files.
+- Step configs are constructed inside the step loop, so an out-of-range value
+  (`--callrate 1.5`) fails *after* logging is installed, leaving a consolidated log
+  that blocks the prefix on the corrected re-run. Validating configs during
+  pre-flight would fail before any artifact exists.
+- ~~`docs/cli_args.md` documents legacy flag spellings~~ — **done**: rewritten
+  against `genotools/cli/parser.py`. All 42 flags documented and parse-checked
+  (`--cloud_model` never existed in the new parser; `--prune_duplicated` is now
+  `--no-prune-duplicated`; `--warn` is now the default with `--no-warn` to opt
+  out). Added the previously-undocumented `--amr-het`, `--min-samples`,
+  `--maf-lambdas`, `--all-variant`'s LD exclusion, the data-driven auto-skip
+  table, `--skip-fails`'s second effect (it also disables those auto-skips), and
+  `--all-sample`'s callrate threshold of 0.05 (vs 0.02 for a bare `--callrate`).
+
 ---
 
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
 
-0. **⭐ NEXT — Logging / pipeline-visibility redesign (do this before #1 and the
-   perf items).** Maintainer decision (2026-07-20): before adding features or
-   running the real-data parity push, redesign logging so each pipeline step's
-   behavior is clearly visible. The current logging **scored 6.5/10** in a
-   session audit — a well-built structured core (`core/logging.py`:
-   `ContextVar` step context + `StepContextFilter`, `step_context` used across
-   all 10 QC steps + GWAS steps; `all_logs.log` gets banner + structured
-   records) let down by an incomplete integration:
-   - **Raw PLINK output is dropped from disk.** `FilterResult.log` captures
-     `result.stderr` (exact variant/sample counts, PLINK warnings) but the runner
-     never persists it — it lives only in the in-memory result dict. The legacy
-     `concat_logs` used to aggregate every PLINK `.log`.
-   - **`cleaned_logs.log` is created 0-byte and never populated** (legacy filled
-     it via `process_log`); it's a misleading dead artifact.
-   - **Three uncoordinated user-facing channels** — `print()` (runner
-     "Running: step…", the `validate_input` data breakdown), `logging`
-     (structured), and `warnings.warn` (round-6 skip decisions). At runtime
-     `setup_logging(..., console=False)`, so the polished `[step]` structured
-     records **never reach the terminal**; the screen shows scattered prints +
-     warnings while the good stream is file-only.
-   - Minor: `logging.getLogger(__name__)` (steps) vs `get_logger(__name__)`
-     (executors) — two idioms.
+0. ✅ **Logging / pipeline-visibility redesign** — DONE in **round 7** (see above).
+   `RunLog` consolidated writer (banner → per-step sections with structured
+   summary + inlined raw PLINK → run summary table); executor harvests PLINK's
+   native `.log` for every invocation; per-step raw `{out}_{step}.log` files that
+   persist regardless of `--full_output`; `cleaned_logs.log` deleted; `print`/
+   `warnings.warn` unified into a curated console + file logging stream; re-run
+   guard decoupled so `validate_input` logs into the consolidated log.
+   `tests/regression/test_logging.py` rewritten to lock the new contract.
 
-   **Decision already taken this session:** raw PLINK output → **per-step raw
-   `.log` files** on disk **plus** the structured consolidated summary (keep both,
-   cleanly separated). **Still open:** `cleaned_logs.log` fate (remove as
-   redundant vs. populate a distilled view) and console-mirroring behavior — a
-   fresh brainstorm should resolve these.
-
-   **Design freedom / constraints:** the only log-format test is
-   `tests/regression/test_logging.py` (asserts `all_logs.log` exists, is >400
-   chars, contains `[callrate_prune]`/`[geno_prune]` markers + "filtering
-   complete"); the parity harness does **not** compare logs; there is no exact
-   legacy format to preserve. `concat_logs`/`process_log` live in the
-   deferred-for-deletion `utils.py`, so this pairs naturally with the eventual
-   `utils.py` removal. **This is its own round** (design not yet finalized):
-   settle the two open questions with the maintainer → write a short spec + a
-   test-first, task-by-task plan → implement with tests per task → review the
-   whole diff → PR into `refactor/main`. Also add/adjust
-   `tests/regression/test_logging.py` to lock the new behavior (per-step raw
-   `.log` files carry PLINK output; consolidated log still step-tagged).
-
-1. **Prove parity on real data** — run `test_parity.py` on representative real
+1. **⭐ NEXT — Prove parity on real data** — run `test_parity.py` on representative real
    cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
    GWAS. This is the gate before merging to `main`. (Harness extended in round 2:
    multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Per

@@ -18,7 +18,6 @@
 Removes related and/or duplicated samples using PLINK2 KING-based methods.
 """
 
-import logging
 import platform
 import shutil
 from pathlib import Path
@@ -29,11 +28,11 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_command, run_plink2, get_king
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import RelatedConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_relatedness(

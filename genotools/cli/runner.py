@@ -21,7 +21,6 @@ QC steps, ancestry prediction, and GWAS analysis.
 
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 import platform
@@ -35,10 +34,11 @@ import pandas as pd
 
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
-from ..core.exceptions import GenoToolsError
-from ..core.validation import ValidationDecisions
+from ..core.exceptions import GenoToolsError, ValidationError
+from ..core.logging import RunLog, get_logger, install_run_logging, step_context
+from ..core.validation import ValidationDecisions, guard_output_not_exists
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -118,6 +118,7 @@ class PipelineRunner:
         self.args = args
         self.state: Optional[PipelineState] = None
         self._validation_decisions = ValidationDecisions()
+        self._runlog: Optional[RunLog] = None
 
         # These will be set up during run()
         self._new_modules: Dict[str, Any] = {}
@@ -130,7 +131,8 @@ class PipelineRunner:
             PipelineOutput containing all results.
 
         Raises:
-            ValueError: If no input files or steps are specified.
+            ValidationError: If no steps are specified, the output prefix is
+                already used, or the input fails validation.
         """
         # Initialize state
         self._initialize_state()
@@ -138,30 +140,53 @@ class PipelineRunner:
         # Initialize modules
         self._initialize_modules()
 
-        # Convert input format if needed (must happen before logging setup
-        # because validate_input validates that log files don't exist)
-        self._convert_input_format()
+        # Re-run guard runs *before* logging setup, since setup creates the
+        # consolidated log file the guard checks for. (Decoupled from
+        # validate_input so validate_input can log into the fresh log.)
+        guard_output_not_exists(self.args.out_path, self.args.output.skip_fails)
 
-        # Set up logging (after validate_input so log file creation doesn't trigger error)
+        # Set up logging (builds the RunLog, installs handlers, writes banner).
         self._setup_logging()
 
-        # Validate we have something to do
-        steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
-        if not steps and not self.args.ancestry.run_ancestry:
-            raise ValueError("No QC steps or ancestry prediction requested")
+        # Pre-flight: convert input + validate (logged into the consolidated log),
+        # then confirm there is work to do. A failure here happens *before* any
+        # output is produced, so tear down and REMOVE the freshly-created log so
+        # the output prefix isn't poisoned for the next run (restores the
+        # pre-redesign behavior where a failed validation left no log behind).
+        try:
+            self._begin_section("input_preparation")
+            try:
+                with step_context("input"):
+                    self._convert_input_format()
+            finally:
+                self._end_section(f"{self.args.out_path}_input_preparation.log")
 
-        # Run the pipeline
+            steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
+            if not steps and not self.args.ancestry.run_ancestry:
+                # A ValidationError (not a bare ValueError) so main() reports it
+                # as a one-line message instead of a traceback.
+                raise ValidationError("No QC steps or ancestry prediction requested")
+        except Exception:
+            self._teardown_logging(remove_logs=True)
+            if self.state and self.state.tmp_dir:
+                self.state.tmp_dir.cleanup()
+            raise
+
+        # Run the pipeline. From here the consolidated log persists even on
+        # failure (partial output may exist), matching the re-run guard's intent.
         try:
             if self.args.ancestry.run_ancestry:
                 result = self._run_with_ancestry(steps)
             else:
                 result = self._run_qc_only(steps)
 
+            self._emit_run_summary()
             return result
         finally:
             # Cleanup temporary directory
             if self.state and self.state.tmp_dir:
                 self.state.tmp_dir.cleanup()
+            self._teardown_logging(remove_logs=False)
 
     def _initialize_state(self) -> None:
         """Initialize pipeline state."""
@@ -255,44 +280,115 @@ class PipelineRunner:
         }
 
     def _setup_logging(self) -> None:
-        """Set up the consolidated run log.
+        """Build the consolidated run log and install logging handlers.
 
-        Runs *after* validate_input (which errors if ``{out}_all_logs.log``
-        already exists), so it can safely (re)create the log. Beyond creating
-        the legacy-named files, this attaches the structured logging file
-        handler so every step's ``logger.info``/``error`` is aggregated into
-        ``{out}_all_logs.log``. Without this call ``setup_logging`` is never
-        invoked at runtime and the root logger's WARNING default drops all step
-        logs, leaving the consolidated log header-only.
+        Installs a :class:`RunLog` that owns ``{out}_all_logs.log`` (banner +
+        per-step sections + summary) and registers it as the run-scoped raw sink
+        so the executor harvests each PLINK/KING ``.log`` into it. Also attaches
+        a concise console handler for the curated progress stream. Runs after the
+        re-run guard (which checks the log does not already exist) and before any
+        step, so every ``logger.info``/``warning``/``error`` — including the
+        input breakdown — is captured.
+
+        ``--debug`` widens both streams to DEBUG; ``--quiet`` drops the console
+        handler (the consolidated + per-step log files are still written).
         """
         assert self.state is not None
         out_path = str(self.state.out_path)
+        self._runlog = install_run_logging(
+            out_path,
+            level="DEBUG" if self.args.output.debug else "INFO",
+            console=not self.args.output.quiet,
+        )
 
-        # Clear existing log files
-        all_logs = f"{out_path}_all_logs.log"
-        cleaned_logs = f"{out_path}_cleaned_logs.log"
+    def _teardown_logging(self, remove_logs: bool = False) -> None:
+        """Close the RunLog and unregister the raw sink.
 
-        if os.path.exists(all_logs):
-            os.remove(all_logs)
-        if os.path.exists(cleaned_logs):
-            os.remove(cleaned_logs)
+        With ``remove_logs=True`` (pre-flight failure), also delete the
+        freshly-created consolidated + input-prep logs so the output prefix is
+        not left poisoned for the next run -- and put back any log this run
+        rotated aside, so a failed re-run leaves the directory as it found it.
+        """
+        from ..core.logging import raw_sink
 
-        # Create new log files with header
-        from ..core.logging import banner
+        if self._runlog is None:
+            return
+        runlog = self._runlog
+        log_path = runlog.path
+        runlog.close()
+        self._runlog = None
+        raw_sink.set(None)
+        if remove_logs:
+            for p in (log_path, Path(f"{self.args.out_path}_input_preparation.log")):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            runlog.restore_rotated()
 
-        header = banner()
-        with open(all_logs, "w") as fp:
-            fp.write(header)
-            fp.write("\n")
-        with open(cleaned_logs, "w") as fp:
-            pass
+    def _begin_section(self, title: str) -> None:
+        """Open a consolidated-log section (no-op when logging isn't installed)."""
+        if self._runlog is not None:
+            self._runlog.begin_section(title)
 
-        # Route all genotools step/runner logs into the consolidated log file.
-        # setup_logging() opens the file in append mode, so the banner header
-        # written above stays at the top and structured records follow it.
-        from ..core.logging import setup_logging
+    def _end_section(self, raw_log_path: Optional[str] = None) -> None:
+        """Flush a section's buffered raw output (no-op without a RunLog)."""
+        if self._runlog is not None:
+            self._runlog.end_section(raw_log_path)
 
-        setup_logging(level="INFO", log_file=Path(all_logs), console=False)
+    def _emit_run_summary(self) -> None:
+        """Emit the end-of-run summary table to the console and consolidated log."""
+        assert self.state is not None
+        rows = self._collect_summary_rows()
+        if not rows:
+            return
+        # Console-only records: the RunLog writes its own aligned table below, so
+        # emitting these to the file too would duplicate the summary.
+        logger.info("Run summary:", extra={"console_only": True})
+        for label, removed, passed in rows:
+            status = "PASS" if passed else "FAIL"
+            logger.info(
+                f"  {label}: {removed} removed [{status}]",
+                extra={"console_only": True},
+            )
+        if self._runlog is not None:
+            self._runlog.write_summary(rows)
+
+    def _collect_summary_rows(self) -> List[tuple]:
+        """Assemble (label, outliers_removed, passed) rows from pipeline state.
+
+        Covers the plain QC path (``state.pass_fail`` + ``state.step_results``)
+        and the per-ancestry path (``state.ancestry_results``), labeling
+        per-ancestry rows ``{label}/{step}``.
+        """
+        assert self.state is not None
+
+        def _removed(metrics: Dict[str, Any]) -> int:
+            metrics = metrics or {}
+            if "outlier_count" in metrics:
+                return int(metrics["outlier_count"])
+            return int(
+                metrics.get("related_count", 0)
+                + metrics.get("duplicated_count", 0)
+            )
+
+        rows: List[tuple] = []
+        # Plain QC path.
+        for step, record in self.state.pass_fail.items():
+            result = self.state.step_results.get(step)
+            removed = _removed(result.metrics) if result else 0
+            rows.append((step, removed, record.status))
+
+        # Per-ancestry path.
+        ancestry_results = getattr(self.state, "ancestry_results", {})
+        for label, out_dict in ancestry_results.items():
+            pf = out_dict.get("pass_fail", {})
+            for step, rec in pf.items():
+                step_result = out_dict.get(step, {})
+                removed = _removed(step_result.get("metrics", {}))
+                rows.append((f"{label}/{step}", removed, rec.get("status", False)))
+
+        return rows
 
     def _convert_input_format(self) -> None:
         """Convert input format to pfiles if needed."""
@@ -331,8 +427,14 @@ class PipelineRunner:
         """
         assert self.state is not None
 
-        # Run ancestry prediction
-        ancestry_result = self._run_ancestry_prediction_new()
+        # Run ancestry prediction (sectioned; the ported preprocessing runs many
+        # PLINK invocations, all harvested under the "ancestry" step context).
+        self._begin_section("ancestry_prediction")
+        try:
+            with step_context("ancestry"):
+                ancestry_result = self._run_ancestry_prediction_new()
+        finally:
+            self._end_section(f"{self.args.out_path}_ancestry_prediction.log")
         self.state.ancestry_result = ancestry_result
         self.state.labels_list = ancestry_result["data"]["labels_list"]
 
@@ -352,6 +454,10 @@ class PipelineRunner:
             current_het = het_value
             if self.args.sample_qc.amr_het and label == "AMR":
                 current_het = [-1.0, -1.0]
+
+            # Announce the group so the console (where per-step "Running:" lines
+            # are file-only) still shows which ancestry the step lines belong to.
+            logger.info(f"Ancestry group {label}: running {len(steps)} QC step(s)")
 
             # Create modified args for this ancestry
             self._run_qc_pipeline(
@@ -744,62 +850,77 @@ class PipelineRunner:
             )
 
             step_paths.append(step_output)
-            logger.info(
-                f"Running: {step} with input {step_input} and output: {step_output}"
-            )
-            print(f"Running: {step} with input {step_input} and output: {step_output}")
 
-            # Check if input exists
-            if self.args.warn_only and not os.path.isfile(f"{step_input}.pgen"):
-                print(
-                    f"Step {step} cannot be run! "
-                    "All samples or variants were pruned in a previous step!"
-                )
-                pass_fail[step] = PassFailRecord(
-                    status=False, input_path=step_input, output_path=step_output
-                )
-                continue
-
-            # Run the step. Refactored steps signal failure by raising a
-            # GenoToolsError (QCError/ExternalToolError/...). Under --warn we
-            # record the failure and continue from the last passed output;
-            # otherwise we fail fast.
+            # Open a consolidated-log section for this step. Raw PLINK output
+            # harvested during the step is buffered and flushed (to the section
+            # and to a per-step {out}_{step}.log) by _end_section. Logs always
+            # persist at the stable out_path location regardless of full_output.
+            section_title = step if ancestry_label == "all" else f"{ancestry_label} / {step}"
+            raw_log_path = f"{out_path}_{step}.log"
+            self._begin_section(section_title)
             try:
-                result = self._run_single_step(
-                    step=step,
-                    step_input=step_input,
-                    step_output=step_output,
-                    legacy_args=legacy_args,
-                )
-            except GenoToolsError as e:
-                logger.error(f"Step {step} failed: {e}")
-                if not self.args.warn_only:
-                    raise
-                print(f"Step {step} failed but continuing (--warn): {e}")
-                pass_fail[step] = PassFailRecord(
-                    status=False,
-                    input_path=step_input,
-                    output_path=step_output,
-                    error=str(e),
-                )
-                continue
-
-            if result is not None:
-                out_dict[step] = result
-                pass_fail[step] = PassFailRecord(
-                    status=result.get("pass", False),
-                    input_path=step_input,
-                    output_path=step_output,
+                # File-only: the absolute temp-dir paths are essential for
+                # debugging but pure noise on the console, where the step's own
+                # first log line (and, under --ancestry, the group header)
+                # already announces what is running.
+                logger.info(
+                    f"Running: {step} with input {step_input} and output: {step_output}",
+                    extra={"file_only": True},
                 )
 
-                # Clean up intermediate files
-                self._cleanup_intermediate_files(
-                    step=step,
-                    pass_fail=pass_fail,
-                    out_dict=out_dict,
-                    out_path=out_path,
-                    geno_path=geno_path,
-                )
+                # Check if input exists
+                if self.args.warn_only and not os.path.isfile(f"{step_input}.pgen"):
+                    logger.warning(
+                        f"Step {step} cannot be run! "
+                        "All samples or variants were pruned in a previous step!"
+                    )
+                    pass_fail[step] = PassFailRecord(
+                        status=False, input_path=step_input, output_path=step_output
+                    )
+                    continue
+
+                # Run the step. Refactored steps signal failure by raising a
+                # GenoToolsError (QCError/ExternalToolError/...). Under --warn we
+                # record the failure and continue from the last passed output;
+                # otherwise we fail fast.
+                try:
+                    result = self._run_single_step(
+                        step=step,
+                        step_input=step_input,
+                        step_output=step_output,
+                        legacy_args=legacy_args,
+                    )
+                except GenoToolsError as e:
+                    logger.error(f"Step {step} failed: {e}")
+                    if not self.args.warn_only:
+                        raise
+                    logger.warning(f"Step {step} failed but continuing (--warn): {e}")
+                    pass_fail[step] = PassFailRecord(
+                        status=False,
+                        input_path=step_input,
+                        output_path=step_output,
+                        error=str(e),
+                    )
+                    continue
+
+                if result is not None:
+                    out_dict[step] = result
+                    pass_fail[step] = PassFailRecord(
+                        status=result.get("pass", False),
+                        input_path=step_input,
+                        output_path=step_output,
+                    )
+
+                    # Clean up intermediate files
+                    self._cleanup_intermediate_files(
+                        step=step,
+                        pass_fail=pass_fail,
+                        out_dict=out_dict,
+                        out_path=out_path,
+                        geno_path=geno_path,
+                    )
+            finally:
+                self._end_section(raw_log_path)
 
         # Handle final step failure with --warn
         self._handle_final_step_failure(steps, pass_fail, out_path, geno_path, working_geno)
@@ -951,7 +1072,7 @@ class PipelineRunner:
 
         elif step == "kinship_check":
             if platform.system() != "Linux":
-                print("Relatedness Assessment can only run on a Linux OS!")
+                logger.warning("Relatedness Assessment can only run on a Linux OS!")
                 return None
             result = self._new_modules["verify_kinship"](data, Path(step_output))
             return result.to_dict()

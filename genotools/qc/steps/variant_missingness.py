@@ -18,17 +18,16 @@
 Removes variants with high missing genotype rates using PLINK2 --geno.
 """
 
-import logging
 from pathlib import Path
 
 from genotools.core.exceptions import ValidationError
 from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import GenoConfig
 from genotools.qc.results import FilterResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def filter_variant_missingness(

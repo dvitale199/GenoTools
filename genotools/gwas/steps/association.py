@@ -29,7 +29,6 @@ Usage:
     inflation = calculate_inflation(pvalues, n_cases=500, n_controls=1000)
 """
 
-import logging
 from pathlib import Path
 from typing import Optional
 
@@ -40,11 +39,11 @@ from scipy.stats import ncx2
 from genotools.core.exceptions import GWASError, ValidationError
 from genotools.core.executors import get_plink2, run_command
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.gwas.config import GWASConfig, CovariateConfig
 from genotools.gwas.results import GWASResult, InflationMetrics
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def calculate_inflation(
@@ -296,7 +295,7 @@ def run_gwas(
                 inflation=None,
                 n_variants_tested=0,
                 success=False,
-                log=f"Check {out_path}.log for more information",
+                log=RAW_LOG_HINT,
             )
 
 
