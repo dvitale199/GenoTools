@@ -475,6 +475,64 @@ class TestRunSummary:
         # Also surfaced as log records (→ console).
         assert any("Run summary" in r.getMessage() for r in captured)
 
+        # The summary is rendered ONCE on disk: the console rows are marked
+        # console_only so they don't duplicate the RunLog's aligned table.
+        assert content.count("7 removed") == 2, (  # one row per step, no duplicates
+            f"summary rows duplicated in the consolidated log:\n{content}"
+        )
+        assert "Run summary:" not in content, (
+            "console summary header leaked into the consolidated log"
+        )
+
+    def test_step_paths_are_logged_to_file_not_console(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The verbose "Running: <step> with input ..." line is file-only.
+
+        It carries absolute temp-dir paths that are essential when debugging but
+        pure noise on the curated console.
+        """
+        import logging as _logging
+        from genotools.core.logging import raw_sink
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        runner._setup_logging()
+
+        console_messages: List[str] = []
+
+        class _ConsoleCapture(_logging.Handler):
+            """Mimics the console handler, including its file_only filter."""
+
+            def emit(self, record):
+                if not getattr(record, "file_only", False):
+                    console_messages.append(record.getMessage())
+
+        cap = _ConsoleCapture()
+        _logging.getLogger("genotools").addHandler(cap)
+
+        def fake_single_step(step, step_input, step_output, legacy_args):
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", fake_single_step)
+        try:
+            runner._run_qc_pipeline(
+                steps=["callrate"], geno_path=str(geno), out_path=str(out)
+            )
+        finally:
+            _logging.getLogger("genotools").removeHandler(cap)
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+
+        assert not any("Running: callrate" in m for m in console_messages), (
+            f"verbose step-path line leaked to the console: {console_messages}"
+        )
+        # But it is preserved in the consolidated log, with the full paths.
+        content = Path(f"{out}_all_logs.log").read_text()
+        assert "Running: callrate" in content
+        assert str(out) in content
+
 
 class TestPreflightFailureDoesNotPoisonPrefix:
     """Round 7 fix: logging is set up before validate_input so the breakdown is

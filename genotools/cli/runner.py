@@ -286,10 +286,17 @@ class PipelineRunner:
         re-run guard (which checks the log does not already exist) and before any
         step, so every ``logger.info``/``warning``/``error`` — including the
         input breakdown — is captured.
+
+        ``--debug`` widens both streams to DEBUG; ``--quiet`` drops the console
+        handler (the consolidated + per-step log files are still written).
         """
         assert self.state is not None
         out_path = str(self.state.out_path)
-        self._runlog = install_run_logging(out_path, level="INFO", console=True)
+        self._runlog = install_run_logging(
+            out_path,
+            level="DEBUG" if self.args.output.debug else "INFO",
+            console=not self.args.output.quiet,
+        )
 
     def _teardown_logging(self, remove_logs: bool = False) -> None:
         """Close the RunLog and unregister the raw sink.
@@ -329,10 +336,15 @@ class PipelineRunner:
         rows = self._collect_summary_rows()
         if not rows:
             return
-        logger.info("Run summary:")
+        # Console-only records: the RunLog writes its own aligned table below, so
+        # emitting these to the file too would duplicate the summary.
+        logger.info("Run summary:", extra={"console_only": True})
         for label, removed, passed in rows:
             status = "PASS" if passed else "FAIL"
-            logger.info(f"  {label}: {removed} removed [{status}]")
+            logger.info(
+                f"  {label}: {removed} removed [{status}]",
+                extra={"console_only": True},
+            )
         if self._runlog is not None:
             self._runlog.write_summary(rows)
 
@@ -436,6 +448,10 @@ class PipelineRunner:
             current_het = het_value
             if self.args.sample_qc.amr_het and label == "AMR":
                 current_het = [-1.0, -1.0]
+
+            # Announce the group so the console (where per-step "Running:" lines
+            # are file-only) still shows which ancestry the step lines belong to.
+            logger.info(f"Ancestry group {label}: running {len(steps)} QC step(s)")
 
             # Create modified args for this ancestry
             self._run_qc_pipeline(
@@ -837,8 +853,13 @@ class PipelineRunner:
             raw_log_path = f"{out_path}_{step}.log"
             self._begin_section(section_title)
             try:
+                # File-only: the absolute temp-dir paths are essential for
+                # debugging but pure noise on the console, where the step's own
+                # first log line (and, under --ancestry, the group header)
+                # already announces what is running.
                 logger.info(
-                    f"Running: {step} with input {step_input} and output: {step_output}"
+                    f"Running: {step} with input {step_input} and output: {step_output}",
+                    extra={"file_only": True},
                 )
 
                 # Check if input exists

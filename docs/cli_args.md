@@ -42,6 +42,19 @@ This documentation provides detailed descriptions of the command-line arguments 
   - *Default*: `False`
   - *Description*: If true, provides warnings on errors but continues the pipeline.
 
+- **`--quiet`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Suppresses the console progress stream. The log files are still
+    written in full: the consolidated `{out}_all_logs.log` and the per-step
+    `{out}_{step}.log` raw PLINK logs. Useful for batch/cluster jobs.
+
+- **`--debug`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Logs at `DEBUG` level instead of `INFO`, on both the console
+    and the consolidated log. Combine with `--quiet` for verbose file-only logs.
+
 ---
 
 ### Ancestry Arguments

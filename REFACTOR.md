@@ -394,6 +394,27 @@ input-prep/QC/ancestry. End-of-run **summary table** to console + log.
 `logging.getLogger(__name__)` standardized to `get_logger(__name__)` across 13
 pipeline modules.
 
+**5 — Console/verbosity polish (review pass).** Three blemishes found by re-reading
+the round-7 output on a real cohort:
+- The summary was written **twice** to the consolidated log (`logger.info` rows
+  landed at the tail of the last step's section, then `write_summary`'s table).
+- The `Running: {step} with input … and output: …` line put two absolute temp-dir
+  paths on the console — the longest and least useful line there.
+- Level/console were hardcoded (`"INFO"`, `console=True`): no way to quiet a
+  cluster job or widen output when debugging.
+
+Fixed with two `extra` routing markers on the `genotools` logger — `file_only`
+(dropped by a new `_ConsoleFilter` on the console handler) and `console_only`
+(dropped by `_RunLogHandler`) — so a record can target one destination without a
+second logging path. The step-path line is now `file_only` (full paths preserved
+in the log); the summary rows are `console_only` (the file keeps only the aligned
+table); a per-group `Ancestry group {label}: running N QC step(s)` console line
+replaces what the file-only line used to convey under `--ancestry`. New
+`--quiet` (drop the console stream; **all log files still written**) and
+`--debug` (DEBUG level on both streams) thread through `OutputArgs` into
+`install_run_logging`'s existing `level`/`console` params. Documented in
+`docs/cli_args.md`.
+
 **Verification:** full suite **437 passed** (unit + regression; +34 new: `RunLog`,
 `_harvest_raw_log`, guard/validation-logging, runner sectioning + summary, logging
 hygiene, and the rewritten `test_logging.py` asserting the sectioned/raw/summary
@@ -401,8 +422,26 @@ contract); old-vs-new **parity 8/8** (logging changes don't touch genotype outpu
 static gates clean (no `cleaned_logs`/`warnings.warn`/pipeline-path `print(` left in
 new code). Real end-to-end `--callrate --geno` and `--ancestry` runs on synthetic
 data produce the sectioned consolidated log, per-step raw files, summary table, and
-no `cleaned_logs.log`. **Follow-up (non-blocking):** the per-ancestry consolidated
-log is single-file/sectioned; item #9 parallelization will need per-group log files.
+no `cleaned_logs.log`. After the part-5 polish pass the suite is **456 passed**
+(+9: console/file record routing, `--quiet`/`--debug` parsing + behavior,
+summary-not-duplicated, step-path line file-only) and parity is still 8/8; a real
+3661-sample × 1.95M-variant run gives a console of only step lines + summary.
+
+**Follow-ups (non-blocking):**
+- The per-ancestry consolidated log is single-file/sectioned; item #9
+  parallelization will need per-group log files.
+- `core.logging.setup_logging()` is now a second, unused logging entry point
+  (exported from `core/__init__`, referenced only by tests) that no longer
+  describes how the pipeline logs — collapse it into `install_run_logging` or
+  mark it library-only.
+- Uncaught `GenoToolsError`s still reach the user as raw tracebacks: `cli/__init__.py::main`
+  has no `try/except`, so e.g. the re-run guard prints 15 lines of stack for what
+  should be a one-line message (exit code is correct).
+- A re-run with `--skip_fails` **truncates** the prior consolidated log
+  (`RunLog` opens `"w"`; legacy appended) — silent log loss on the one path that
+  bypasses the guard.
+- PLINK's native `{out}.log` from the final step is left beside the per-step logs,
+  duplicating `{out}_{last_step}.log`.
 
 ---
 

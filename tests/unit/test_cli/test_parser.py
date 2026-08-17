@@ -215,6 +215,21 @@ class TestOutputArgs:
         assert args.full_output is False
         assert args.skip_fails is False
         assert args.warn_only is True
+        # Verbosity: curated console on, INFO level.
+        assert args.quiet is False
+        assert args.debug is False
+
+    def test_verbosity_flags_parse(self) -> None:
+        """--quiet / --debug reach OutputArgs (defaults are off)."""
+        default = parse_args(["--pfile", "/data/test", "--out", "/output/test"])
+        assert default.output.quiet is False
+        assert default.output.debug is False
+
+        verbose = parse_args(
+            ["--pfile", "/data/test", "--out", "/output/test", "--quiet", "--debug"]
+        )
+        assert verbose.output.quiet is True
+        assert verbose.output.debug is True
 
 
 class TestPipelineArgs:

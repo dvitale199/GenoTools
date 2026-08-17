@@ -199,6 +199,91 @@ class TestRunLog:
             raw_sink.set(None)
 
 
+class TestLogRoutingMarkers:
+    """``extra`` markers that send a record to one destination only.
+
+    ``file_only`` keeps verbose detail (absolute temp paths) off the console;
+    ``console_only`` keeps content the RunLog renders itself (the summary table)
+    from being duplicated into the consolidated log.
+    """
+
+    def test_file_only_record_skips_console(self, tmp_path: Path, capsys):
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=True)
+        try:
+            logger = get_logger("genotools.test")
+            logger.info("VERBOSE_PATH_DETAIL", extra={"file_only": True})
+            logger.info("CURATED_LINE")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            console = capsys.readouterr().err
+            log_text = Path(f"{out}_all_logs.log").read_text()
+
+            assert "VERBOSE_PATH_DETAIL" not in console
+            assert "VERBOSE_PATH_DETAIL" in log_text
+            # A normal record still reaches both.
+            assert "CURATED_LINE" in console and "CURATED_LINE" in log_text
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_console_only_record_skips_consolidated_log(self, tmp_path: Path, capsys):
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=True)
+        try:
+            get_logger("genotools.test").info(
+                "SUMMARY_ROW", extra={"console_only": True}
+            )
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            assert "SUMMARY_ROW" in capsys.readouterr().err
+            assert "SUMMARY_ROW" not in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_console_false_still_writes_log_file(self, tmp_path: Path, capsys):
+        """``--quiet`` (console=False) keeps the on-disk log complete."""
+        out = tmp_path / "out"
+        rl = install_run_logging(str(out), console=False)
+        try:
+            get_logger("genotools.test").info("QUIET_MODE_RECORD")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            assert "QUIET_MODE_RECORD" not in capsys.readouterr().err
+            assert "QUIET_MODE_RECORD" in Path(f"{out}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+    def test_debug_level_captures_debug_records(self, tmp_path: Path):
+        """``--debug`` (level=DEBUG) lets DEBUG records through; INFO does not."""
+        out_debug = tmp_path / "dbg"
+        rl = install_run_logging(str(out_debug), level="DEBUG", console=False)
+        try:
+            get_logger("genotools.test").debug("DEBUG_DETAIL")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "DEBUG_DETAIL" in Path(f"{out_debug}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+        out_info = tmp_path / "inf"
+        rl = install_run_logging(str(out_info), level="INFO", console=False)
+        try:
+            get_logger("genotools.test").debug("DEBUG_DETAIL")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+            assert "DEBUG_DETAIL" not in Path(f"{out_info}_all_logs.log").read_text()
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+
 class TestGenotypeData:
     """Tests for GenotypeData class."""
 

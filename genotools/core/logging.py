@@ -290,17 +290,35 @@ class RunLog:
 
 
 class _RunLogHandler(logging.Handler):
-    """Routes ``genotools.*`` structured records into a :class:`RunLog`."""
+    """Routes ``genotools.*`` structured records into a :class:`RunLog`.
+
+    Records marked ``extra={"console_only": True}`` are dropped: they are meant
+    for the terminal only, because the RunLog already renders that content in a
+    richer on-disk form (e.g. the run summary table).
+    """
 
     def __init__(self, runlog: RunLog, level: int = logging.INFO) -> None:
         super().__init__(level)
         self._runlog = runlog
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "console_only", False):
+            return
         try:
             self._runlog.write_record(record)
         except Exception:  # pragma: no cover - never let logging crash a run
             self.handleError(record)
+
+
+class _ConsoleFilter(logging.Filter):
+    """Drops records marked ``extra={"file_only": True}`` from the console.
+
+    Used for detail that belongs in the consolidated log but would only add
+    noise to the curated terminal stream (e.g. absolute temp-dir step paths).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "file_only", False)
 
 
 class _ConsoleFormatter(logging.Formatter):
@@ -326,10 +344,16 @@ def install_run_logging(
     ``genotools`` logger, and registers the RunLog as the run-scoped raw sink so
     the executor harvests PLINK ``.log`` output into it.
 
+    Two ``extra`` markers steer a record to one destination:
+    ``extra={"file_only": True}`` keeps it out of the console (verbose detail),
+    ``extra={"console_only": True}`` keeps it out of the consolidated log
+    (content the RunLog renders itself, e.g. the summary table).
+
     Args:
         out_path: Output prefix; the log is ``{out_path}_all_logs.log``.
         level: Log level for both handlers.
-        console: Whether to also emit the curated console stream.
+        console: Whether to also emit the curated console stream. ``False``
+            (``--quiet``) still writes the consolidated + per-step log files.
 
     Returns:
         The RunLog (the caller owns its lifecycle; call ``close()`` when done).
@@ -357,6 +381,7 @@ def install_run_logging(
         console_handler.setLevel(level)
         console_handler.setFormatter(_ConsoleFormatter())
         console_handler.addFilter(context_filter)
+        console_handler.addFilter(_ConsoleFilter())
         logger.addHandler(console_handler)
 
     logger.propagate = False

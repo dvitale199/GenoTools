@@ -134,3 +134,62 @@ def test_console_is_curated_not_raw(test_geno_path: Path, tmp_path: Path) -> Non
     assert "PLINK v" not in res.stderr, "raw PLINK output leaked to the console"
     # No full file-format timestamps on the console (concise formatter).
     assert "genotools.qc.steps" not in res.stderr, "console used the full file format"
+
+    # The verbose per-step path line (absolute temp-dir paths) is file-only.
+    assert "Running: callrate" not in res.stderr, (
+        "verbose step-path line leaked to the console"
+    )
+    assert "_tmp/" not in res.stderr, "temp-dir paths leaked to the console"
+    assert "Running: callrate" in Path(f"{out}_all_logs.log").read_text(), (
+        "verbose step-path line should still be in the consolidated log"
+    )
+
+
+def test_summary_not_duplicated_in_log(test_geno_path: Path, tmp_path: Path) -> None:
+    """The consolidated log renders the summary once (aligned table only)."""
+    out = tmp_path / "logtest"
+    _run_callrate_geno(test_geno_path, out)
+
+    content = Path(f"{out}_all_logs.log").read_text()
+    assert content.count("===== run summary =====") == 1
+    # The console-side rows ("  callrate: N removed [PASS]") are console_only, so
+    # the file holds exactly one row per step -- the table's.
+    assert content.count("removed   PASS") == 2, (
+        f"expected one table row per step, got:\n{content[-800:]}"
+    )
+    assert "Run summary:" not in content, "console summary header leaked into the log"
+
+
+def test_quiet_silences_console_but_keeps_logs(
+    test_geno_path: Path, tmp_path: Path
+) -> None:
+    """--quiet drops the console stream; the log files are still complete."""
+    out = tmp_path / "quiettest"
+    res = _run_cli(
+        ["--pfile", str(test_geno_path), "--out", str(out), "--callrate", "--geno", "--quiet"]
+    )
+    assert res.returncode == 0, f"Pipeline failed.\nSTDERR:\n{res.stderr}"
+
+    assert "[callrate_prune]" not in res.stderr, "--quiet still printed step lines"
+    assert "Run summary" not in res.stderr, "--quiet still printed the summary"
+
+    content = Path(f"{out}_all_logs.log").read_text()
+    assert "===== callrate =====" in content, "--quiet lost the consolidated log"
+    assert "[callrate_prune]" in content, "--quiet lost the structured records"
+    assert "PLINK v" in content, "--quiet lost the harvested raw output"
+    assert "run summary" in content.lower(), "--quiet lost the summary table"
+    assert Path(f"{out}_callrate.log").exists(), "--quiet lost the per-step raw log"
+
+
+def test_debug_adds_detail_to_log(test_geno_path: Path, tmp_path: Path) -> None:
+    """--debug is accepted and widens the log to DEBUG level."""
+    out = tmp_path / "debugtest"
+    res = _run_cli(
+        ["--pfile", str(test_geno_path), "--out", str(out), "--callrate", "--debug"]
+    )
+    assert res.returncode == 0, f"Pipeline failed.\nSTDERR:\n{res.stderr}"
+
+    content = Path(f"{out}_all_logs.log").read_text()
+    # The curated INFO contract still holds at DEBUG level.
+    assert "===== callrate =====" in content
+    assert "[callrate_prune]" in content
