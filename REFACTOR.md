@@ -479,9 +479,14 @@ failure boundary end-to-end).
   (`--callrate 1.5`) fails *after* logging is installed, leaving a consolidated log
   that blocks the prefix on the corrected re-run. Validating configs during
   pre-flight would fail before any artifact exists.
-- `docs/cli_args.md` still documents the legacy flag spellings (`--full_output`,
-  `--warn`) instead of the new parser's (`--full-output`, `--no-warn`); the flags
-  added in round 7 are documented correctly.
+- ~~`docs/cli_args.md` documents legacy flag spellings~~ — **done**: rewritten
+  against `genotools/cli/parser.py`. All 42 flags documented and parse-checked
+  (`--cloud_model` never existed in the new parser; `--prune_duplicated` is now
+  `--no-prune-duplicated`; `--warn` is now the default with `--no-warn` to opt
+  out). Added the previously-undocumented `--amr-het`, `--min-samples`,
+  `--maf-lambdas`, `--all-variant`'s LD exclusion, the data-driven auto-skip
+  table, `--skip-fails`'s second effect (it also disables those auto-skips), and
+  `--all-sample`'s callrate threshold of 0.05 (vs 0.02 for a bare `--callrate`).
 
 ---
 
