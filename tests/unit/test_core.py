@@ -199,6 +199,150 @@ class TestRunLog:
             raw_sink.set(None)
 
 
+class TestRunLogRotation:
+    """A re-run must never silently destroy the previous run's log.
+
+    The re-run guard normally blocks a second run on the same prefix, but
+    ``--skip-fails`` bypasses it -- so RunLog rotates an existing log aside
+    instead of truncating it.
+    """
+
+    def test_existing_log_is_rotated_not_truncated(self, tmp_path: Path):
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR RUN CONTENT\n")
+
+        rl = RunLog(log_path)
+        try:
+            assert rl.rotated_from == tmp_path / "out_all_logs.log.1"
+            assert rl.rotated_from.read_text() == "PRIOR RUN CONTENT\n"
+            # The new log starts clean.
+            rl.write_banner()
+            assert "PRIOR RUN CONTENT" not in log_path.read_text()
+        finally:
+            rl.close()
+
+    def test_rotation_picks_next_free_index(self, tmp_path: Path):
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("run 2\n")
+        (tmp_path / "out_all_logs.log.1").write_text("run 1\n")
+
+        rl = RunLog(log_path)
+        try:
+            assert rl.rotated_from == tmp_path / "out_all_logs.log.2"
+            # The older rotation is untouched.
+            assert (tmp_path / "out_all_logs.log.1").read_text() == "run 1\n"
+            assert (tmp_path / "out_all_logs.log.2").read_text() == "run 2\n"
+        finally:
+            rl.close()
+
+    def test_no_rotation_when_no_existing_log(self, tmp_path: Path):
+        rl = RunLog(tmp_path / "out_all_logs.log")
+        try:
+            assert rl.rotated_from is None
+            assert not (tmp_path / "out_all_logs.log.1").exists()
+        finally:
+            rl.close()
+
+    def test_rotate_existing_false_truncates(self, tmp_path: Path):
+        """Opt-out for callers that explicitly want a clobber."""
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR\n")
+        rl = RunLog(log_path, rotate_existing=False)
+        try:
+            assert rl.rotated_from is None
+            assert not (tmp_path / "out_all_logs.log.1").exists()
+            assert log_path.read_text() == ""
+        finally:
+            rl.close()
+
+    def test_restore_rotated_puts_the_log_back(self, tmp_path: Path):
+        """Pre-flight failure: the fresh log is removed, the prior one restored."""
+        log_path = tmp_path / "out_all_logs.log"
+        log_path.write_text("PRIOR RUN CONTENT\n")
+
+        rl = RunLog(log_path)
+        rl.write_banner()
+        rl.close()
+        log_path.unlink()  # what _teardown_logging(remove_logs=True) does
+        rl.restore_rotated()
+
+        assert log_path.read_text() == "PRIOR RUN CONTENT\n"
+        assert not (tmp_path / "out_all_logs.log.1").exists()
+        # Idempotent.
+        rl.restore_rotated()
+
+    def test_install_run_logging_announces_rotation(self, tmp_path: Path):
+        out = tmp_path / "out"
+        Path(f"{out}_all_logs.log").write_text("PRIOR\n")
+
+        rl = install_run_logging(str(out), console=False)
+        try:
+            assert rl.rotated_from is not None
+            # The notice reaches the new log (handlers are installed first).
+            content = Path(f"{out}_all_logs.log").read_text()
+            assert "out_all_logs.log.1" in content
+            assert "WARNING" in content
+        finally:
+            rl.close()
+            raw_sink.set(None)
+
+
+class TestSetupLoggingLibraryPath:
+    """``setup_logging`` is the library/embedded entry point (no RunLog).
+
+    It shares :func:`_reset_genotools_logger` with ``install_run_logging``, so
+    both configure the ``genotools`` logger identically; it deliberately does
+    *not* register a raw sink or write sections.
+    """
+
+    def test_writes_step_tagged_records_to_file(self, tmp_path: Path):
+        from genotools.core.logging import setup_logging
+
+        log_file = tmp_path / "library.log"
+        setup_logging(level="INFO", log_file=log_file, console=False)
+        try:
+            with step_context("callrate_prune"):
+                get_logger("genotools.test").info("library-mode message")
+            for h in logging.getLogger("genotools").handlers:
+                h.flush()
+
+            content = log_file.read_text()
+            assert "library-mode message" in content
+            assert "[callrate_prune]" in content, "step context not applied"
+            assert "[INFO]" in content
+        finally:
+            logging.getLogger("genotools").handlers.clear()
+
+    def test_does_not_register_raw_sink(self, tmp_path: Path):
+        """No RunLog => the executor's harvest stays a no-op for library callers."""
+        from genotools.core.logging import setup_logging
+
+        setup_logging(level="INFO", log_file=tmp_path / "library.log", console=False)
+        try:
+            assert raw_sink.get() is None
+        finally:
+            logging.getLogger("genotools").handlers.clear()
+
+    def test_shares_logger_reset_with_install_run_logging(self, tmp_path: Path):
+        """Either entry point replaces the other's handlers, and kills propagation."""
+        from genotools.core.logging import _RunLogHandler, setup_logging
+
+        logger = logging.getLogger("genotools")
+
+        rl = install_run_logging(str(tmp_path / "out"), console=False)
+        try:
+            assert [type(h) for h in logger.handlers] == [_RunLogHandler]
+
+            setup_logging(log_file=tmp_path / "library.log", console=False)
+            # The RunLog handler is gone, replaced by the plain file handler.
+            assert [type(h) for h in logger.handlers] == [logging.FileHandler]
+            assert logger.propagate is False
+        finally:
+            logger.handlers.clear()
+            rl.close()
+            raw_sink.set(None)
+
+
 class TestLogRoutingMarkers:
     """``extra`` markers that send a record to one destination only.
 

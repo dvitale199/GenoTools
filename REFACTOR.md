@@ -427,21 +427,61 @@ no `cleaned_logs.log`. After the part-5 polish pass the suite is **456 passed**
 summary-not-duplicated, step-path line file-only) and parity is still 8/8; a real
 3661-sample × 1.95M-variant run gives a console of only step lines + summary.
 
+**6 — Failure-boundary + artifact cleanup (second review pass).** Cleared the four
+blemishes the part-5 pass had only recorded:
+
+1. **One logging API, two honest entry points.** `setup_logging` and
+   `install_run_logging` now share `_reset_genotools_logger` (level coercion,
+   handler close+clear, `propagate=False`), and the docstrings state the split:
+   `install_run_logging` is the pipeline's (RunLog, sections, raw harvest, curated
+   console); `setup_logging` is for **library/embedded** callers driving the step
+   functions directly. Previously untested, it now has a functional test
+   (step-tagged records reach the file; no raw sink registered) plus one pinning
+   that either call replaces the other's handlers.
+2. **Clean CLI failures.** `cli/__init__.py::main` catches `GenoToolsError`,
+   `FileNotFoundError`, and config-validation `ValueError`/`TypeError` → a one-line
+   `ERROR: <message>` on stderr with exit 1 instead of a traceback; `--debug`
+   re-raises, so the traceback is one flag away. Other exception types are bugs and
+   keep their traceback. The runner's "No QC steps" raise became a
+   `ValidationError` (was a bare `ValueError`) so it routes through that path.
+   Writing the tests surfaced two cases beyond the guard: a missing `--pfile`
+   (`FileNotFoundError`) and an out-of-range value like `--callrate 1.5` (range
+   checks live in the step config, not the parser) both used to traceback. Also
+   fixed the guard's own message, which told users to rerun with `--skip_fails` —
+   a spelling argparse **rejects** (it is `--skip-fails`).
+3. **Re-runs no longer destroy the prior log.** `RunLog` rotates an existing
+   consolidated log to the next free `{path}.N` instead of truncating it, and
+   announces it (`! An existing log was found …; the previous run's log is
+   preserved as …`). Only reachable via `--skip-fails`, the one path that bypasses
+   the guard. On a pre-flight failure `_teardown_logging` calls
+   `restore_rotated()`, so a failed re-run leaves the directory exactly as it found
+   it. Per-step raw files are still overwritten — their content is a subset of the
+   rotated consolidated log.
+4. **No stray tool logs.** `_harvest_raw_log` removes each `{prefix}.log` after
+   harvesting it (mirroring what `GenotypeData.to_pfile` already did, and what
+   legacy `concat_logs` did to the files it consumed), so `{out}.log`,
+   `{out}_{label}.log`, and the ancestry-preprocessing strays no longer sit beside
+   the real outputs duplicating `{out}_{step}.log`. Skipped when no sink is
+   registered, so library callers keep their tool logs. This made the 8 step error
+   messages that named a now-deleted `{tmp}.log`/`{out}.log` wrong, so they were
+   replaced with a shared `RAW_LOG_HINT` constant pointing at the consolidated +
+   per-step logs (several were **already** wrong pre-round-7, naming temp files the
+   cleanup had deleted).
+
+Suite **456 → 475 passed** (+19: rotation/restore, library-path `setup_logging`,
+harvest removal, and a new `tests/regression/test_cli_errors.py` covering the
+failure boundary end-to-end).
+
 **Follow-ups (non-blocking):**
 - The per-ancestry consolidated log is single-file/sectioned; item #9
   parallelization will need per-group log files.
-- `core.logging.setup_logging()` is now a second, unused logging entry point
-  (exported from `core/__init__`, referenced only by tests) that no longer
-  describes how the pipeline logs — collapse it into `install_run_logging` or
-  mark it library-only.
-- Uncaught `GenoToolsError`s still reach the user as raw tracebacks: `cli/__init__.py::main`
-  has no `try/except`, so e.g. the re-run guard prints 15 lines of stack for what
-  should be a one-line message (exit code is correct).
-- A re-run with `--skip_fails` **truncates** the prior consolidated log
-  (`RunLog` opens `"w"`; legacy appended) — silent log loss on the one path that
-  bypasses the guard.
-- PLINK's native `{out}.log` from the final step is left beside the per-step logs,
-  duplicating `{out}_{last_step}.log`.
+- Step configs are constructed inside the step loop, so an out-of-range value
+  (`--callrate 1.5`) fails *after* logging is installed, leaving a consolidated log
+  that blocks the prefix on the corrected re-run. Validating configs during
+  pre-flight would fail before any artifact exists.
+- `docs/cli_args.md` still documents the legacy flag spellings (`--full_output`,
+  `--warn`) instead of the new parser's (`--full-output`, `--no-warn`); the flags
+  added in round 7 are documented correctly.
 
 ---
 

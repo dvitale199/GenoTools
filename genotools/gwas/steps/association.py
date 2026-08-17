@@ -39,7 +39,7 @@ from scipy.stats import ncx2
 from genotools.core.exceptions import GWASError, ValidationError
 from genotools.core.executors import get_plink2, run_command
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import get_logger, step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.gwas.config import GWASConfig, CovariateConfig
 from genotools.gwas.results import GWASResult, InflationMetrics
 
@@ -295,7 +295,7 @@ def run_gwas(
                 inflation=None,
                 n_variants_tested=0,
                 success=False,
-                log=f"Check {out_path}.log for more information",
+                log=RAW_LOG_HINT,
             )
 
 

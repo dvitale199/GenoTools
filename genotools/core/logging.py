@@ -5,10 +5,20 @@ This module provides:
 - Configurable log levels and output destinations
 - Consistent log formatting across the codebase
 
-Usage:
+There are two ways to configure the ``genotools`` logger, and they are mutually
+exclusive — both reset its handlers:
+
+1. :func:`install_run_logging` — what the **pipeline** uses. Builds a
+   :class:`RunLog` that owns the sectioned ``{out}_all_logs.log``, harvests raw
+   PLINK output into it, and adds a curated console stream. See below.
+2. :func:`setup_logging` — for **library/embedded** callers who drive the step
+   functions directly (no pipeline runner, so no RunLog). Plain handlers, one
+   flat log file, no sections and no raw harvesting.
+
+Library usage:
     from genotools.core.logging import setup_logging, get_logger, current_step
 
-    # Setup logging at application start
+    # Configure once, before calling step functions
     setup_logging(level="INFO", log_file=Path("output/genotools.log"))
 
     # Get a logger for your module
@@ -35,6 +45,15 @@ current_step: ContextVar[str] = ContextVar("current_step", default="")
 FILE_FORMAT = "%(asctime)s [%(levelname)s] %(step)s %(name)s: %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# Where to send a user for raw PLINK output when a step fails. Steps must not
+# name the tool's own {prefix}.log: those files live in the run's temp dir, and
+# the executor removes each one after harvesting it into the run log. Single
+# constant so the pointer stays accurate in one edit.
+RAW_LOG_HINT = (
+    "The full PLINK output for this step is in the consolidated run log "
+    "({out}_all_logs.log) and its per-step log ({out}_{step}.log)."
+)
+
 
 class StepContextFilter(logging.Filter):
     """Logging filter that adds the current step to log records.
@@ -50,12 +69,39 @@ class StepContextFilter(logging.Filter):
         return True
 
 
+def _reset_genotools_logger(level: Union[str, int]) -> logging.Logger:
+    """Return the ``genotools`` logger with handlers cleared and level set.
+
+    Shared by :func:`setup_logging` and :func:`install_run_logging` so the two
+    configure the logger identically: existing handlers are **closed** before
+    being dropped (repeated setup in one process — e.g. successive pipeline runs
+    — would otherwise leak file descriptors), and propagation to the root logger
+    is disabled to avoid duplicate output.
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
+
+    logger = logging.getLogger("genotools")
+    logger.setLevel(level)
+    for handler in logger.handlers[:]:
+        handler.close()
+    logger.handlers.clear()
+    logger.propagate = False
+    return logger
+
+
 def setup_logging(
     level: Union[str, int] = "INFO",
     log_file: Optional[Path] = None,
     console: bool = True
 ) -> None:
-    """Configure structured logging with optional file output.
+    """Configure plain structured logging — for library/embedded callers.
+
+    Use this when driving the step functions directly (no pipeline runner). The
+    CLI pipeline instead calls :func:`install_run_logging`, which adds the
+    sectioned consolidated log, raw PLINK harvesting, and the curated console
+    format. Both reset the ``genotools`` logger's handlers, so calling this
+    during a pipeline run would detach that run's log — don't mix them.
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) or int
@@ -65,28 +111,10 @@ def setup_logging(
     Example:
         setup_logging(level="DEBUG", log_file=Path("run.log"))
     """
-    # Convert string level to int if needed
-    if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
+    logger = _reset_genotools_logger(level)
+    level = logger.level
 
-    # Get the root genotools logger
-    logger = logging.getLogger("genotools")
-    logger.setLevel(level)
-
-    # Clear any existing handlers, closing them first so repeated
-    # setup_logging() calls in one process (e.g. successive pipeline runs)
-    # don't leak file descriptors.
-    for handler in logger.handlers[:]:
-        handler.close()
-    logger.handlers.clear()
-
-    # Create formatter with step context placeholder
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(step)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    # Add context filter to include step in all messages
+    formatter = logging.Formatter(FILE_FORMAT, datefmt=DATE_FORMAT)
     context_filter = StepContextFilter()
 
     if console:
@@ -105,9 +133,6 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         file_handler.addFilter(context_filter)
         logger.addHandler(file_handler)
-
-    # Prevent propagation to root logger to avoid duplicate messages
-    logger.propagate = False
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -210,6 +235,26 @@ SummaryRow = Tuple[str, int, bool]
 raw_sink: ContextVar[Optional["RunLog"]] = ContextVar("raw_sink", default=None)
 
 
+def rotate_existing_log(path: Path, max_keep: int = 100) -> Optional[Path]:
+    """Move an existing log aside to the next free ``{path}.N``; return that name.
+
+    Returns None when there was nothing to rotate, or when rotation failed (never
+    worth breaking a run over). Used so a re-run cannot silently destroy a
+    previous run's audit trail.
+    """
+    if not path.exists():
+        return None
+    for i in range(1, max_keep + 1):
+        candidate = path.with_name(f"{path.name}.{i}")
+        if not candidate.exists():
+            try:
+                path.rename(candidate)
+            except OSError:  # pragma: no cover - best-effort
+                return None
+            return candidate
+    return None
+
+
 class RunLog:
     """Single writer that owns the consolidated ``{out}_all_logs.log`` file.
 
@@ -221,14 +266,37 @@ class RunLog:
     same buffered raw is also written to a per-step ``{out}_{step}.log`` file.
     """
 
-    def __init__(self, path: Union[str, Path]) -> None:
+    def __init__(self, path: Union[str, Path], rotate_existing: bool = True) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        # Truncate: each run starts a fresh consolidated log. The runner's
-        # re-run guard already prevents clobbering a prior run's output.
+        # Each run starts a fresh consolidated log. The runner's re-run guard
+        # normally means there is nothing here to lose -- except under
+        # --skip-fails, which bypasses that guard, so an existing log is rotated
+        # aside to {path}.N instead of being truncated. (Per-step raw files are
+        # still overwritten; their content is a subset of the rotated log.)
+        self.rotated_from: Optional[Path] = (
+            rotate_existing_log(self.path) if rotate_existing else None
+        )
         self._fh: Optional[object] = open(self.path, "w", encoding="utf-8")
         self._formatter = logging.Formatter(FILE_FORMAT, datefmt=DATE_FORMAT)
         self._raw_buffer: List[str] = []
+
+    def restore_rotated(self) -> None:
+        """Undo the constructor's rotation, if any (idempotent).
+
+        Used when a run dies in pre-flight and its fresh log is removed: the
+        prior run's log should go back to its original name rather than being
+        left orphaned under ``{path}.N``.
+        """
+        if self.rotated_from is None:
+            return
+        try:
+            if not self.path.exists() and self.rotated_from.exists():
+                self.rotated_from.rename(self.path)
+        except OSError:  # pragma: no cover - best-effort
+            pass
+        finally:
+            self.rotated_from = None
 
     # -- header / sections --------------------------------------------------
 
@@ -358,18 +426,11 @@ def install_run_logging(
     Returns:
         The RunLog (the caller owns its lifecycle; call ``close()`` when done).
     """
-    if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
-
     runlog = RunLog(f"{out_path}_all_logs.log")
     runlog.write_banner()
 
-    logger = logging.getLogger("genotools")
-    logger.setLevel(level)
-    for handler in logger.handlers[:]:
-        handler.close()
-    logger.handlers.clear()
-
+    logger = _reset_genotools_logger(level)
+    level = logger.level
     context_filter = StepContextFilter()
 
     run_handler = _RunLogHandler(runlog, level)
@@ -384,6 +445,14 @@ def install_run_logging(
         console_handler.addFilter(_ConsoleFilter())
         logger.addHandler(console_handler)
 
-    logger.propagate = False
     raw_sink.set(runlog)
+
+    # Announce a rotation now that the handlers exist, so the notice lands in the
+    # new log and on the console rather than vanishing.
+    if runlog.rotated_from is not None:
+        logger.warning(
+            f"An existing log was found at {runlog.path.name}; "
+            f"the previous run's log is preserved as {runlog.rotated_from.name}"
+        )
+
     return runlog

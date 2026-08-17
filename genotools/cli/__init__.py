@@ -84,15 +84,41 @@ __all__ = [
 
 
 def main():
-    """Main entry point for the genotools CLI."""
+    """Main entry point for the genotools CLI.
+
+    Failures a user can act on are reported as a one-line ``ERROR:`` message on
+    stderr with exit 1, not a Python traceback -- the detail belongs in the
+    consolidated run log. That covers ``GenoToolsError`` (bad input, a failing
+    external tool, a blocked output prefix), ``FileNotFoundError`` (the
+    codebase-wide signal for a missing file), and the ``ValueError``/``TypeError``
+    raised by config validation for out-of-range arguments.
+
+    Any other exception is a bug and keeps its traceback. ``--debug`` re-raises
+    everything, so the traceback is always one flag away.
+    """
     import sys
 
-    args = parse_args()
-    result = run_pipeline(args)
+    from genotools.core.exceptions import GenoToolsError
 
-    # Save output JSON
-    out_path = args.output.out_path
-    result.save(out_path.with_suffix(".json"))
+    # Outside the try: argparse reports its own errors and exits.
+    args = parse_args()
+    debug = args.output.debug
+
+    try:
+        result = run_pipeline(args)
+
+        # Save output JSON
+        out_path = args.output.out_path
+        result.save(out_path.with_suffix(".json"))
+    except (GenoToolsError, FileNotFoundError, ValueError, TypeError) as e:
+        if debug:
+            raise
+        print(f"ERROR: {e}", file=sys.stderr)
+        print("Re-run with --debug for the full traceback.", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        sys.exit(130)
 
     # Return appropriate exit code
     sys.exit(0 if result.success else 1)

@@ -26,7 +26,7 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import get_logger, step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import CaseControlConfig
 from genotools.qc.results import FilterResult
 
@@ -171,6 +171,5 @@ def filter_case_control(
                         bfile.unlink()
 
             raise QCError(
-                f"Case-control missingness test failed. "
-                f"Check {mis_tmp}.log for more information."
+                f"Case-control missingness test failed. {RAW_LOG_HINT}"
             )

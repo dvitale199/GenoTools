@@ -35,7 +35,7 @@ from typing import Optional
 from genotools.core.exceptions import ValidationError
 from genotools.core.executors import get_plink2, run_command, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import get_logger, step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.gwas.config import PCAConfig, PCAPruningConfig, get_exclusion_regions
 from genotools.gwas.results import PCAResult, PruningResult
 
@@ -211,7 +211,7 @@ def run_pca_pruning(
                 variants_after=0,
                 exclusion_file=None,
                 success=False,
-                log=f"Check {pruned_path}.log for more information",
+                log=RAW_LOG_HINT,
             )
 
 
@@ -317,5 +317,5 @@ def run_pca(
                 n_samples=0,
                 pruning_result=pruning_result,
                 success=False,
-                log=f"Check {out_path}.log for more information",
+                log=RAW_LOG_HINT,
             )

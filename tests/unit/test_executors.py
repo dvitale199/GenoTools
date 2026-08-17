@@ -42,6 +42,36 @@ def test_harvest_reads_out_log(tmp_path: Path, sink: _FakeSink):
     assert "--out" in command
 
 
+def test_harvest_removes_the_file_it_consumed(tmp_path: Path, sink: _FakeSink):
+    """Harvested content lives in the run log, so the stray {prefix}.log goes.
+
+    Otherwise every invocation writing to a persistent prefix (the final QC step,
+    each per-ancestry group) leaves a {out}.log beside the real outputs that
+    duplicates {out}_{step}.log under a confusing name.
+    """
+    prefix = tmp_path / "step_output"
+    log_path = Path(f"{prefix}.log")
+    log_path.write_text("PLINK2 v2.0\n112 variants removed.\n")
+
+    _harvest_raw_log(["plink2", "--out", str(prefix)], "cmd")
+
+    assert len(sink.calls) == 1, "content must be captured before removal"
+    assert "112 variants removed." in sink.calls[0][1]
+    assert not log_path.exists(), "harvested log should not be left behind"
+
+
+def test_harvest_keeps_log_when_no_sink(tmp_path: Path):
+    """Library/unit callers have no sink, so their tool logs must be untouched."""
+    prefix = tmp_path / "library_run"
+    log_path = Path(f"{prefix}.log")
+    log_path.write_text("some log")
+
+    _harvest_raw_log(["plink2", "--out", str(prefix)], "cmd")
+
+    assert log_path.exists(), "harvest must not delete logs it did not consume"
+    assert log_path.read_text() == "some log"
+
+
 def test_harvest_reads_prefix_log_for_king(tmp_path: Path, sink: _FakeSink):
     """KING uses --prefix; harvest reads <prefix>.log too."""
     prefix = tmp_path / "king_out"

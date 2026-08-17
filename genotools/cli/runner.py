@@ -34,7 +34,7 @@ import pandas as pd
 
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
-from ..core.exceptions import GenoToolsError
+from ..core.exceptions import GenoToolsError, ValidationError
 from ..core.logging import RunLog, get_logger, install_run_logging, step_context
 from ..core.validation import ValidationDecisions, guard_output_not_exists
 
@@ -131,7 +131,8 @@ class PipelineRunner:
             PipelineOutput containing all results.
 
         Raises:
-            ValueError: If no input files or steps are specified.
+            ValidationError: If no steps are specified, the output prefix is
+                already used, or the input fails validation.
         """
         # Initialize state
         self._initialize_state()
@@ -162,7 +163,9 @@ class PipelineRunner:
 
             steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
             if not steps and not self.args.ancestry.run_ancestry:
-                raise ValueError("No QC steps or ancestry prediction requested")
+                # A ValidationError (not a bare ValueError) so main() reports it
+                # as a one-line message instead of a traceback.
+                raise ValidationError("No QC steps or ancestry prediction requested")
         except Exception:
             self._teardown_logging(remove_logs=True)
             if self.state and self.state.tmp_dir:
@@ -303,14 +306,16 @@ class PipelineRunner:
 
         With ``remove_logs=True`` (pre-flight failure), also delete the
         freshly-created consolidated + input-prep logs so the output prefix is
-        not left poisoned for the next run.
+        not left poisoned for the next run -- and put back any log this run
+        rotated aside, so a failed re-run leaves the directory as it found it.
         """
         from ..core.logging import raw_sink
 
         if self._runlog is None:
             return
-        log_path = self._runlog.path
-        self._runlog.close()
+        runlog = self._runlog
+        log_path = runlog.path
+        runlog.close()
         self._runlog = None
         raw_sink.set(None)
         if remove_logs:
@@ -319,6 +324,7 @@ class PipelineRunner:
                     p.unlink(missing_ok=True)
                 except OSError:
                     pass
+            runlog.restore_rotated()
 
     def _begin_section(self, title: str) -> None:
         """Open a consolidated-log section (no-op when logging isn't installed)."""

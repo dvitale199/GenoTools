@@ -25,7 +25,7 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import get_logger, step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import SexConfig
 from genotools.qc.results import FilterResult
 
@@ -197,7 +197,4 @@ def filter_sex(
                     if bfile.exists():
                         bfile.unlink()
 
-            raise QCError(
-                f"Sex check failed. Check {sex_tmp1}.log and {sex_tmp2}.log "
-                "for more information."
-            )
+            raise QCError(f"Sex check failed. {RAW_LOG_HINT}")

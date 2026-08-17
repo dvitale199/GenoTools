@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from genotools.core.exceptions import QCError
+from genotools.core.exceptions import QCError, ValidationError
 from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
 from genotools.cli.runner import PipelineRunner, PipelineState
 
@@ -585,8 +585,41 @@ class TestPreflightFailureDoesNotPoisonPrefix:
         # out to isolate the "no steps" raise path.
         runner._convert_input_format = lambda: None  # type: ignore[method-assign]
 
-        with pytest.raises(ValueError, match="No QC steps"):
+        # A GenoToolsError subclass, so main() renders it as a message not a
+        # traceback (ValidationError is not a ValueError).
+        with pytest.raises(ValidationError, match="No QC steps"):
             runner.run()
 
         assert not Path(f"{out}_all_logs.log").exists()
+        assert raw_sink.get() is None
+
+    def test_preflight_failure_restores_a_rotated_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed re-run leaves the directory exactly as it found it.
+
+        With --skip-fails the guard is bypassed, so setup rotates the prior log
+        aside; if the run then dies in pre-flight, the fresh log is removed AND
+        the rotation is undone -- otherwise the prior log would be orphaned under
+        a .1 suffix.
+        """
+        from genotools.core.logging import raw_sink
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        Path(f"{out}_all_logs.log").write_text("PRIOR RUN CONTENT\n")
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True, skip_fails=True),
+        )
+        runner = PipelineRunner(args)
+        runner._convert_input_format = lambda: None  # type: ignore[method-assign]
+
+        with pytest.raises(ValidationError, match="No QC steps"):
+            runner.run()
+
+        assert Path(f"{out}_all_logs.log").read_text() == "PRIOR RUN CONTENT\n"
+        assert not Path(f"{out}_all_logs.log.1").exists()
         assert raw_sink.get() is None

@@ -53,7 +53,9 @@ This documentation provides detailed descriptions of the command-line arguments 
   - *Type*: `flag`
   - *Default*: `False`
   - *Description*: Logs at `DEBUG` level instead of `INFO`, on both the console
-    and the consolidated log. Combine with `--quiet` for verbose file-only logs.
+    and the consolidated log, and re-raises errors so the full Python traceback
+    is shown (without it, expected failures print a one-line `ERROR:` message).
+    Combine with `--quiet` for verbose file-only logs.
 
 ---
 

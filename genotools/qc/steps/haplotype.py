@@ -26,7 +26,7 @@ import pandas as pd
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
-from genotools.core.logging import get_logger, step_context
+from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HaplotypeConfig
 from genotools.qc.results import FilterResult
 
@@ -176,6 +176,5 @@ def filter_haplotype(
                         bfile.unlink()
 
             raise QCError(
-                f"Haplotype missingness test failed. "
-                f"Check {hap_tmp}.log for more information."
+                f"Haplotype missingness test failed. {RAW_LOG_HINT}"
             )

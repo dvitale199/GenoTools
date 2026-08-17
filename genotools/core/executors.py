@@ -44,9 +44,19 @@ def _harvest_raw_log(cmd_list: Sequence[str], cmd_str: str) -> None:
     Every PLINK/PLINK2 invocation writes ``{--out}.log`` and KING writes
     ``{--prefix}.log``. When a :class:`RunLog` is registered as the raw sink
     (during a pipeline run), read that file and hand it to the sink so it lands
-    in the consolidated log and the per-step raw file. Best-effort: harvesting
-    must never break execution, so all failures are swallowed. A no-op when no
-    sink is registered (library/unit callers).
+    in the consolidated log and the per-step raw file.
+
+    The harvested file is then **removed**, since its content now lives in both
+    of those places. Without this, every invocation that writes to a persistent
+    prefix leaves a stray ``{out}.log`` next to the real outputs (the final QC
+    step, each per-ancestry group, the ancestry preprocessing) duplicating
+    ``{out}_{step}.log`` under a confusing name. Mirrors what
+    ``GenotypeData.to_pfile`` already does for conversions, and what the legacy
+    ``concat_logs`` did for the files it consumed.
+
+    Best-effort throughout: harvesting must never break execution, so all
+    failures are swallowed. A no-op when no sink is registered (library/unit
+    callers), which also means their tool logs are left untouched.
     """
     try:
         sink = raw_sink.get()
@@ -70,6 +80,11 @@ def _harvest_raw_log(cmd_list: Sequence[str], cmd_str: str) -> None:
 
         text = log_path.read_text(errors="replace")
         sink.append_raw(cmd_str, text)
+        # Captured in the consolidated + per-step logs now; drop the stray file.
+        try:
+            log_path.unlink()
+        except OSError:
+            pass
     except Exception:  # pragma: no cover - harvesting is strictly best-effort
         pass
 

@@ -37,8 +37,10 @@ def guard_output_not_exists(
     if Path(f"{out_path}_all_logs.log").is_file() and not skip_fails:
         raise ValidationError(
             f"{out_path}_all_logs.log exists, which means the pipeline has "
-            f"previously been run on this output file! Rerun with --skip_fails "
-            f"to ignore this, or write output to a new file name."
+            f"previously been run on this output file! Rerun with --skip-fails "
+            f"to ignore this (the existing log is preserved as "
+            f"{Path(out_path).name}_all_logs.log.N), or write output to a new "
+            f"file name."
         )
 
 
