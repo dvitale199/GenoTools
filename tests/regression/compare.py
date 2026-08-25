@@ -17,6 +17,43 @@ class ComparisonResult:
     message: str
 
 
+def _ext(prefix: Path, ext: str) -> Path:
+    """Append an extension to a fileset prefix.
+
+    Path.with_suffix() *replaces* the last dotted segment, so a legitimate
+    prefix like "release.r12" or "cohort.v2/out" would lose part of its name.
+    PLINK appends to whatever --out it is given, so this does too.
+    """
+    return prefix.parent / f"{prefix.name}{ext}"
+
+
+def _read_psam(path: Path) -> pd.DataFrame:
+    """Read a .psam, normalizing the leading '#' off the first column name.
+
+    PLINK2 writes either "#FID<TAB>IID..." or, when there is no FID column,
+    "#IID...". Stripping the '#' leaves an "IID" column either way.
+    """
+    df = pd.read_csv(path, sep="\t", dtype=str)
+    if df.columns[0].startswith("#"):
+        df = df.rename(columns={df.columns[0]: df.columns[0][1:]})
+    return df
+
+
+def _read_pvar(path: Path) -> pd.DataFrame:
+    """Read a .pvar, skipping VCF-style ## meta lines and normalizing #CHROM."""
+    with open(path) as fh:
+        skip_lines = 0
+        for line in fh:
+            if line.startswith("##"):
+                skip_lines += 1
+            else:
+                break
+    df = pd.read_csv(path, sep="\t", dtype=str, skiprows=skip_lines)
+    if "#CHROM" in df.columns:
+        df = df.rename(columns={"#CHROM": "CHROM"})
+    return df
+
+
 def compare_sample_ids(expected: Path, actual: Path) -> ComparisonResult:
     """
     Compare sample IDs between two psam/fam files.
@@ -30,8 +67,8 @@ def compare_sample_ids(expected: Path, actual: Path) -> ComparisonResult:
     """
     ext = expected.suffix
     if ext == ".psam":
-        exp_df = pd.read_csv(expected, sep="\t", dtype=str)
-        act_df = pd.read_csv(actual, sep="\t", dtype=str)
+        exp_df = _read_psam(expected)
+        act_df = _read_psam(actual)
         exp_ids = set(exp_df["IID"])
         act_ids = set(act_df["IID"])
     else:  # .fam
@@ -66,25 +103,8 @@ def compare_variant_ids(expected: Path, actual: Path) -> ComparisonResult:
     """
     ext = expected.suffix
     if ext == ".pvar":
-        # PVAR files have header starting with #CHROM - we need to keep it
-        # but skip any ## comment lines
-        def read_pvar(path):
-            # Skip lines starting with ## (VCF-style comments)
-            with open(path) as f:
-                skip_lines = 0
-                for line in f:
-                    if line.startswith("##"):
-                        skip_lines += 1
-                    else:
-                        break
-            df = pd.read_csv(path, sep="\t", dtype=str, skiprows=skip_lines)
-            # Rename #CHROM to CHROM for easier access
-            if "#CHROM" in df.columns:
-                df = df.rename(columns={"#CHROM": "CHROM"})
-            return df
-
-        exp_df = read_pvar(expected)
-        act_df = read_pvar(actual)
+        exp_df = _read_pvar(expected)
+        act_df = _read_pvar(actual)
         exp_ids = set(exp_df["ID"])
         act_ids = set(act_df["ID"])
     else:  # .bim
@@ -121,12 +141,12 @@ def compare_pfiles(expected_prefix: Path, actual_prefix: Path) -> ComparisonResu
     actual_prefix = Path(actual_prefix)
 
     sample_result = compare_sample_ids(
-        expected_prefix.with_suffix(".psam"),
-        actual_prefix.with_suffix(".psam")
+        _ext(expected_prefix, ".psam"),
+        _ext(actual_prefix, ".psam")
     )
     variant_result = compare_variant_ids(
-        expected_prefix.with_suffix(".pvar"),
-        actual_prefix.with_suffix(".pvar")
+        _ext(expected_prefix, ".pvar"),
+        _ext(actual_prefix, ".pvar")
     )
 
     return ComparisonResult(
@@ -375,7 +395,15 @@ def _compare_traw_files(expected: Path, actual: Path) -> ComparisonResult:
 
 
 def _resolve_plink2() -> Optional[str]:
-    """Locate a plink2 executable (PATH, then the genotools cache)."""
+    """Locate a plink2 executable (PATH, then the genotools cache).
+
+    Note this can differ from the plink2 GenoTools itself runs, which always
+    comes from the genotools cache. The comparison operations used here are
+    stable across versions, but flag semantics are not: --maj-ref writes
+    different alleles under v2.00a5.10 than under v2.0.0-a.6.3, so a test that
+    depends on a flag's effect should build its fixture explicitly rather than
+    letting whichever plink2 is resolved decide what the fixture means.
+    """
     import shutil
 
     found = shutil.which("plink2")
@@ -396,7 +424,7 @@ def _export_traw(prefix: Path, plink2_exec: str, out_prefix: Path) -> Path:
         "--out", str(out_prefix),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    traw = out_prefix.with_suffix(".traw")
+    traw = _ext(out_prefix, ".traw")
     if result.returncode != 0 or not traw.exists():
         raise RuntimeError(
             f"plink2 --export A-transpose failed for {prefix} "
@@ -574,33 +602,114 @@ def compare_gwas(expected_prefix: Path, actual_prefix: Path, **kwargs) -> Compar
     return compare_gwas_results(exp_glm, act_glm, **kwargs)
 
 
+def _run_pgen_diff(
+    expected_prefix: Path,
+    actual_prefix: Path,
+    plink2_exec: str,
+    out_prefix: Path,
+) -> tuple[int, set]:
+    """Report genotype differences between two pfile sets via --pgen-diff.
+
+    Unlike a .traw export this needs no full-matrix intermediate: PLINK2 walks
+    both filesets and writes one row per differing (variant, sample) pair.
+
+    Returns:
+        (number of differing calls, set of variant IDs involved).
+
+    Raises:
+        RuntimeError: If PLINK2 fails.
+    """
+    import subprocess
+
+    cmd = [
+        plink2_exec,
+        "--pfile", str(expected_prefix),
+        # include-missing so a call present on one side and missing on the
+        # other counts as a difference, matching the .traw comparison.
+        "--pgen-diff", str(actual_prefix), "include-missing",
+        "--out", str(out_prefix),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    pdiff = _ext(out_prefix, ".pdiff")
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"plink2 --pgen-diff failed for {expected_prefix} vs "
+            f"{actual_prefix} (returncode {result.returncode}):\n"
+            f"{result.stderr}"
+        )
+    if not pdiff.exists():
+        # PLINK2 writes a header-only .pdiff when there is nothing to report;
+        # a missing file means it decided there was nothing to compare.
+        return 0, set()
+
+    ids: set = set()
+    count = 0
+    with open(pdiff) as fh:
+        header = fh.readline()
+        if not header.startswith("#ID"):
+            raise RuntimeError(
+                f"unexpected .pdiff header in {pdiff}: {header!r}"
+            )
+        for line in fh:
+            if not line.strip():
+                continue
+            count += 1
+            ids.add(line.split("\t", 1)[0])
+    return count, ids
+
+
 def compare_genotypes(
     expected_prefix: Path,
     actual_prefix: Path,
     plink2_exec: Optional[str] = None,
+    method: str = "pgen-diff",
 ) -> ComparisonResult:
     """Compare the genotype content of two pfile sets.
 
-    Exports both to PLINK2 .traw and compares order-independently. Detects
-    same-ID-but-different-genotype / flipped-coding regressions that
+    Detects same-ID-but-different-genotype and flipped-coding regressions that
     compare_pfiles cannot see. Requires a PLINK2 executable.
+
+    Two methods, same verdict:
+
+    ``pgen-diff`` (default)
+        PLINK2 ``--pgen-diff`` walks both filesets in place and reports
+        differing calls, plus a direct REF/ALT comparison read from the .pvar
+        files. Needs no large intermediate, so it scales to real cohorts.
+    ``traw``
+        Exports both filesets to .traw text and diffs the matrices. Equivalent,
+        but the export costs roughly (samples x variants x 2) bytes per side -
+        tens of GB for a real cohort - so it is kept only for debugging, where
+        the full matrix is what you want to look at.
+
+    The .pvar allele comparison runs first because PLINK2 *refuses* to run
+    --pgen-diff when the two filesets disagree on a variant's REF allele. On a
+    coding mismatch the per-call diff is skipped and the coding difference is
+    reported, which keeps a flipped fileset a clear failure rather than a
+    PLINK error.
 
     Args:
         expected_prefix: Path prefix for expected pfiles (without extension).
         actual_prefix: Path prefix for actual pfiles (without extension).
         plink2_exec: Path to plink2; auto-resolved from PATH/genotools cache
             if omitted.
+        method: "pgen-diff" (default) or "traw".
 
     Returns:
-        ComparisonResult over the genotype matrices.
+        ComparisonResult over the genotype content.
 
     Raises:
-        RuntimeError: If plink2 cannot be found or an export fails.
+        RuntimeError: If plink2 cannot be found or a PLINK2 call fails.
+        ValueError: If method is not recognized.
     """
     import tempfile
 
     expected_prefix = Path(expected_prefix)
     actual_prefix = Path(actual_prefix)
+
+    if method not in ("pgen-diff", "traw"):
+        raise ValueError(
+            f"unknown method {method!r}; expected 'pgen-diff' or 'traw'"
+        )
 
     plink2 = plink2_exec or _resolve_plink2()
     if plink2 is None:
@@ -608,8 +717,80 @@ def compare_genotypes(
             "plink2 executable not found; pass plink2_exec=... explicitly"
         )
 
-    with tempfile.TemporaryDirectory() as td:
-        tdp = Path(td)
-        exp_traw = _export_traw(expected_prefix, plink2, tdp / "expected")
-        act_traw = _export_traw(actual_prefix, plink2, tdp / "actual")
-        return _compare_traw_files(exp_traw, act_traw)
+    if method == "traw":
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            exp_traw = _export_traw(expected_prefix, plink2, tdp / "expected")
+            act_traw = _export_traw(actual_prefix, plink2, tdp / "actual")
+            return _compare_traw_files(exp_traw, act_traw)
+
+    # ID sets: --pgen-diff only compares the intersection, so the sets have to
+    # be checked separately or a dropped sample/variant would go unnoticed.
+    exp_psam = _read_psam(_ext(expected_prefix, ".psam"))
+    act_psam = _read_psam(_ext(actual_prefix, ".psam"))
+    exp_ids, act_ids = set(exp_psam["IID"]), set(act_psam["IID"])
+    missing_ids, extra_ids = exp_ids - act_ids, act_ids - exp_ids
+
+    exp_pvar = _read_pvar(_ext(expected_prefix, ".pvar"))
+    act_pvar = _read_pvar(_ext(actual_prefix, ".pvar"))
+    exp_snps, act_snps = set(exp_pvar["ID"]), set(act_pvar["ID"])
+    missing_snps, extra_snps = exp_snps - act_snps, act_snps - exp_snps
+
+    # Allele coding on shared variants. --pgen-diff compares alleles, not
+    # dosage codes, so a REF/ALT flip is invisible to it; compare directly.
+    mismatched_variants: set = set()
+    coding_mismatches = 0
+    if {"REF", "ALT"} <= set(exp_pvar.columns) & set(act_pvar.columns):
+        e = exp_pvar.set_index("ID")[["REF", "ALT"]]
+        a = act_pvar.set_index("ID")[["REF", "ALT"]]
+        shared = e.index.intersection(a.index)
+        if len(shared):
+            e, a = e.loc[shared], a.loc[shared]
+            flipped = (e["REF"].values != a["REF"].values) | (
+                e["ALT"].values != a["ALT"].values
+            )
+            coding_mismatches = int(flipped.sum())
+            mismatched_variants.update(shared[flipped])
+
+    if coding_mismatches:
+        # PLINK2 refuses to run --pgen-diff when REF alleles conflict ("REF
+        # allele on line N ... conflicts with loaded REF"), so the per-call
+        # diff cannot run. The coding mismatch is already a failing verdict.
+        genotype_mismatches = None
+    else:
+        with tempfile.TemporaryDirectory() as td:
+            genotype_mismatches, diff_ids = _run_pgen_diff(
+                expected_prefix, actual_prefix, plink2, Path(td) / "pdiff"
+            )
+        mismatched_variants.update(diff_ids)
+
+    sample_diff = len(missing_ids) + len(extra_ids)
+    id_variant_diff = len(missing_snps) + len(extra_snps)
+
+    equal = (
+        sample_diff == 0
+        and id_variant_diff == 0
+        and genotype_mismatches == 0
+        and coding_mismatches == 0
+    )
+    calls = (
+        "not compared (allele coding differs)"
+        if genotype_mismatches is None
+        else str(genotype_mismatches)
+    )
+    message = (
+        f"variants: missing {len(missing_snps)}, extra {len(extra_snps)}; "
+        f"samples: missing {len(missing_ids)}, extra {len(extra_ids)}; "
+        f"coding mismatches {coding_mismatches}; "
+        f"genotype cell mismatches {calls}"
+    )
+
+    return ComparisonResult(
+        equal=equal,
+        sample_diff=sample_diff,
+        variant_diff=id_variant_diff + len(mismatched_variants),
+        mismatched_samples=sorted(missing_ids | extra_ids),
+        mismatched_variants=sorted(mismatched_variants)
+        + sorted(missing_snps | extra_snps),
+        message=message,
+    )
