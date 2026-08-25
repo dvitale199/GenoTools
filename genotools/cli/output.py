@@ -293,7 +293,17 @@ class PipelineOutput:
 
             # Extract metrics
             if "metrics" in step_result:
-                for metric, value in step_result["metrics"].items():
+                metrics = step_result["metrics"]
+                # Variant steps carry both a step-specific count
+                # (geno_removed_count, hwe_removed_count, ...) and a generic
+                # outlier_count added for the in-memory legacy dict. Emitting
+                # both duplicates every variant row in the JSON report, so keep
+                # only the step-specific one (what the pre-refactor CLI wrote).
+                if level == "variant" and len(metrics) > 1:
+                    metrics = {
+                        k: v for k, v in metrics.items() if k != "outlier_count"
+                    }
+                for metric, value in metrics.items():
                     metrics_list.append(
                         QCMetrics(
                             step=step_result.get("step", step),
@@ -312,7 +322,15 @@ class PipelineOutput:
                     pruned = pd.read_csv(samplefile, sep="\t")
                     if len(pruned) > 0:
                         pruned["step"] = step
-                        pruned_dfs.append(pruned[["#FID", "IID", "step"]])
+                        cols = ["#FID", "IID", "step"]
+                        # In an ancestry run, record which group the sample was
+                        # pruned in - otherwise a pruned ID cannot be traced
+                        # back to its ancestry. Flat runs have no label, as
+                        # before.
+                        if ancestry != "all":
+                            pruned["label"] = ancestry
+                            cols.append("label")
+                        pruned_dfs.append(pruned[cols])
 
             # Extract related samples
             if step == "related" and "output" in step_result:
@@ -383,7 +401,10 @@ class PipelineOutput:
             qc_df = pd.DataFrame([
                 {
                     "step": m.step,
-                    "count": m.count,
+                    # Serialized as "pruned_count": the pre-refactor JSON
+                    # contract that downstream consumers read. The in-memory
+                    # field stays QCMetrics.count.
+                    "pruned_count": m.count,
                     "metric": m.metric,
                     "ancestry": m.ancestry,
                     "level": m.level,
@@ -465,7 +486,7 @@ def build_metrics_dataframe(metrics: List[QCMetrics]) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "step": m.step,
-            "count": m.count,
+            "pruned_count": m.count,
             "metric": m.metric,
             "ancestry": m.ancestry,
             "level": m.level,

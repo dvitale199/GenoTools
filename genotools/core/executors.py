@@ -340,29 +340,46 @@ def run_plink(
     output_path: Path,
     input_format: str = "bfile",
     extra_args: Optional[List[str]] = None,
-    make_bed: bool = True,
+    make_bed: bool = False,
 ) -> CommandResult:
     """Run PLINK 1.9 with standard options.
+
+    PLINK 1.9 is only used for analyses PLINK2 does not implement
+    (--check-sex, --test-missing, --test-mishap, --hwe --write-snplist). Those
+    runs consume a side file (.sexcheck / .missing / .missing.hap / .snplist)
+    and the actual filtering is done afterwards by :func:`run_plink2`, so
+    ``make_bed`` defaults to False: requesting a genotype write here costs a
+    full copy of the data and makes PLINK reject the run outright when
+    ambiguous-sex samples carry phenotype data ("--make-bed ... cannot be
+    combined with other commands").
 
     Args:
         input_path: Input genotype file path (without extension).
         output_path: Output path (without extension).
-        input_format: Either "pfile" or "bfile".
+        input_format: Must be "bfile"; PLINK 1.9 cannot read pgen filesets.
         extra_args: Additional PLINK arguments.
-        make_bed: If True, include --make-bed.
+        make_bed: If True, include --make-bed. Only set this for a run whose
+            .bed/.bim/.fam output is actually read afterwards.
 
     Returns:
         CommandResult from the PLINK execution.
 
     Raises:
+        ValueError: If input_format is not "bfile".
         ExternalToolError: If PLINK fails.
     """
     plink = get_plink()
 
-    # Build command
-    input_flag = "--pfile" if input_format == "pfile" else "--bfile"
+    # PLINK 1.9 has no --pfile flag; it silently ignores it and then runs with
+    # no input, so refuse rather than produce empty results.
+    if input_format != "bfile":
+        raise ValueError(
+            f"run_plink() requires input_format='bfile', got {input_format!r}. "
+            "PLINK 1.9 cannot read pgen filesets - convert first "
+            "(GenotypeData.ensure_bfile) or use run_plink2()."
+        )
 
-    cmd: List[str] = [str(plink), input_flag, str(input_path)]
+    cmd: List[str] = [str(plink), "--bfile", str(input_path)]
 
     # Add extra arguments
     if extra_args:

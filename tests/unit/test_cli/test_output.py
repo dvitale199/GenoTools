@@ -143,7 +143,9 @@ class TestPipelineOutput:
 
         # Should be dict format from DataFrame
         assert "step" in qc
-        assert "count" in qc
+        # Key is "pruned_count" in the JSON, per the pre-refactor contract.
+        assert "pruned_count" in qc
+        assert "count" not in qc
         assert "metric" in qc
         assert "ancestry" in qc
         assert "level" in qc
@@ -278,7 +280,7 @@ class TestBuildMetricsDataframe:
 
         assert len(df) == 1
         assert df.iloc[0]["step"] == "callrate_prune"
-        assert df.iloc[0]["count"] == 10
+        assert df.iloc[0]["pruned_count"] == 10
         assert df.iloc[0]["ancestry"] == "EUR"
 
     def test_multiple_metrics(self) -> None:
@@ -324,3 +326,115 @@ class TestBuildGwasDataframe:
 
         assert len(df) == 2
         assert list(df["ancestry"]) == ["EUR", "AFR"]
+
+
+class TestQCMetricExtraction:
+    """Regression cover for the JSON report schema.
+
+    Two drifts the refactor introduced, both caught by comparing a real
+    old-vs-new ancestry run: variant steps emitted a duplicate generic
+    outlier_count row alongside their own metric (so summing pruned_count per
+    step double-counted), and pruned_samples lost the ancestry label (so a
+    pruned ID could not be traced back to its group).
+    """
+
+    @staticmethod
+    def _extract(result_dict: dict, ancestry: str, tmp_path: Path):
+        from genotools.cli.output import PipelineOutput
+
+        class _Args:
+            out_path = str(tmp_path / "out")
+
+        out = PipelineOutput()
+        metrics: list = []
+        pruned: list = []
+        out._extract_qc_metrics(
+            result_dict=result_dict,
+            ancestry=ancestry,
+            sample_steps=["callrate", "sex"],
+            variant_steps=["geno", "hwe"],
+            metrics_list=metrics,
+            pruned_dfs=pruned,
+            related_dfs=[],
+            args=_Args(),
+        )
+        return metrics, pruned
+
+    def test_variant_step_emits_one_row_not_two(self, tmp_path: Path) -> None:
+        """The generic outlier_count is dropped when the step has its own metric."""
+        result = {
+            "geno": {
+                "pass": True,
+                "step": "geno_prune",
+                # What FilterResult.to_dict() hands over: the step's own count
+                # plus a generic outlier_count for legacy in-memory consumers.
+                "metrics": {"outlier_count": 20236, "geno_removed_count": 20236},
+                "output": {},
+            }
+        }
+        metrics, _ = self._extract(result, "EUR", tmp_path)
+
+        assert [m.metric for m in metrics] == ["geno_removed_count"]
+        assert metrics[0].count == 20236
+
+    def test_variant_step_keeps_lone_outlier_count(self, tmp_path: Path) -> None:
+        """A step reporting only outlier_count is still represented."""
+        result = {
+            "geno": {
+                "pass": True,
+                "step": "geno_prune",
+                "metrics": {"outlier_count": 7},
+                "output": {},
+            }
+        }
+        metrics, _ = self._extract(result, "EUR", tmp_path)
+
+        assert [m.metric for m in metrics] == ["outlier_count"]
+
+    def test_sample_step_keeps_outlier_count(self, tmp_path: Path) -> None:
+        """Sample steps report outlier_count and must not be filtered."""
+        result = {
+            "callrate": {
+                "pass": True,
+                "step": "callrate_prune",
+                "metrics": {"outlier_count": 125},
+                "output": {},
+            }
+        }
+        metrics, _ = self._extract(result, "EUR", tmp_path)
+
+        assert [m.metric for m in metrics] == ["outlier_count"]
+
+    def _pruned_file(self, tmp_path: Path) -> str:
+        path = tmp_path / "sex.outliers"
+        path.write_text("#FID\tIID\nFAM1\tSAMP1\n")
+        return str(path)
+
+    def test_pruned_samples_labeled_in_ancestry_run(self, tmp_path: Path) -> None:
+        result = {
+            "sex": {
+                "pass": True,
+                "step": "sex_prune",
+                "metrics": {"outlier_count": 1},
+                "output": {"pruned_samples": self._pruned_file(tmp_path)},
+            }
+        }
+        _, pruned = self._extract(result, "EUR", tmp_path)
+
+        assert len(pruned) == 1
+        assert list(pruned[0].columns) == ["#FID", "IID", "step", "label"]
+        assert pruned[0]["label"].tolist() == ["EUR"]
+
+    def test_pruned_samples_unlabeled_in_flat_run(self, tmp_path: Path) -> None:
+        """A non-ancestry run has no group to label, and keeps the old shape."""
+        result = {
+            "sex": {
+                "pass": True,
+                "step": "sex_prune",
+                "metrics": {"outlier_count": 1},
+                "output": {"pruned_samples": self._pruned_file(tmp_path)},
+            }
+        }
+        _, pruned = self._extract(result, "all", tmp_path)
+
+        assert list(pruned[0].columns) == ["#FID", "IID", "step"]

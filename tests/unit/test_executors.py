@@ -111,3 +111,66 @@ def test_harvest_never_raises_on_bad_read(tmp_path: Path, sink: _FakeSink):
     Path(f"{prefix}.log").mkdir()  # reading this as a file fails
     _harvest_raw_log(["plink2", "--out", str(prefix)], "cmd")  # must not raise
     assert sink.calls == []
+
+
+class TestRunPlinkCommandShape:
+    """PLINK 1.9 is only used for analyses PLINK2 lacks, never to write genotypes.
+
+    Regression cover for the refactor bug where run_plink() appended --make-bed
+    to every call: PLINK then refuses the run outright ("When ambiguous-sex
+    samples with phenotype data are present, --make-bed ... cannot be combined
+    with other commands"), which silently no-op'd sex/case_control/haplotype/hwe
+    for any ancestry group holding a sex-0 sample with a phenotype.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch) -> list:
+        """Record the argv run_plink() builds, without executing PLINK."""
+        from genotools.core import executors
+
+        seen: list = []
+
+        def fake_run_command(cmd, tool_name=None, **kwargs):
+            seen.append(cmd)
+            return "ok"
+
+        monkeypatch.setattr(executors, "get_plink", lambda: Path("/fake/plink"))
+        monkeypatch.setattr(executors, "run_command", fake_run_command)
+        return seen
+
+    def test_no_make_bed_by_default(self, monkeypatch, tmp_path: Path) -> None:
+        from genotools.core.executors import run_plink
+
+        seen = self._capture(monkeypatch)
+        run_plink(
+            input_path=tmp_path / "in",
+            output_path=tmp_path / "out",
+            extra_args=["--check-sex", "0.25", "0.75"],
+        )
+
+        assert "--make-bed" not in seen[0]
+        assert "--check-sex" in seen[0]
+
+    def test_make_bed_only_when_asked(self, monkeypatch, tmp_path: Path) -> None:
+        from genotools.core.executors import run_plink
+
+        seen = self._capture(monkeypatch)
+        run_plink(
+            input_path=tmp_path / "in",
+            output_path=tmp_path / "out",
+            make_bed=True,
+        )
+
+        assert "--make-bed" in seen[0]
+
+    def test_rejects_pfile_input(self, monkeypatch, tmp_path: Path) -> None:
+        """PLINK 1.9 has no --pfile flag; it ignores it and runs on no input."""
+        from genotools.core.executors import run_plink
+
+        self._capture(monkeypatch)
+        with pytest.raises(ValueError, match="input_format='bfile'"):
+            run_plink(
+                input_path=tmp_path / "in",
+                output_path=tmp_path / "out",
+                input_format="pfile",
+            )
