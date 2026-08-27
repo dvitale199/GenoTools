@@ -1140,3 +1140,114 @@ class TestPerGroupCaseControl:
         assert seen["EUR"] == {}, "both phenotypes present - case_control runs"
         assert set(seen["FIN"]) == {"case_control"}
         assert "not both" in seen["FIN"]["case_control"]
+
+
+def _psam_with_sexes(prefix: Path, sexes: List[int]) -> None:
+    """Write a .psam at prefix with one row per entry in sexes."""
+    lines = ["#FID\tIID\tSEX\tPHENO1"]
+    lines += [f"F{i}\tI{i}\t{s}\t{1 + (i % 2)}" for i, s in enumerate(sexes)]
+    Path(f"{prefix}.psam").write_text("\n".join(lines) + "\n")
+
+
+class TestPerGroupSex:
+    """--check-sex needs recorded sample sex. The cohort can hold it while an
+    ancestry group holds none, so the decision is re-made per group - the same
+    shape as the het floor and case-control checks.
+    """
+
+    def test_group_without_recorded_sex_skips_sex(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_CAS"
+        _psam_with_sexes(group, [0] * 80)
+
+        reasons = runner._skip_reasons(["callrate", "sex", "geno"], str(group))
+        assert set(reasons) == {"sex"}
+        assert reasons["sex"] == "no sample sex data is available"
+
+    def test_group_with_one_sex_still_runs(self, tmp_path: Path) -> None:
+        """Males only is enough - the cohort rule skips only when neither
+        males nor females are recorded, and the group rule must match it.
+        """
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "males_only"
+        _psam_with_sexes(group, [1] * 80)
+
+        assert runner._skip_reasons(["sex"], str(group)) == {}
+
+    def test_group_with_both_sexes_runs(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "mixed"
+        _psam_with_sexes(group, [1, 2] * 40)
+
+        assert runner._skip_reasons(["callrate", "sex"], str(group)) == {}
+
+    def test_cohort_no_x_decision_survives_the_group_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A cohort with no X chromosome rules sex out for every group, and the
+        group's own sex column must not overwrite that reason - the pvar is
+        shared, so no group can have X data the cohort lacks.
+        """
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        runner._validation_decisions = ValidationDecisions(
+            skip_reasons={"sex": "no X chromosome data is available"}
+        )
+        group = tmp_path / "nox_group"
+        _psam_with_sexes(group, [0] * 80)
+
+        reasons = runner._skip_reasons(["sex"], str(group))
+        assert reasons["sex"] == "no X chromosome data is available"
+
+    def test_sex_not_requested_is_not_a_skip(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "unsexed"
+        _psam_with_sexes(group, [0] * 80)
+
+        assert runner._skip_reasons(["callrate", "geno"], str(group)) == {}
+
+    def test_ancestry_loop_decides_sex_per_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fix at its call site: one group with sex recorded, one without."""
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        _psam_with_sexes(work / "out_ancestry_EUR", [1, 2] * 40)
+        _psam_with_sexes(work / "out_ancestry_CAS", [0] * 80)
+
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": ["EUR", "CAS"]}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        seen: Dict[str, Dict[str, str]] = {}
+        monkeypatch.setattr(
+            runner,
+            "_run_qc_pipeline",
+            lambda **kw: seen.update({kw["ancestry_label"]: kw["skip_reasons"]}),
+        )
+
+        runner._run_with_ancestry(["callrate", "sex"])
+
+        assert seen["EUR"] == {}
+        assert set(seen["CAS"]) == {"sex"}
+
+    def test_all_three_checks_decide_together(self, tmp_path: Path) -> None:
+        """A group can fail more than one precondition at once, and each has to
+        be reported with its own reason rather than the first one found.
+        """
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_TINY"
+        lines = ["#FID\tIID\tSEX\tPHENO1"]
+        lines += [f"F{i}\tI{i}\t0\t2" for i in range(12)]
+        Path(f"{group}.psam").write_text("\n".join(lines) + "\n")
+
+        reasons = runner._skip_reasons(
+            ["callrate", "sex", "het", "geno", "case_control"], str(group)
+        )
+        assert set(reasons) == {"sex", "het", "case_control"}
+        assert "12 samples" in reasons["het"]
+        assert reasons["sex"] == "no sample sex data is available"
+        assert "not both" in reasons["case_control"]

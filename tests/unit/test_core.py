@@ -922,13 +922,79 @@ class TestValidation:
         cohort = validate_input(bad, tmp_path / "o8", case_control_requested=True)
         assert cohort.skip_reasons["case_control"] == case_control_skip_reason(bad)
 
-    def test_unreadable_phenotype_leaves_the_decision_to_the_step(self, tmp_path: Path):
-        """Missing file or missing PHENO1: return None rather than guess a skip,
-        so the step raises its own specific error instead.
+    def test_missing_column_leaves_the_decision_to_the_step(self, tmp_path: Path):
+        """A psam without the column decides nothing, rather than guessing a
+        skip - the step raises its own specific error instead.
         """
-        from genotools.core.validation import case_control_skip_reason
-        assert case_control_skip_reason(tmp_path / "does_not_exist") is None
-
+        from genotools.core.validation import (
+            case_control_skip_reason,
+            sex_skip_reason,
+        )
         no_pheno = tmp_path / "no_pheno"
         no_pheno.with_suffix(".psam").write_text("#FID\tIID\tSEX\nF1\tI1\t1\n")
         assert case_control_skip_reason(no_pheno) is None
+
+        no_sex = tmp_path / "no_sex"
+        no_sex.with_suffix(".psam").write_text("#FID\tIID\tPHENO1\nF1\tI1\t1\n")
+        assert sex_skip_reason(no_sex) is None
+
+    @pytest.mark.parametrize(
+        "decide", ["het_skip_reason", "sex_skip_reason", "case_control_skip_reason"]
+    )
+    def test_missing_psam_raises(self, tmp_path: Path, decide: str):
+        """A missing psam is a wrong prefix, not a data condition. Deciding
+        nothing would hide it - which is how every ancestry run once died
+        (the group files live in the temp dir without --full-output).
+        """
+        from genotools.core import validation
+        with pytest.raises(FileNotFoundError):
+            getattr(validation, decide)(tmp_path / "does_not_exist")
+
+    # --- per-dataset sex decision (re-decided after the split) ---
+
+    def test_sex_reason_when_no_sex_recorded(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import SEX_SKIP_REASON, sex_skip_reason
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["SEX"] = 0
+        nosex = tmp_path / "sx_none"
+        self._pfile_with(geno, nosex, psam=psam)
+        assert sex_skip_reason(nosex) == SEX_SKIP_REASON
+
+    def test_no_sex_reason_when_one_sex_present(self, geno: Path, tmp_path: Path):
+        """Some sex recorded is enough - matches the cohort-level rule, which
+        skips only when neither males nor females are present.
+        """
+        import pandas as pd
+        from genotools.core.validation import sex_skip_reason
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["SEX"] = 1
+        males = tmp_path / "sx_males"
+        self._pfile_with(geno, males, psam=psam)
+        assert sex_skip_reason(males) is None
+
+    def test_sex_reason_is_the_cohort_reason(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import sex_skip_reason, validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["SEX"] = 0
+        bad = tmp_path / "sx_same"
+        self._pfile_with(geno, bad, psam=psam)
+
+        cohort = validate_input(bad, tmp_path / "o9", sex_requested=True)
+        assert cohort.skip_reasons["sex"] == sex_skip_reason(bad)
+
+    def test_het_reason_is_the_cohort_reason(self, geno: Path, tmp_path: Path):
+        """The het floor is phrased in one place for both callers."""
+        import pandas as pd
+        from genotools.core.validation import (
+            MIN_HET_SAMPLES,
+            het_skip_reason,
+            validate_input,
+        )
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        bad = tmp_path / "het_same"
+        self._pfile_with(geno, bad, psam=psam.head(MIN_HET_SAMPLES - 1))
+
+        cohort = validate_input(bad, tmp_path / "o10", het_requested=True)
+        assert cohort.skip_reasons["het"] == het_skip_reason(bad)

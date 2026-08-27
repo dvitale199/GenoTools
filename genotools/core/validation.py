@@ -20,9 +20,20 @@ logger = get_logger(__name__)
 # floor het cannot run at all, so it is skipped rather than left to fail.
 MIN_HET_SAMPLES = 50
 
-# One reason string for one decision, so the cohort-level check in
-# ``validate_input`` and the per-dataset check below cannot drift apart.
+# One reason string per decision, shared by the cohort-level checks in
+# ``validate_input`` and the per-dataset checks below so the two cannot drift
+# into different explanations of the same finding.
+SEX_SKIP_REASON = "no sample sex data is available"
+NO_X_SKIP_REASON = "no X chromosome data is available"
 CASE_CONTROL_SKIP_REASON = "only cases or controls are available, not both"
+
+
+def het_floor_reason(n_samples: int) -> str:
+    """Phrase the het skip for a dataset that cannot support LD estimation."""
+    return (
+        f"{n_samples} samples is fewer than the {MIN_HET_SAMPLES} "
+        f"PLINK requires to estimate LD"
+    )
 
 
 def count_samples(geno_path: Union[str, Path]) -> int:
@@ -31,25 +42,78 @@ def count_samples(geno_path: Union[str, Path]) -> int:
         return sum(1 for _ in f) - 1
 
 
+# --- per-dataset step decisions ----------------------------------------------
+#
+# ``validate_input`` decides against the whole cohort. Under ``--ancestry``
+# every group is its own dataset, and the split can change any answer derived
+# from samples: the cohort can clear PLINK's LD floor, hold sample sex, and
+# hold both phenotypes while an individual group does none of those. The
+# functions below re-decide those three against one dataset, and the runner
+# applies them per group.
+#
+# Only sample-derived checks belong here. The X chromosome check cannot change,
+# because the split keeps samples and every group inherits the cohort's pvar.
+#
+# All of them read the psam as it stands *before* the QC chain runs, so a
+# precondition broken by an earlier prune is left to the step to raise.
+
+
+def _psam_column(geno_path: Union[str, Path], column: str) -> Optional[pd.Series]:
+    """Read one column of a pfile's .psam, or None if the column is absent.
+
+    A missing *file* raises: the caller resolved this path, and deciding
+    nothing would hide a wrong prefix (which is how every ancestry run once
+    died). A missing *column* returns None, leaving the decision to the step,
+    which raises its own specific error - ``validate_input`` already rejects a
+    cohort psam lacking SEX or PHENO1.
+    """
+    with open(f"{geno_path}.psam") as f:
+        header = f.readline().split()
+    if column not in header:
+        return None
+    frame = pd.read_csv(f"{geno_path}.psam", sep=r"\s+", usecols=[column])
+    return frame[column]
+
+
+def het_skip_reason(geno_path: Union[str, Path]) -> Optional[str]:
+    """Decide whether het pruning can run on a specific dataset.
+
+    The step LD-prunes before it can call ``--het``, and ``--indep-pairwise``
+    refuses fewer than ``MIN_HET_SAMPLES`` samples.
+    """
+    n_samples = count_samples(geno_path)
+    if n_samples < MIN_HET_SAMPLES:
+        return het_floor_reason(n_samples)
+    return None
+
+
+def sex_skip_reason(geno_path: Union[str, Path]) -> Optional[str]:
+    """Decide whether sex pruning can run on a specific dataset.
+
+    ``--check-sex`` needs recorded sample sex to compare its calls against. A
+    dataset with some sex recorded still runs, matching the cohort-level rule.
+    """
+    sex = _psam_column(geno_path, "SEX")
+    if sex is None:
+        return None
+
+    sex_counts = sex.value_counts().to_dict()
+    if (1 not in sex_counts) and (2 not in sex_counts):
+        return SEX_SKIP_REASON
+    return None
+
+
 def case_control_skip_reason(geno_path: Union[str, Path]) -> Optional[str]:
     """Decide whether case-control missingness can run on a specific dataset.
 
     ``--test-missing`` needs both cases (2) and controls (1); with only one it
-    raises inside the step. Under ``--ancestry`` the cohort can hold both while
-    an individual group holds only one, so the decision has to be re-made per
-    dataset rather than inherited from the cohort.
-
-    Returns:
-        The skip reason, or None if the step can run - including when the
-        phenotype cannot be read at all, in which case the decision is left to
-        the step rather than guessed at.
+    raises inside the step.
     """
-    try:
-        sam = pd.read_csv(f"{geno_path}.psam", sep=r"\s+", usecols=["PHENO1"])
-    except (OSError, ValueError):
+    pheno = _psam_column(geno_path, "PHENO1")
+    if pheno is None:
         return None
 
-    pheno_counts = sam["PHENO1"].value_counts().to_dict()
+    pheno_counts = pheno.value_counts().to_dict()
     if (1 not in pheno_counts) or (2 not in pheno_counts):
         return CASE_CONTROL_SKIP_REASON
     return None
@@ -172,9 +236,9 @@ def validate_input(
 
     if sex_requested:
         if (1 not in sex_counts) and (2 not in sex_counts):
-            skip_reasons["sex"] = "no sample sex data is available"
+            skip_reasons["sex"] = SEX_SKIP_REASON
         elif ("23" not in chr_counts) and ("X" not in chr_counts):
-            skip_reasons["sex"] = "no X chromosome data is available"
+            skip_reasons["sex"] = NO_X_SKIP_REASON
 
     disable_filter_controls = False
     if hwe_requested and filter_controls and (1 not in pheno_counts):
@@ -189,10 +253,7 @@ def validate_input(
     if het_requested and (sam.shape[0] < MIN_HET_SAMPLES):
         # Pre-2.0 this read var.shape[0] (the variant count, never < 50 on real
         # data), so the guard never fired and het was left to fail inside PLINK.
-        skip_reasons["het"] = (
-            f"{sam.shape[0]} samples is fewer than the {MIN_HET_SAMPLES} "
-            f"PLINK requires to estimate LD"
-        )
+        skip_reasons["het"] = het_floor_reason(sam.shape[0])
 
     # Not logged here: the runner announces each skip at the point it applies,
     # which under --ancestry is once per group with that group's own numbers.
