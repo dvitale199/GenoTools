@@ -22,7 +22,12 @@ from typing import Any, Dict, List
 import pytest
 
 from genotools.core.exceptions import QCError, ValidationError
-from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
+from genotools.cli.parser import (
+    AncestryArgs,
+    InputArgs,
+    OutputArgs,
+    PipelineArgs,
+)
 from genotools.cli.runner import PipelineRunner, PipelineState
 
 SYNTHETIC = (
@@ -326,23 +331,35 @@ from genotools.core.validation import ValidationDecisions
 
 
 class TestValidationDecisionsApplied:
-    """Round-6: data-driven step-skip decisions from validate_input must be
-    applied by the runner (skipped steps dropped; filter_controls forced off)."""
+    """Data-driven step-skip decisions from validate_input must reach the
+    runner (reported as skipped, with a reason; filter_controls forced off)."""
 
-    def test_filter_steps_drops_decided_steps(self, tmp_path: Path) -> None:
+    def test_skip_reasons_carry_decided_steps(self, tmp_path: Path) -> None:
         runner, _, _ = _make_runner(tmp_path, warn_only=False)
         runner._validation_decisions = ValidationDecisions(
-            skip_sex=True, skip_case_control=True, skip_het=True
+            skip_reasons={
+                "sex": "no X chromosome data is available",
+                "case_control": "only cases or controls are available, not both",
+                "het": "12 samples is fewer than the 50 PLINK requires",
+            }
         )
-        kept = runner._filter_steps_by_decisions(
+        reasons = runner._skip_reasons(
             ["callrate", "sex", "het", "case_control", "hwe"]
         )
-        assert kept == ["callrate", "hwe"]
+        assert set(reasons) == {"sex", "het", "case_control"}
+        assert reasons["sex"] == "no X chromosome data is available"
 
-    def test_filter_steps_noop_by_default(self, tmp_path: Path) -> None:
+    def test_skip_reasons_ignore_unrequested_steps(self, tmp_path: Path) -> None:
+        """A decision about a step this run isn't doing must not leak in."""
         runner, _, _ = _make_runner(tmp_path, warn_only=False)
-        steps = ["callrate", "sex", "het"]
-        assert runner._filter_steps_by_decisions(steps) == steps
+        runner._validation_decisions = ValidationDecisions(
+            skip_reasons={"sex": "no X chromosome data is available"}
+        )
+        assert runner._skip_reasons(["callrate", "hwe"]) == {}
+
+    def test_skip_reasons_empty_by_default(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        assert runner._skip_reasons(["callrate", "sex", "het"]) == {}
 
     def test_disable_filter_controls_reaches_legacy_args(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -623,3 +640,383 @@ class TestPreflightFailureDoesNotPoisonPrefix:
         assert Path(f"{out}_all_logs.log").read_text() == "PRIOR RUN CONTENT\n"
         assert not Path(f"{out}_all_logs.log.1").exists()
         assert raw_sink.get() is None
+
+
+class TestStepOutcomesReachTheReport:
+    """pass/fail/skipped all travel the same path into the report.
+
+    Before 2.0 a step that produced no data was simply absent from the QC
+    section, so "not requested" and "requested but impossible" were
+    indistinguishable to any consumer of the JSON.
+    """
+
+    def test_skipped_step_is_recorded(self, tmp_path: Path, monkeypatch) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "het", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "12 samples is fewer than the 50 PLINK requires"},
+        )
+
+        assert out_dict["het"]["outcome"] == "skipped"
+        assert out_dict["het"]["pass"] is False
+        assert "12 samples" in out_dict["het"]["reason"]
+        assert out_dict["het"]["metrics"] == {"outlier_count": 0}
+        assert out_dict["pass_fail"]["het"]["outcome"] == "skipped"
+        assert out_dict["pass_fail"]["het"]["status"] is False
+
+    def test_skipped_step_does_not_run(self, tmp_path: Path, monkeypatch) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        ran: list[str] = []
+
+        def recording_step(step, step_input, step_output, legacy_args):
+            ran.append(step)
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", recording_step)
+        runner._run_qc_pipeline(
+            steps=["callrate", "het", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "too few samples"},
+        )
+        assert ran == ["callrate", "hwe"]
+
+    def test_skip_passes_the_pfile_chain_through(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The step after a skip must read what the skipped step would have."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        inputs: dict[str, str] = {}
+
+        def recording_step(step, step_input, step_output, legacy_args):
+            inputs[step] = step_input
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", recording_step)
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "het", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "too few samples"},
+        )
+
+        # hwe reads callrate's output, not a path het never wrote.
+        assert inputs["hwe"] == out_dict["pass_fail"]["callrate"]["output"]
+        assert Path(f"{inputs['hwe']}.pgen").exists()
+
+    def test_failed_step_is_recorded(self, tmp_path: Path, monkeypatch) -> None:
+        """Regression: the refactor dropped failed steps from the QC section."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("het"))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "het", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+
+        assert out_dict["het"]["outcome"] == "fail"
+        assert out_dict["het"]["pass"] is False
+        assert "het failed" in out_dict["het"]["reason"]
+        assert out_dict["het"]["metrics"] == {"outlier_count": 0}
+
+    def test_failure_reason_reaches_the_report(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """PassFailRecord captured the error, then dropped it on serialization."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("het"))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "het", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+        assert "het failed" in out_dict["pass_fail"]["het"]["reason"]
+
+    def test_passing_steps_keep_their_outcome(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "hwe"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+        assert out_dict["pass_fail"]["callrate"]["outcome"] == "pass"
+        assert out_dict["pass_fail"]["callrate"]["reason"] is None
+
+
+def _psam_with(prefix: Path, n_samples: int) -> None:
+    """Write a .psam with n_samples rows (plus header) at prefix."""
+    lines = ["#FID\tIID\tSEX\tPHENO1"]
+    lines += [f"F{i}\tI{i}\t1\t1" for i in range(n_samples)]
+    Path(f"{prefix}.psam").write_text("\n".join(lines) + "\n")
+
+
+class TestPerGroupHetFloor:
+    """The cohort-level het guard runs before the ancestry split, so a small
+    group can still fall under PLINK's LD floor. Decide against the group file.
+    """
+
+    def test_small_group_skips_het(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_FIN"
+        _psam_with(group, 12)
+
+        reasons = runner._skip_reasons(["callrate", "het", "geno"], str(group))
+        assert set(reasons) == {"het"}
+        assert "12 samples" in reasons["het"]
+
+    def test_large_group_runs_het(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_EUR"
+        _psam_with(group, 6927)
+
+        assert runner._skip_reasons(["callrate", "het", "geno"], str(group)) == {}
+
+    def test_floor_is_inclusive(self, tmp_path: Path) -> None:
+        """MIN_HET_SAMPLES itself is enough - PLINK's error is 'less than 50'."""
+        from genotools.core.validation import MIN_HET_SAMPLES
+
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        at_floor = tmp_path / "at_floor"
+        _psam_with(at_floor, MIN_HET_SAMPLES)
+        below = tmp_path / "below"
+        _psam_with(below, MIN_HET_SAMPLES - 1)
+
+        assert runner._skip_reasons(["het"], str(at_floor)) == {}
+        assert "het" in runner._skip_reasons(["het"], str(below))
+
+    def test_cohort_decision_is_not_overridden_by_group_size(
+        self, tmp_path: Path
+    ) -> None:
+        """A large group must not resurrect a het skip decided cohort-wide."""
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        runner._validation_decisions = ValidationDecisions(
+            skip_reasons={"het": "cohort-level reason"}
+        )
+        group = tmp_path / "big"
+        _psam_with(group, 5000)
+
+        reasons = runner._skip_reasons(["het"], str(group))
+        assert reasons["het"] == "cohort-level reason"
+
+    def test_het_not_requested_is_not_a_skip(self, tmp_path: Path) -> None:
+        """A step you did not ask for stays absent, not reported as skipped."""
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "tiny"
+        _psam_with(group, 3)
+
+        assert runner._skip_reasons(["callrate", "geno"], str(group)) == {}
+
+
+class TestSkipAtTheEndOfTheChain:
+    """A skipped step writes no files, so it must not claim the final output
+    path - the last step that actually runs does.
+    """
+
+    @pytest.mark.parametrize("warn_only", [True, False])
+    def test_trailing_skip_still_produces_output(
+        self, tmp_path: Path, monkeypatch, warn_only: bool
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=warn_only)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "too few samples"},
+        )
+
+        assert Path(f"{out}.pgen").exists(), "trailing skip swallowed the output"
+
+    def test_last_runnable_step_writes_the_output_path(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        outputs: dict[str, str] = {}
+
+        def recording_step(step, step_input, step_output, legacy_args):
+            outputs[step] = step_output
+            _touch_pfiles(Path(step_output))
+            return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+        monkeypatch.setattr(runner, "_run_single_step", recording_step)
+        runner._run_qc_pipeline(
+            steps=["callrate", "geno", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "too few samples"},
+        )
+        assert outputs["geno"] == str(out)
+
+    def test_all_steps_skipped_passes_input_through(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A group where nothing can run still needs output pfiles."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["het"],
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons={"het": "too few samples"},
+        )
+
+        assert Path(f"{out}.pgen").exists()
+        assert out_dict["het"]["outcome"] == "skipped"
+
+
+class TestNothingCanRunMessage:
+    """"No QC steps requested" is wrong when a step was requested and ruled
+    out. Say which, and why.
+    """
+
+    def test_message_names_the_ruled_out_step(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        runner._validation_decisions = ValidationDecisions(
+            skip_reasons={"het": "12 samples is fewer than the 50 PLINK requires"}
+        )
+        skips = runner._skip_reasons(["het"])
+
+        message = str(runner._nothing_to_run_error(skips))
+        assert "het" in message
+        assert "12 samples" in message
+        assert "requested" not in message
+
+    def test_message_unchanged_when_nothing_was_requested(
+        self, tmp_path: Path
+    ) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        message = str(runner._nothing_to_run_error({}))
+        assert message == "No QC steps or ancestry prediction requested"
+
+
+class _StubTmpDir:
+    """Stands in for tempfile.TemporaryDirectory - only ``.name`` is read."""
+
+    def __init__(self, path: Path) -> None:
+        self.name = str(path)
+
+
+def _ancestry_runner(
+    tmp_path: Path, full_output: bool, run_ancestry: bool = True
+) -> tuple[PipelineRunner, Path, Path]:
+    """Build a runner in ancestry mode, with a stand-in temp working dir."""
+    geno = tmp_path / "geno"
+    out = tmp_path / "out"
+    _touch_pfiles(geno)
+    work = tmp_path / "tmpwork"
+    work.mkdir(exist_ok=True)
+
+    args = PipelineArgs(
+        input=InputArgs(pfile=geno),
+        output=OutputArgs(out_path=out, full_output=full_output),
+        ancestry=AncestryArgs(run_ancestry=run_ancestry),
+    )
+    runner = PipelineRunner(args)
+    runner.state = PipelineState(
+        geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
+    )
+    return runner, out, work
+
+
+class TestAncestryGroupPathsWithoutFullOutput:
+    """Without --full-output the ancestry split writes into the temp working
+    directory, so ``{out}_ancestry_{label}`` never exists on disk. Anything
+    that reads a group's files has to resolve that, or the run dies before its
+    first QC step - which is exactly what happened for every ancestry run.
+    """
+
+    def test_group_prefix_resolves_into_tmp_dir(self, tmp_path: Path) -> None:
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+
+        resolved = runner._resolve_existing_geno(f"{out}_ancestry_FIN")
+
+        assert resolved == f"{work}/out_ancestry_FIN"
+
+    def test_full_output_keeps_the_nominal_prefix(self, tmp_path: Path) -> None:
+        runner, out, _ = _ancestry_runner(tmp_path, full_output=True)
+
+        nominal = f"{out}_ancestry_FIN"
+        assert runner._resolve_existing_geno(nominal) == nominal
+
+    def test_flat_run_keeps_the_nominal_prefix(self, tmp_path: Path) -> None:
+        """A run without --ancestry reads the user's own input, not a copy."""
+        runner, _, _ = _ancestry_runner(
+            tmp_path, full_output=False, run_ancestry=False
+        )
+
+        assert runner._resolve_existing_geno("/data/cohort") == "/data/cohort"
+
+    def test_skip_reasons_reads_the_group_that_exists(self, tmp_path: Path) -> None:
+        """The regression: the group's .psam lives only in the temp dir, so
+        deciding skips against the nominal prefix raises FileNotFoundError.
+        """
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        # Only the temp-dir copy exists, exactly as after a real split.
+        _psam_with(work / "out_ancestry_FIN", 12)
+        assert not Path(f"{out}_ancestry_FIN.psam").exists()
+
+        resolved = runner._resolve_existing_geno(f"{out}_ancestry_FIN")
+        reasons = runner._skip_reasons(["callrate", "het", "geno"], resolved)
+
+        assert set(reasons) == {"het"}
+        assert "12 samples" in reasons["het"]
+
+    def test_unresolved_prefix_is_what_used_to_break(self, tmp_path: Path) -> None:
+        """Pin the failure mode, so a future refactor that drops the
+        resolution fails here instead of at runtime on a real cohort.
+        """
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        _psam_with(work / "out_ancestry_FIN", 12)
+
+        with pytest.raises(FileNotFoundError):
+            runner._skip_reasons(["het"], f"{out}_ancestry_FIN")
+
+    def test_ancestry_loop_decides_skips_against_the_real_group_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The regression, at the call site: drive the real per-group loop with
+        the group files only where a split would put them. Reading the nominal
+        prefix here raised FileNotFoundError and killed every ancestry run
+        before its first QC step.
+        """
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        _psam_with(work / "out_ancestry_EUR", 6927)
+        _psam_with(work / "out_ancestry_FIN", 12)
+        assert not Path(f"{out}_ancestry_FIN.psam").exists()
+
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": ["EUR", "FIN"]}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        seen: Dict[str, Dict[str, str]] = {}
+
+        def fake_qc(**kwargs: Any) -> None:
+            seen[kwargs["ancestry_label"]] = kwargs["skip_reasons"]
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_qc)
+
+        runner._run_with_ancestry(["callrate", "het", "geno"])
+
+        assert set(seen) == {"EUR", "FIN"}
+        assert seen["EUR"] == {}, "6927 samples clears the het floor"
+        assert set(seen["FIN"]) == {"het"}
+        assert "12 samples" in seen["FIN"]["het"]

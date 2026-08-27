@@ -61,9 +61,36 @@ class TestStepResult:
         }
         result = StepResult.from_legacy_dict("callrate", legacy)
 
-        assert result.step == "callrate"
+        # The reported step name wins over the pipeline key: the pre-refactor
+        # JSON wrote "callrate_prune", and the per-ancestry path still does.
+        assert result.step == "callrate_prune"
         assert result.passed is True
+        assert result.outcome == "pass"
         assert result.metrics["outlier_count"] == 5
+
+    def test_from_legacy_dict_carries_outcome_and_reason(self) -> None:
+        """A skipped step keeps what distinguishes it from a failed one."""
+        legacy = {
+            "pass": False,
+            "outcome": "skipped",
+            "reason": "too few samples",
+            "step": "het_prune",
+            "metrics": {"outlier_count": 0},
+            "output": {},
+        }
+        result = StepResult.from_legacy_dict("het", legacy)
+
+        assert result.step == "het_prune"
+        assert result.outcome == "skipped"
+        assert result.reason == "too few samples"
+
+    def test_from_legacy_dict_infers_outcome_when_absent(self) -> None:
+        """Result dicts predating the outcome field still classify correctly."""
+        passed = StepResult.from_legacy_dict("callrate", {"pass": True})
+        failed = StepResult.from_legacy_dict("callrate", {"pass": False})
+
+        assert passed.outcome == "pass"
+        assert failed.outcome == "fail"
 
     def test_from_legacy_dict_missing_fields(self) -> None:
         """from_legacy_dict handles missing fields."""
@@ -88,18 +115,35 @@ class TestPassFailRecord:
         assert record.status is True
         assert record.input_path == "/input"
         assert record.output_path == "/output"
-        assert record.error is None
+        assert record.outcome == "pass"
+        assert record.reason is None
 
-    def test_with_error(self) -> None:
-        """PassFailRecord can include error."""
+    def test_with_failure_reason(self) -> None:
+        """A failed step records why."""
         record = PassFailRecord(
             status=False,
             input_path="/input",
             output_path="/output",
-            error="Something went wrong",
+            outcome="fail",
+            reason="Something went wrong",
         )
         assert record.status is False
-        assert record.error == "Something went wrong"
+        assert record.outcome == "fail"
+        assert record.reason == "Something went wrong"
+
+    def test_with_skip_reason(self) -> None:
+        """A skipped step is distinguishable from a failed one."""
+        record = PassFailRecord(
+            status=False,
+            input_path="/input",
+            output_path="/input",
+            outcome="skipped",
+            reason="12 samples is fewer than the 50 PLINK requires",
+        )
+        assert record.status is False
+        assert record.outcome == "skipped"
+        # The chain passes through a skip untouched.
+        assert record.output_path == record.input_path
 
 
 class TestPipelineState:
@@ -191,6 +235,7 @@ class TestPipelineRunner:
             geno_path="/data/test",
             out_path="/output/test",
             working_out="/tmp/test",
+            is_last=False,
         )
 
         assert step_input == "/data/test"
@@ -220,6 +265,7 @@ class TestPipelineRunner:
             geno_path="/data/test",
             out_path="/output/test",
             working_out="/tmp/test",
+            is_last=True,
         )
 
         # Last step outputs to final out_path
@@ -258,6 +304,7 @@ class TestPipelineRunner:
             geno_path="/data/test",
             out_path="/output/test",
             working_out="/tmp/test",
+            is_last=True,
         )
 
         # Should use last passed output (callrate)

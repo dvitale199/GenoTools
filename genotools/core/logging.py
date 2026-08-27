@@ -227,7 +227,33 @@ def banner() -> str:
 # ---------------------------------------------------------------------------
 
 # A summary row: (step_label, outliers_removed, passed).
-SummaryRow = Tuple[str, int, bool]
+# (label, count removed, outcome): outcome is "pass" | "fail" | "skipped".
+SummaryRow = Tuple[str, int, str]
+
+_SUMMARY_TAGS = {"pass": "PASS", "fail": "FAIL", "skipped": "SKIP"}
+
+
+def summary_tag(outcome: str) -> str:
+    """Render a step outcome as a fixed-width summary tag."""
+    return _SUMMARY_TAGS.get(outcome, "FAIL")
+
+
+def summary_tally(rows: Sequence[SummaryRow]) -> str:
+    """One line counting the non-pass outcomes, or "" when everything passed.
+
+    A failure is one row among dozens and reads much like a step that pruned
+    nothing; without this, a run that lost a QC step looks clean.
+    """
+    failed = sum(1 for _, _, outcome in rows if outcome == "fail")
+    skipped = sum(1 for _, _, outcome in rows if outcome == "skipped")
+    if not failed and not skipped:
+        return ""
+    parts = []
+    if failed:
+        parts.append(f"{failed} step(s) FAILED")
+    if skipped:
+        parts.append(f"{skipped} step(s) SKIPPED")
+    return ", ".join(parts) + " - see above for the reason"
 
 # Run-scoped raw-output sink. The executor reads this after every PLINK/KING
 # invocation and, if set, hands the harvested native .log to the RunLog. Unset
@@ -336,9 +362,14 @@ class RunLog:
     def write_summary(self, rows: Sequence[SummaryRow]) -> None:
         """Append the end-of-run summary table."""
         lines = ["\n===== run summary =====\n"]
-        for label, removed, passed in rows:
-            status = "PASS" if passed else "FAIL"
-            lines.append(f"  {label:<28} {removed:>10} removed   {status}\n")
+        for label, removed, outcome in rows:
+            lines.append(
+                f"  {label:<28} {removed:>10} removed   "
+                f"{summary_tag(outcome)}\n"
+            )
+        tally = summary_tally(rows)
+        if tally:
+            lines.append(f"\n  {tally}\n")
         self._write("".join(lines))
 
     # -- lifecycle ----------------------------------------------------------

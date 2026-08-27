@@ -830,19 +830,35 @@ class TestValidation:
         d = validate_input(bad, tmp_path / "o4", case_control_requested=True)
         assert d.skip_case_control is True
 
-    def test_skip_het_when_few_variants(self, geno: Path, tmp_path: Path, recwarn, caplog):
-        from genotools.core.validation import validate_input
-        bad = tmp_path / "fewvar"
-        self._pfile_with(geno, bad, pvar_rows=40)  # < 50 variants
+    def test_skip_het_when_few_samples(self, geno: Path, tmp_path: Path, recwarn, caplog):
+        import pandas as pd
+        from genotools.core.validation import MIN_HET_SAMPLES, validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        few = psam.head(MIN_HET_SAMPLES - 1)
+        assert len(few) == MIN_HET_SAMPLES - 1, "fixture needs >= 49 samples"
+        bad = tmp_path / "fewsamp"
+        self._pfile_with(geno, bad, psam=few)
         with caplog.at_level(logging.WARNING, logger="genotools"):
             d = validate_input(bad, tmp_path / "o5", het_requested=True)
         assert d.skip_het is True
-        # Skip decisions are logged as warnings now, not emitted via warnings.warn.
-        assert any(
-            r.levelno == logging.WARNING and "het prune" in r.message.lower()
-            for r in caplog.records
-        )
-        assert not any("het prune" in str(w.message).lower() for w in recwarn.list)
+        # The reason travels with the decision; the runner logs it at the point
+        # it applies (per ancestry group, under --ancestry).
+        assert str(len(few)) in d.skip_reasons["het"]
+        assert "PLINK" in d.skip_reasons["het"]
+        # Never emitted via warnings.warn, as the pre-refactor CLI did.
+        assert not any("het" in str(w.message).lower() for w in recwarn.list)
+
+    def test_het_not_skipped_on_variant_count(self, geno: Path, tmp_path: Path):
+        """A tiny variant count must not trigger the het skip.
+
+        Pre-2.0 the guard read the pvar row count instead of the psam's, so it
+        keyed off variants (never < 50 on real data) and never fired.
+        """
+        from genotools.core.validation import validate_input
+        bad = tmp_path / "fewvar"
+        self._pfile_with(geno, bad, pvar_rows=40)  # < 50 variants, full samples
+        d = validate_input(bad, tmp_path / "o5b", het_requested=True)
+        assert d.skip_het is False
 
     def test_no_decisions_when_skip_fails(self, geno: Path, tmp_path: Path):
         import pandas as pd

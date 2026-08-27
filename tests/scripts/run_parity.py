@@ -44,6 +44,21 @@ Scenarios
     ld             ld 50 5 0.5                            (IDs + genotype content)
     full-pipeline  all_sample + all_variant              (IDs + genotype content)
     gwas           pca + gwas                            (tested-variant set + lambda)
+    ancestry       ancestry + all_sample + all_variant   (full report + per-group genotypes)
+
+The ``ancestry`` scenario is the production configuration: ancestry prediction
+splits the cohort and QC then runs per group, so the output is
+``{out}_{LABEL}.pgen`` per label rather than a single fileset. It is compared with
+the full check battery from ``compare_ancestry_run.py`` - labels, counts, model
+quality, QC metrics, pruned samples, related pairs, per-group step pass/fail, and
+per-group genotype content.
+
+It is *not* in the default scenario set: it needs a reference panel and takes
+roughly an hour per CLI on a 10k cohort, against seconds-to-minutes for the flat
+scenarios. Select it explicitly (``--scenarios ancestry``) or via ``all``. Unlike
+the flat scenarios it runs without ``--full-output``, because the per-ancestry
+``*_hwe_tmp.bed`` intermediates run to ~10 GB per side and the comparison only
+needs the promoted ``{out}_{LABEL}.*`` outputs.
 
 GWAS parity is asserted at the tested-variant-set + genomic-inflation-lambda
 level, NOT per-variant p-value: the new PCA pruning intentionally excludes
@@ -85,6 +100,7 @@ _STEP_FLAGS = {
     "haplotype": ("--haplotype", "--haplotype"),
     "hwe": ("--hwe", "--hwe"),
     "ld": ("--ld", "--ld"),
+    "ancestry": ("--ancestry", "--ancestry"),
     "all_sample": ("--all_sample", "--all-sample"),
     "all_variant": ("--all_variant", "--all-variant"),
     "pca": ("--pca", "--pca"),
@@ -99,17 +115,60 @@ SCENARIOS = {
     "ld": ["ld"],
     "full-pipeline": ["all_sample", "all_variant"],
     "gwas": ["pca", "gwas"],
+    "ancestry": ["ancestry", "all_sample", "all_variant"],
 }
 GWAS_SCENARIOS = {"gwas"}
+ANCESTRY_SCENARIOS = {"ancestry"}
 DEFAULT_SCENARIOS = ["qc", "full-pipeline", "gwas"]
 
+# Where genotools caches the GP2 reference panel; overridable on the CLI.
+_REF_DIR = Path.home() / ".genotools" / "ref" / "ref_panel"
+DEFAULT_REF_PANEL = _REF_DIR / "ref_panel_gp2_prune_rm_underperform_pos_update"
+DEFAULT_REF_LABELS = _REF_DIR / "ref_panel_ancestry_updated.txt"
 
-def _build_cmd(base: list[str], geno: Path, out: Path, tokens: list[str], new: bool) -> list[str]:
+# Ancestry runs an order of magnitude longer than the flat scenarios: ~50 min
+# per CLI on 10k samples x 1.9M variants, which the 1-hour flat default would
+# cut off mid-run.
+FLAT_TIMEOUT = 3600
+ANCESTRY_TIMEOUT = 21600
+
+
+def _build_cmd(
+    base: list[str],
+    geno: Path,
+    out: Path,
+    tokens: list[str],
+    new: bool,
+    ref_panel: Path | None = None,
+    ref_labels: Path | None = None,
+    full_output: bool = True,
+) -> list[str]:
+    """Assemble one CLI invocation.
+
+    Args:
+        base: Executable prefix, e.g. ["/path/.venv-stable/bin/genotools"].
+        geno: Input pfile prefix.
+        out: --out prefix for this run.
+        tokens: Step tokens from SCENARIOS.
+        new: True for the 2.x CLI (hyphenated flags), False for pre-refactor.
+        ref_panel: Reference panel prefix; required when "ancestry" is in tokens.
+        ref_labels: Reference label file; required when "ancestry" is in tokens.
+        full_output: Whether to keep intermediates. Off for ancestry, whose
+            per-group intermediates run to ~10 GB per side.
+    """
     cmd = list(base) + ["--pfile", str(geno), "--out", str(out)]
     for token in tokens:
         cmd.append(_STEP_FLAGS[token][1 if new else 0])
         cmd.extend(_STEP_ARGS.get(token, []))
-    cmd.append("--full-output" if new else "--full_output")
+    if "ancestry" in tokens:
+        if ref_panel is None or ref_labels is None:
+            raise ValueError("the ancestry scenario needs ref_panel and ref_labels")
+        cmd += [
+            "--ref-panel" if new else "--ref_panel", str(ref_panel),
+            "--ref-labels" if new else "--ref_labels", str(ref_labels),
+        ]
+    if full_output:
+        cmd.append("--full-output" if new else "--full_output")
     return cmd
 
 
@@ -187,6 +246,67 @@ def _parity_gwas(old_out: Path, new_out: Path) -> tuple[bool, str]:
     )
 
 
+def _parity_ancestry(old_out: Path, new_out: Path, plink2: str,
+                     release_json: Path | None = None,
+                     keep: Path | None = None) -> tuple[bool, str]:
+    """Compare two ancestry runs with compare_ancestry_run.py's check battery.
+
+    The ancestry configuration has no single output fileset to diff: prediction
+    splits the cohort and QC runs per group. Rather than reimplement that
+    comparison, reuse the checks that already back compare_ancestry_run.py so
+    the two entry points cannot drift apart.
+    """
+    # Imported here, not at module scope: it pulls in pandas and is needed only
+    # when this scenario is selected.
+    from tests.scripts.compare_ancestry_run import (
+        _PASS_FAIL_SUFFIX,
+        Report,
+        _load_json,
+        check_counts,
+        check_labels,
+        check_model_quality,
+        check_output_pfiles,
+        check_pass_fail,
+        check_pruned_samples,
+        check_qc_metrics,
+        check_related,
+        cross_check_release,
+    )
+
+    for prefix, side in ((old_out, "old"), (new_out, "new")):
+        if not Path(f"{prefix}.json").exists():
+            return False, f"{side} CLI produced no JSON report ({prefix}.json)"
+
+    old, new = _load_json(old_out), _load_json(new_out)
+
+    rep = Report()
+    check_labels(rep, old, new)
+    check_counts(rep, old, new)
+    check_model_quality(rep, old, new)
+    check_qc_metrics(rep, old, new)
+    check_pruned_samples(rep, old, new)
+    check_related(rep, old, new)
+    check_pass_fail(rep, old, new)
+
+    labels = sorted(
+        k[: -len(_PASS_FAIL_SUFFIX)]
+        for k in set(old) | set(new)
+        if k.endswith(_PASS_FAIL_SUFFIX)
+    )
+    if labels:
+        check_output_pfiles(rep, old_out, new_out, labels, plink2)
+    else:
+        rep.add("output pfiles", False, "could not infer ancestry labels from the reports")
+
+    if release_json:
+        cross_check_release(old, new, release_json, keep)
+
+    failed = rep.failed()
+    if failed:
+        return False, f"{len(failed)} check(s) diverged: {', '.join(failed)}"
+    return True, f"all {len(rep.rows)} checks identical across {len(labels)} ancestry group(s)"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--geno", required=True, type=Path, help="Real cohort pfile prefix (no extension)")
@@ -204,10 +324,33 @@ def main() -> int:
         default=DEFAULT_SCENARIOS,
         help=f"Scenarios to run (default: {' '.join(DEFAULT_SCENARIOS)})",
     )
-    parser.add_argument("--timeout", type=int, default=3600, help="Per-CLI timeout in seconds")
+    parser.add_argument(
+        "--ref-panel", type=Path, default=DEFAULT_REF_PANEL,
+        help=f"Ancestry reference panel prefix (default: {DEFAULT_REF_PANEL})",
+    )
+    parser.add_argument(
+        "--ref-labels", type=Path, default=DEFAULT_REF_LABELS,
+        help=f"Ancestry reference labels (default: {DEFAULT_REF_LABELS})",
+    )
+    parser.add_argument(
+        "--release-json", type=Path, default=None,
+        help="Released full-cohort JSON for an informational cross-check (ancestry only)",
+    )
+    parser.add_argument(
+        "--keep", type=Path, default=None,
+        help="Keep file used to build the subset, scoping the release cross-check",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=None,
+        help=f"Per-CLI timeout in seconds (default: {FLAT_TIMEOUT}, "
+             f"or {ANCESTRY_TIMEOUT} when an ancestry scenario is selected)",
+    )
     args = parser.parse_args()
 
     scenarios = list(SCENARIOS) if "all" in args.scenarios else args.scenarios
+    wants_ancestry = bool(ANCESTRY_SCENARIOS.intersection(scenarios))
+    if args.timeout is None:
+        args.timeout = ANCESTRY_TIMEOUT if wants_ancestry else FLAT_TIMEOUT
 
     if not args.geno.with_suffix(".pgen").exists():
         parser.error(f"input not found: {args.geno}.pgen")
@@ -216,6 +359,14 @@ def main() -> int:
             f"pre-refactor CLI not found at {args.stable_bin}. Build it with: "
             "PYTHON=python3.11 bash tests/scripts/setup_stable_venv.sh origin/main"
         )
+    if wants_ancestry:
+        if not Path(f"{args.ref_panel}.bed").exists():
+            parser.error(
+                f"reference panel not found: {args.ref_panel}.bed. Fetch it with "
+                "genotools-download, or pass --ref-panel."
+            )
+        if not args.ref_labels.exists():
+            parser.error(f"reference labels not found: {args.ref_labels}")
     plink2 = _resolve_plink2()
     if plink2 is None:
         parser.error("plink2 not found (needed for genotype comparison)")
@@ -239,11 +390,28 @@ def main() -> int:
         old_out = scen_dir / "old"
         new_out = scen_dir / "new"
 
-        print(f"\n=== scenario: {name}  ({' '.join(tokens)}) ===")
-        old_res = _run(_build_cmd(old_base, geno, old_out, tokens, new=False), timeout=args.timeout)
-        new_res = _run(_build_cmd(new_base, geno, new_out, tokens, new=True), cwd=str(REPO_ROOT), timeout=args.timeout)
+        # Ancestry keeps no intermediates: ~10 GB per side of per-group
+        # *_hwe_tmp.bed that the comparison never reads.
+        full_output = name not in ANCESTRY_SCENARIOS
+        cmd_kwargs = dict(
+            ref_panel=args.ref_panel, ref_labels=args.ref_labels, full_output=full_output
+        )
 
-        if name in GWAS_SCENARIOS:
+        print(f"\n=== scenario: {name}  ({' '.join(tokens)}) ===")
+        old_res = _run(
+            _build_cmd(old_base, geno, old_out, tokens, new=False, **cmd_kwargs),
+            timeout=args.timeout,
+        )
+        new_res = _run(
+            _build_cmd(new_base, geno, new_out, tokens, new=True, **cmd_kwargs),
+            cwd=str(REPO_ROOT), timeout=args.timeout,
+        )
+
+        if name in ANCESTRY_SCENARIOS:
+            ok, msg = _parity_ancestry(
+                old_out, new_out, plink2, args.release_json, args.keep
+            )
+        elif name in GWAS_SCENARIOS:
             ok, msg = _parity_gwas(old_out, new_out)
         else:
             ok, msg = _parity_qc(old_out, new_out, plink2)

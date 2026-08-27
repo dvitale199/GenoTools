@@ -36,7 +36,7 @@ from genotools.qc.config import (
     RelatedConfig,
     SexConfig,
 )
-from genotools.qc.results import FilterResult
+from genotools.qc.results import STEP_REPORT, FilterResult, unrun_result
 from genotools.qc.steps import (
     filter_callrate,
     filter_case_control,
@@ -53,6 +53,8 @@ from genotools.qc.steps import (
 __all__ = [
     # Results
     "FilterResult",
+    "STEP_REPORT",
+    "unrun_result",
     # Configs
     "CallrateConfig",
     "CaseControlConfig",

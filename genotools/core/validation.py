@@ -4,9 +4,9 @@ Ports the validation + data-breakdown behavior of legacy utils.upfront_check,
 including the data-driven step-skip decisions.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Union
+from typing import Mapping, Union
 
 import pandas as pd
 
@@ -15,14 +15,41 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
+# PLINK2's --indep-pairwise refuses to estimate LD from fewer than 50 samples
+# (it exits 13), and the het step LD-prunes before it can call --het. Below this
+# floor het cannot run at all, so it is skipped rather than left to fail.
+MIN_HET_SAMPLES = 50
+
+
+def count_samples(geno_path: Union[str, Path]) -> int:
+    """Count samples in a pfile's .psam, excluding the header line."""
+    with open(f"{geno_path}.psam") as f:
+        return sum(1 for _ in f) - 1
+
 
 @dataclass(frozen=True)
 class ValidationDecisions:
-    """Data-driven step-skip decisions derived from the input breakdown."""
-    skip_sex: bool = False
-    skip_case_control: bool = False
-    skip_het: bool = False
+    """Data-driven step-skip decisions derived from the input breakdown.
+
+    ``skip_reasons`` maps a step key to why it cannot run. Steps named here are
+    reported as skipped rather than dropped silently, so a consumer can tell
+    "was not requested" from "was requested but could not run".
+    """
+
+    skip_reasons: Mapping[str, str] = field(default_factory=dict)
     disable_filter_controls: bool = False
+
+    @property
+    def skip_sex(self) -> bool:
+        return "sex" in self.skip_reasons
+
+    @property
+    def skip_case_control(self) -> bool:
+        return "case_control" in self.skip_reasons
+
+    @property
+    def skip_het(self) -> bool:
+        return "het" in self.skip_reasons
 
 
 def guard_output_not_exists(
@@ -113,42 +140,38 @@ def validate_input(
     if skip_fails:
         return ValidationDecisions()
 
-    skip_sex = False
+    skip_reasons: dict[str, str] = {}
+
     if sex_requested:
         if (1 not in sex_counts) and (2 not in sex_counts):
-            logger.warning(
-                "You tried calling sex prune but no sample sex data is available. "
-                "Skipping...")
-            skip_sex = True
+            skip_reasons["sex"] = "no sample sex data is available"
         elif ("23" not in chr_counts) and ("X" not in chr_counts):
-            logger.warning(
-                "You tried calling sex prune but no X chromosome data is "
-                "available. Skipping...")
-            skip_sex = True
+            skip_reasons["sex"] = "no X chromosome data is available"
 
     disable_filter_controls = False
     if hwe_requested and filter_controls and (1 not in pheno_counts):
         logger.warning(
             "You tried calling hwe prune with controls filtered but no controls "
-            "are available. Skipping...")
+            "are available. Running hwe without filtering controls...")
         disable_filter_controls = True
 
-    skip_case_control = False
     if case_control_requested and ((1 not in pheno_counts) or (2 not in pheno_counts)):
-        logger.warning(
-            "You tried calling case-control prune but only cases or controls are "
-            "available, not both. Skipping...")
-        skip_case_control = True
+        skip_reasons["case_control"] = (
+            "only cases or controls are available, not both"
+        )
 
-    skip_het = False
-    if het_requested and (var.shape[0] < 50):
-        logger.warning(
-            "You tried calling het prune with less than 50 samples. Skipping...")
-        skip_het = True
+    if het_requested and (sam.shape[0] < MIN_HET_SAMPLES):
+        # Pre-2.0 this read var.shape[0] (the variant count, never < 50 on real
+        # data), so the guard never fired and het was left to fail inside PLINK.
+        skip_reasons["het"] = (
+            f"{sam.shape[0]} samples is fewer than the {MIN_HET_SAMPLES} "
+            f"PLINK requires to estimate LD"
+        )
+
+    # Not logged here: the runner announces each skip at the point it applies,
+    # which under --ancestry is once per group with that group's own numbers.
 
     return ValidationDecisions(
-        skip_sex=skip_sex,
-        skip_case_control=skip_case_control,
-        skip_het=skip_het,
+        skip_reasons=skip_reasons,
         disable_filter_controls=disable_filter_controls,
     )

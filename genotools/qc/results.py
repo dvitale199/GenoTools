@@ -22,6 +22,64 @@ from typing import Any, Optional
 from genotools.core.genotypes import GenotypeData
 
 
+# The report identity of each QC step: the step name it reports under, and the
+# metric keys it emits. A step that never produced data - it failed, or a
+# data-driven decision skipped it - still has to appear in the report, and this
+# is where those names come from. Keep in sync with each step module's
+# ``step_name`` / metrics; ``tests/unit/test_qc/test_results.py`` asserts it.
+STEP_REPORT: dict[str, tuple[str, tuple[str, ...]]] = {
+    # Sample-level steps
+    "callrate": ("callrate_prune", ("outlier_count",)),
+    "sex": ("sex_prune", ("outlier_count",)),
+    "het": ("het_prune", ("outlier_count",)),
+    "related": ("related_prune", ("related_count", "duplicated_count")),
+    # Variant-level steps
+    "geno": ("geno_prune", ("geno_removed_count",)),
+    "case_control": ("case_control_missingness_prune", ("mis_removed_count",)),
+    "haplotype": ("haplotype_prune", ("haplotype_removed_count",)),
+    "hwe": ("hwe_prune", ("hwe_removed_count",)),
+    "ld": ("ld_prune", ("ld_removed_count",)),
+}
+
+
+def unrun_result(
+    step: str,
+    outcome: str,
+    reason: str,
+    plink_out: str,
+) -> Optional[dict[str, Any]]:
+    """Build the result dict for a step that ran no analysis.
+
+    Covers both outcomes that produce no data: ``"fail"`` (the step raised) and
+    ``"skipped"`` (a data-driven decision ruled it out). Counts are zeroed, the
+    same shape the pre-refactor CLI reported for a failed step, so the row is
+    present rather than silently absent.
+
+    Args:
+        step: Pipeline step key (e.g. ``"het"``).
+        outcome: Either ``"fail"`` or ``"skipped"``.
+        reason: Human-readable explanation, surfaced in the report.
+        plink_out: Path the step would have written.
+
+    Returns:
+        Result dict, or None for steps that carry no QC metrics (``assoc``,
+        ``kinship_check``), which the report does not list either way.
+    """
+    entry = STEP_REPORT.get(step)
+    if entry is None:
+        return None
+
+    step_name, metric_keys = entry
+    return {
+        "pass": False,
+        "outcome": outcome,
+        "reason": reason,
+        "step": step_name,
+        "metrics": {key: 0 for key in metric_keys},
+        "output": {"pruned_samples": None, "plink_out": plink_out},
+    }
+
+
 @dataclass(frozen=True)
 class FilterResult:
     """Result of a single QC filter step.
@@ -92,6 +150,8 @@ class FilterResult:
 
         return {
             "pass": True,  # If FilterResult exists, step passed
+            "outcome": "pass",
+            "reason": None,
             "step": self.step_name,
             "metrics": metrics_dict,
             "output": output_dict,

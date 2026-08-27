@@ -44,6 +44,8 @@ class QCMetrics:
     ancestry: str = "all"
     level: str = "sample"  # or "variant"
     passed: bool = True  # Internal field, serialized as "pass"
+    outcome: str = "pass"  # "pass" | "fail" | "skipped"
+    reason: Optional[str] = None  # why, for the two non-pass outcomes
 
 
 @dataclass
@@ -229,7 +231,14 @@ class PipelineOutput:
         else:
             # Single run (no ancestry split)
             result_dict = {
-                k: {"pass": v.passed, "step": v.step, "metrics": v.metrics, "output": v.output}
+                k: {
+                    "pass": v.passed,
+                    "outcome": v.outcome,
+                    "reason": v.reason,
+                    "step": v.step,
+                    "metrics": v.metrics,
+                    "output": v.output,
+                }
                 for k, v in state.step_results.items()
             }
             self._extract_qc_metrics(
@@ -243,7 +252,13 @@ class PipelineOutput:
                 args,
             )
             self.pass_fail["pass_fail"] = {
-                k: {"status": v.status, "input": v.input_path, "output": v.output_path}
+                k: {
+                    "status": v.status,
+                    "outcome": v.outcome,
+                    "reason": v.reason,
+                    "input": v.input_path,
+                    "output": v.output_path,
+                }
                 for k, v in state.pass_fail.items()
             }
 
@@ -290,6 +305,8 @@ class PipelineOutput:
             step_result = result_dict[step]
             level = "sample" if step in sample_steps else "variant"
             passed = step_result.get("pass", False)
+            outcome = step_result.get("outcome", "pass" if passed else "fail")
+            reason = step_result.get("reason")
 
             # Extract metrics
             if "metrics" in step_result:
@@ -312,6 +329,8 @@ class PipelineOutput:
                             ancestry=ancestry,
                             level=level,
                             passed=passed,
+                            outcome=outcome,
+                            reason=reason,
                         )
                     )
 
@@ -409,6 +428,10 @@ class PipelineOutput:
                     "ancestry": m.ancestry,
                     "level": m.level,
                     "pass": m.passed,
+                    # New in 2.0: "pass" alone cannot distinguish a step that
+                    # failed from one the data ruled out.
+                    "outcome": m.outcome,
+                    "reason": m.reason,
                 }
                 for m in self.qc_metrics
             ])

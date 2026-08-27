@@ -554,3 +554,147 @@ class TestParseArgs:
         ])
         assert args.gwas.run_pca is True
         assert args.gwas.n_pcs == 20
+
+
+class TestDeprecatedFlagSpellings:
+    """Pre-refactor underscore flags must keep working, with a warning.
+
+    The refactor renamed 18 flags from underscore to hyphen and dropped two
+    others, so every existing user invocation failed with "unrecognized
+    arguments". The old spellings are accepted as aliases so scripts keep
+    running through the 2.0 transition.
+    """
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+
+    def test_every_renamed_flag_is_still_accepted(self) -> None:
+        """No old spelling may raise SystemExit from argparse."""
+        from genotools.cli.parser import _DEPRECATED_SPELLINGS, create_parser
+
+        parser = create_parser()
+        takes_value = {
+            "--ref_panel": "/tmp/ref",
+            "--ref_labels": "/tmp/lab",
+            "--related_cutoff": "0.0884",
+            "--duplicated_cutoff": "0.354",
+            "--min_samples": "50",
+            "--covar_names": "AGE,SEX",
+            "--subset_ancestry": "EUR",
+        }
+        for old in _DEPRECATED_SPELLINGS:
+            argv = list(self.BASE) + [old]
+            if old in takes_value:
+                argv.append(takes_value[old])
+            # Must not raise; argparse exits on an unrecognized flag.
+            parser.parse_args(argv)
+
+    def test_alias_sets_the_same_destination(self) -> None:
+        """Old and new spellings must land on the same parsed value."""
+        from genotools.cli.parser import create_parser
+
+        parser = create_parser()
+        old = parser.parse_args(self.BASE + ["--ref_panel", "/tmp/ref", "--full_output"])
+        new = parser.parse_args(self.BASE + ["--ref-panel", "/tmp/ref", "--full-output"])
+
+        assert old.ref_panel == new.ref_panel
+        assert old.full_output == new.full_output is True
+
+    def test_positive_form_is_accepted_as_a_noop(self) -> None:
+        """--warn / --prune_duplicated asked for what is now the default."""
+        from genotools.cli.parser import create_parser
+
+        parser = create_parser()
+        for argv in (["--warn"], ["--prune_duplicated"]):
+            ns = parser.parse_args(self.BASE + argv)
+            assert ns.no_warn is False
+            assert ns.no_prune_duplicated is False
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--all_sample", "False"],
+            ["--all-sample", "False"],
+            ["--ancestry", "True"],
+            ["--warn", "False"],
+            ["--prune_duplicated", "False"],
+        ],
+    )
+    def test_boolean_value_form_is_rejected_with_guidance(self, argv) -> None:
+        """1.x accepted `--flag True/False`; 2.0 flags are presence-only.
+
+        1.x declared every boolean as `type=str, nargs='?', const='True'`,
+        copying the threshold flags (--callrate and friends) where an optional
+        value is actually wanted. That is why `--all_sample False` parsed at all.
+        Rejecting it is correct, but the error has to say what to do instead.
+        """
+        from genotools.cli.parser import _reject_boolean_values, create_parser
+
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            _reject_boolean_values(parser, self.BASE + argv)
+
+    def test_value_taking_flags_still_accept_bool_like_values(self) -> None:
+        """The rejection must only fire on presence-only flags.
+
+        --out is a path; a path that happens to be named "False" is legal.
+        """
+        from genotools.cli.parser import _reject_boolean_values, create_parser
+
+        parser = create_parser()
+        # Must not raise.
+        _reject_boolean_values(parser, ["--pfile", "/data/x", "--out", "False"])
+        _reject_boolean_values(parser, ["--pfile", "/data/x", "--out", "/tmp/o",
+                                        "--callrate", "0.05"])
+
+    def test_prune_defaults_match_1x(self) -> None:
+        """2.0 defaults are the 1.x defaults: related off, duplicated on.
+
+        1.x declared --prune_related default='False' and --prune_duplicated
+        default='True' as strings, then converted 'True'/'False' to real bools,
+        so under --all_sample related samples were reported but not pruned.
+        """
+        args = parse_args(self.BASE + ["--all_sample"])
+
+        assert args.sample_qc.prune_related is False
+        assert args.sample_qc.prune_duplicated is True
+
+    def test_deprecated_use_is_warned(self, caplog) -> None:
+        import logging
+
+        from genotools.cli.parser import _warn_deprecated_flags
+
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            _warn_deprecated_flags(["--ref_panel", "/tmp/ref", "--warn"])
+
+        text = " ".join(r.message for r in caplog.records)
+        assert "--ref_panel is deprecated" in text
+        assert "--ref-panel" in text
+        assert "--warn is deprecated" in text
+
+    def test_new_spellings_are_not_warned(self, caplog) -> None:
+        import logging
+
+        from genotools.cli.parser import _warn_deprecated_flags
+
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            _warn_deprecated_flags(["--ref-panel", "/tmp/ref", "--no-warn"])
+
+        assert [r for r in caplog.records if "deprecated" in r.message] == []
+
+    def test_equals_form_is_detected(self) -> None:
+        """--ref_panel=/x must warn just like --ref_panel /x."""
+        import logging
+
+        from genotools.cli.parser import _warn_deprecated_flags
+
+        logger = logging.getLogger("genotools.cli.parser")
+        records: list = []
+        handler = logging.Handler()
+        handler.emit = records.append  # type: ignore[method-assign]
+        logger.addHandler(handler)
+        try:
+            _warn_deprecated_flags(["--ref_panel=/tmp/ref"])
+        finally:
+            logger.removeHandler(handler)
+
+        assert any("--ref_panel is deprecated" in r.getMessage() for r in records)

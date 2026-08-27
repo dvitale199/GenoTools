@@ -35,8 +35,21 @@ import pandas as pd
 from .parser import PipelineArgs
 from .output import PipelineOutput, write_results
 from ..core.exceptions import GenoToolsError, ValidationError
-from ..core.logging import RunLog, get_logger, install_run_logging, step_context
-from ..core.validation import ValidationDecisions, guard_output_not_exists
+from ..core.logging import (
+    RunLog,
+    get_logger,
+    install_run_logging,
+    step_context,
+    summary_tag,
+    summary_tally,
+)
+from ..core.validation import (
+    MIN_HET_SAMPLES,
+    ValidationDecisions,
+    count_samples,
+    guard_output_not_exists,
+)
+from ..qc.results import unrun_result
 
 logger = get_logger(__name__)
 
@@ -50,26 +63,44 @@ class StepResult:
     metrics: Dict[str, Any] = field(default_factory=dict)
     output: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    outcome: str = "pass"
+    reason: Optional[str] = None
 
     @classmethod
     def from_legacy_dict(cls, step: str, legacy: Dict[str, Any]) -> "StepResult":
-        """Create from legacy output dictionary format."""
+        """Create from legacy output dictionary format.
+
+        ``step`` is the pipeline key ("callrate"); the result carries the name
+        the step reports under ("callrate_prune"). Keep the reported name - the
+        pre-refactor JSON used it, and the per-ancestry path still does.
+        """
         return cls(
-            step=step,
+            step=legacy.get("step", step),
             passed=legacy.get("pass", False),
             metrics=legacy.get("metrics", {}),
             output=legacy.get("output", {}),
+            outcome=legacy.get(
+                "outcome", "pass" if legacy.get("pass", False) else "fail"
+            ),
+            reason=legacy.get("reason"),
         )
 
 
 @dataclass
 class PassFailRecord:
-    """Record of step pass/fail status."""
+    """Record of a step's outcome.
+
+    ``status`` stays a bool for the pre-refactor JSON contract; ``outcome``
+    distinguishes the two false cases ("fail" vs "skipped"), and ``reason``
+    explains it. Both are serialized - before 2.0 the cause of a failure was
+    captured here and then dropped on the way to the report.
+    """
 
     status: bool
     input_path: str
     output_path: str
-    error: Optional[str] = None
+    outcome: str = "pass"
+    reason: Optional[str] = None
 
 
 @dataclass
@@ -161,11 +192,15 @@ class PipelineRunner:
             finally:
                 self._end_section(f"{self.args.out_path}_input_preparation.log")
 
-            steps = self._filter_steps_by_decisions(self.args.get_all_enabled_steps())
-            if not steps and not self.args.ancestry.run_ancestry:
+            steps = self.args.get_all_enabled_steps()
+            skips = self._skip_reasons(steps, str(self.args.geno_path))
+            runnable = [s for s in steps if s not in skips]
+            if not runnable and not self.args.ancestry.run_ancestry:
                 # A ValidationError (not a bare ValueError) so main() reports it
-                # as a one-line message instead of a traceback.
-                raise ValidationError("No QC steps or ancestry prediction requested")
+                # as a one-line message instead of a traceback. Say which steps
+                # the data ruled out - "none requested" is wrong and unhelpful
+                # when the user did request one.
+                raise self._nothing_to_run_error(skips)
         except Exception:
             self._teardown_logging(remove_logs=True)
             if self.state and self.state.tmp_dir:
@@ -345,17 +380,19 @@ class PipelineRunner:
         # Console-only records: the RunLog writes its own aligned table below, so
         # emitting these to the file too would duplicate the summary.
         logger.info("Run summary:", extra={"console_only": True})
-        for label, removed, passed in rows:
-            status = "PASS" if passed else "FAIL"
+        for label, removed, outcome in rows:
             logger.info(
-                f"  {label}: {removed} removed [{status}]",
+                f"  {label}: {removed} removed [{summary_tag(outcome)}]",
                 extra={"console_only": True},
             )
+        tally = summary_tally(rows)
+        if tally:
+            logger.warning(f"  {tally}", extra={"console_only": True})
         if self._runlog is not None:
             self._runlog.write_summary(rows)
 
     def _collect_summary_rows(self) -> List[tuple]:
-        """Assemble (label, outliers_removed, passed) rows from pipeline state.
+        """Assemble (label, outliers_removed, outcome) rows from pipeline state.
 
         Covers the plain QC path (``state.pass_fail`` + ``state.step_results``)
         and the per-ancestry path (``state.ancestry_results``), labeling
@@ -377,7 +414,7 @@ class PipelineRunner:
         for step, record in self.state.pass_fail.items():
             result = self.state.step_results.get(step)
             removed = _removed(result.metrics) if result else 0
-            rows.append((step, removed, record.status))
+            rows.append((step, removed, record.outcome))
 
         # Per-ancestry path.
         ancestry_results = getattr(self.state, "ancestry_results", {})
@@ -386,7 +423,10 @@ class PipelineRunner:
             for step, rec in pf.items():
                 step_result = out_dict.get(step, {})
                 removed = _removed(step_result.get("metrics", {}))
-                rows.append((f"{label}/{step}", removed, rec.get("status", False)))
+                outcome = rec.get(
+                    "outcome", "pass" if rec.get("status", False) else "fail"
+                )
+                rows.append((f"{label}/{step}", removed, outcome))
 
         return rows
 
@@ -455,9 +495,18 @@ class PipelineRunner:
             if self.args.sample_qc.amr_het and label == "AMR":
                 current_het = [-1.0, -1.0]
 
+            # Decided per group: an ancestry group's sample count can differ
+            # sharply from the cohort validate_input saw. Counting samples reads
+            # the group's .psam, so this needs the on-disk prefix, not the
+            # nominal one.
+            group_skips = self._skip_reasons(
+                steps, self._resolve_existing_geno(geno_path)
+            )
+
             # Announce the group so the console (where per-step "Running:" lines
             # are file-only) still shows which ancestry the step lines belong to.
-            logger.info(f"Ancestry group {label}: running {len(steps)} QC step(s)")
+            n_running = len(steps) - len(group_skips)
+            logger.info(f"Ancestry group {label}: running {n_running} QC step(s)")
 
             # Create modified args for this ancestry
             self._run_qc_pipeline(
@@ -466,21 +515,71 @@ class PipelineRunner:
                 out_path=out_path,
                 het_values=current_het,
                 ancestry_label=label,
+                skip_reasons=group_skips,
             )
 
         return self._build_output()
 
-    def _filter_steps_by_decisions(self, steps: List[str]) -> List[str]:
-        """Drop steps the input breakdown says to skip (ported upfront_check)."""
-        d = self._validation_decisions
-        result = list(steps)
-        if d.skip_sex and "sex" in result:
-            result.remove("sex")
-        if d.skip_case_control and "case_control" in result:
-            result.remove("case_control")
-        if d.skip_het and "het" in result:
-            result.remove("het")
-        return result
+    def _resolve_existing_geno(self, geno_path: str) -> str:
+        """Resolve the prefix whose pfiles are actually on disk.
+
+        Under ``--ancestry`` without ``--full-output`` the cohort split writes
+        into the temp working directory, so the nominal
+        ``{out}_ancestry_{label}`` prefix never exists. Mirrors the working-path
+        setup in ``_run_qc_pipeline`` so the two cannot disagree about where a
+        group's data lives.
+        """
+        if self.args.full_output or not self.args.ancestry.run_ancestry:
+            return geno_path
+        assert self.state is not None
+        return f"{self.state.tmp_dir.name}/{pathlib.PurePath(geno_path).name}"  # type: ignore[union-attr]
+
+    @staticmethod
+    def _nothing_to_run_error(skips: Dict[str, str]) -> ValidationError:
+        """Explain why the run has no work to do.
+
+        "No QC steps requested" is wrong when the user did request steps and the
+        data ruled every one of them out, so name them and say why.
+        """
+        if skips:
+            detail = "; ".join(
+                f"{step} ({reason})" for step, reason in sorted(skips.items())
+            )
+            return ValidationError(f"No QC steps can run on this data: {detail}")
+        return ValidationError("No QC steps or ancestry prediction requested")
+
+    def _skip_reasons(
+        self, steps: List[str], geno_path: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Resolve which of ``steps`` the data rules out, and why.
+
+        Combines the cohort-level decisions from ``validate_input`` with checks
+        that can only be made against a specific dataset. Skipped steps are
+        reported, not dropped - see ``_run_qc_pipeline``.
+
+        Args:
+            steps: Steps requested for this dataset.
+            geno_path: The dataset being decided about. Under --ancestry this is
+                one ancestry group, whose sample count can differ sharply from
+                the cohort ``validate_input`` saw.
+        """
+        reasons = {
+            step: reason
+            for step, reason in self._validation_decisions.skip_reasons.items()
+            if step in steps
+        }
+
+        # The cohort-level het guard sees every sample together, so a small
+        # ancestry group can still fall under PLINK's LD floor after the split.
+        if geno_path is not None and "het" in steps and "het" not in reasons:
+            n_samples = count_samples(geno_path)
+            if n_samples < MIN_HET_SAMPLES:
+                reasons["het"] = (
+                    f"{n_samples} samples is fewer than the {MIN_HET_SAMPLES} "
+                    f"PLINK requires to estimate LD"
+                )
+
+        return reasons
 
     def _run_qc_only(self, steps: List[str]) -> PipelineOutput:
         """Run QC pipeline without ancestry prediction.
@@ -497,6 +596,7 @@ class PipelineRunner:
             steps=steps,
             geno_path=str(self.state.geno_path),
             out_path=str(self.state.out_path),
+            skip_reasons=self._skip_reasons(steps, str(self.state.geno_path)),
         )
 
         return self._build_output()
@@ -800,6 +900,7 @@ class PipelineRunner:
         out_path: str,
         het_values: Optional[List[float]] = None,
         ancestry_label: str = "all",
+        skip_reasons: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Run QC pipeline for a single dataset.
 
@@ -809,6 +910,10 @@ class PipelineRunner:
             out_path: Output path.
             het_values: Optional heterozygosity thresholds.
             ancestry_label: Ancestry label for this run.
+            skip_reasons: Steps the input data rules out, mapped to why. They
+                stay in ``steps`` and are reported as skipped rather than
+                dropped, so the report distinguishes "not requested" from
+                "requested but impossible".
 
         Returns:
             Dictionary with step results and pass/fail status.
@@ -837,6 +942,30 @@ class PipelineRunner:
         if self._validation_decisions.disable_filter_controls:
             legacy_args["filter_controls"] = False
 
+        skip_reasons = skip_reasons or {}
+
+        # A skipped step produces no files, so it cannot be the one that writes
+        # out_path - the last step that actually runs is.
+        runnable = [i for i, step in enumerate(steps) if step not in skip_reasons]
+        last_runnable = runnable[-1] if runnable else None
+
+        if last_runnable is None and steps:
+            # Every requested step was ruled out (e.g. --ancestry --het on a
+            # group under the LD floor). Nothing will write out_path, so carry
+            # the input through unchanged rather than leaving the group with no
+            # output at all.
+            logger.warning(
+                "No QC steps could run; passing input through unchanged."
+            )
+            source = (
+                geno_path
+                if (self.args.full_output or not self.args.ancestry.run_ancestry)
+                else working_geno
+            )
+            for ext in (".pgen", ".psam", ".pvar"):
+                if os.path.isfile(f"{source}{ext}"):
+                    shutil.copy2(f"{source}{ext}", f"{out_path}{ext}")
+
         # Run each step
         for i, step in enumerate(steps):
             step_input, step_output = self._compute_step_paths(
@@ -847,7 +976,26 @@ class PipelineRunner:
                 geno_path=geno_path if (self.args.full_output or not self.args.ancestry.run_ancestry) else working_geno,
                 out_path=out_path,
                 working_out=working_out,
+                is_last=(i == last_runnable),
             )
+
+            # A data-driven skip records its outcome and passes the chain
+            # through untouched: output_path is the input, so the next step
+            # reads exactly what this one would have.
+            if step in skip_reasons:
+                reason = skip_reasons[step]
+                logger.warning(f"Skipping {step}: {reason}.")
+                pass_fail[step] = PassFailRecord(
+                    status=False,
+                    input_path=step_input,
+                    output_path=step_input,
+                    outcome="skipped",
+                    reason=reason,
+                )
+                skipped = unrun_result(step, "skipped", reason, step_input)
+                if skipped is not None:
+                    out_dict[step] = skipped
+                continue
 
             step_paths.append(step_output)
 
@@ -874,9 +1022,19 @@ class PipelineRunner:
                         f"Step {step} cannot be run! "
                         "All samples or variants were pruned in a previous step!"
                     )
-                    pass_fail[step] = PassFailRecord(
-                        status=False, input_path=step_input, output_path=step_output
+                    reason = (
+                        "all samples or variants were pruned in a previous step"
                     )
+                    pass_fail[step] = PassFailRecord(
+                        status=False,
+                        input_path=step_input,
+                        output_path=step_output,
+                        outcome="fail",
+                        reason=reason,
+                    )
+                    failed = unrun_result(step, "fail", reason, step_output)
+                    if failed is not None:
+                        out_dict[step] = failed
                     continue
 
                 # Run the step. Refactored steps signal failure by raising a
@@ -899,8 +1057,15 @@ class PipelineRunner:
                         status=False,
                         input_path=step_input,
                         output_path=step_output,
-                        error=str(e),
+                        outcome="fail",
+                        reason=str(e),
                     )
+                    # Record the failure in the report too, not just pass_fail:
+                    # an absent QC row is indistinguishable from a step that was
+                    # never requested.
+                    failed = unrun_result(step, "fail", str(e), step_output)
+                    if failed is not None:
+                        out_dict[step] = failed
                     continue
 
                 if result is not None:
@@ -923,11 +1088,26 @@ class PipelineRunner:
                 self._end_section(raw_log_path)
 
         # Handle final step failure with --warn
-        self._handle_final_step_failure(steps, pass_fail, out_path, geno_path, working_geno)
+        # Only steps that ran can have produced (or failed to produce) out_path;
+        # passing the full list would make a trailing skip look like the
+        # terminal failure and copy out_path onto itself.
+        self._handle_final_step_failure(
+            [step for step in steps if step not in skip_reasons],
+            pass_fail,
+            out_path,
+            geno_path,
+            working_geno,
+        )
 
         out_dict["paths"] = step_paths
         out_dict["pass_fail"] = {
-            k: {"status": v.status, "input": v.input_path, "output": v.output_path}
+            k: {
+                "status": v.status,
+                "outcome": v.outcome,
+                "reason": v.reason,
+                "input": v.input_path,
+                "output": v.output_path,
+            }
             for k, v in pass_fail.items()
         }
 
@@ -956,6 +1136,7 @@ class PipelineRunner:
         geno_path: str,
         out_path: str,
         working_out: str,
+        is_last: bool,
     ) -> tuple[str, str]:
         """Compute input and output paths for a step.
 
@@ -967,11 +1148,13 @@ class PipelineRunner:
             geno_path: Original genotype path.
             out_path: Final output path.
             working_out: Working directory output path.
+            is_last: Whether this is the last step that will actually run.
+                Skipped steps write nothing, so a skip at the end of the list
+                must not claim ``out_path`` - the last *runnable* step does.
 
         Returns:
             Tuple of (step_input, step_output).
         """
-        is_last = step_index == len(steps) - 1
 
         if self.args.warn_only:
             # Find last passed step

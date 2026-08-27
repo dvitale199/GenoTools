@@ -6,6 +6,10 @@ Detailed reference for the `genotools` command-line arguments, covering input,
 output, quality control (QC), ancestry prediction, and GWAS.
 
 Flags use **hyphens**, not underscores (`--full-output`, not `--full_output`).
+The 1.x underscore spellings are still accepted for backward compatibility and
+emit a deprecation warning; they will be removed in a future release. See
+[MIGRATION_2.0.md](../MIGRATION_2.0.md) for the full mapping.
+
 `genotools --help` is the authoritative list; this document covers the same flags
 in more detail and is kept in sync with `genotools/cli/parser.py`.
 

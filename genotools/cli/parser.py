@@ -470,11 +470,13 @@ Examples:
     )
     output_group.add_argument(
         "--full-output",
+        "--full_output",  # deprecated underscore spelling
         action="store_true",
         help="Output all intermediate files",
     )
     output_group.add_argument(
         "--skip-fails",
+        "--skip_fails",  # deprecated underscore spelling
         action="store_true",
         help="Skip up-front validation checks",
     )
@@ -482,6 +484,13 @@ Examples:
         "--no-warn",
         action="store_true",
         help="Stop pipeline on first error (default: continue with warnings)",
+    )
+    # Deprecated presence-only alias: 1.x defaulted warn on, which is now the
+    # default, so passing it changes nothing. Use --no-warn to disable.
+    output_group.add_argument(
+        "--warn",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     output_group.add_argument(
         "--quiet",
@@ -523,6 +532,7 @@ Examples:
     )
     sample_group.add_argument(
         "--amr-het",
+        "--amr_het",  # deprecated underscore spelling
         action="store_true",
         help="Use auto-detect heterozygosity for AMR samples",
     )
@@ -533,6 +543,7 @@ Examples:
     )
     sample_group.add_argument(
         "--related-cutoff",
+        "--related_cutoff",  # deprecated underscore spelling
         type=float,
         default=0.0884,
         metavar="CUTOFF",
@@ -540,6 +551,7 @@ Examples:
     )
     sample_group.add_argument(
         "--duplicated-cutoff",
+        "--duplicated_cutoff",  # deprecated underscore spelling
         type=float,
         default=0.354,
         metavar="CUTOFF",
@@ -547,8 +559,16 @@ Examples:
     )
     sample_group.add_argument(
         "--prune-related",
+        "--prune_related",  # deprecated underscore spelling
         action="store_true",
         help="Prune related samples",
+    )
+    # Deprecated presence-only alias: 1.x defaulted duplicate pruning on, which
+    # is now the default. Use --no-prune-duplicated to disable.
+    sample_group.add_argument(
+        "--prune_duplicated",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     sample_group.add_argument(
         "--no-prune-duplicated",
@@ -557,11 +577,13 @@ Examples:
     )
     sample_group.add_argument(
         "--kinship-check",
+        "--kinship_check",  # deprecated underscore spelling
         action="store_true",
         help="Run kinship confirmation (Linux only)",
     )
     sample_group.add_argument(
         "--all-sample",
+        "--all_sample",  # deprecated underscore spelling
         action="store_true",
         help="Run all sample-level QC with default thresholds",
     )
@@ -579,6 +601,7 @@ Examples:
     )
     variant_group.add_argument(
         "--case-control",
+        "--case_control",  # deprecated underscore spelling
         type=float,
         nargs="?",
         const=1e-4,
@@ -606,6 +629,7 @@ Examples:
     )
     variant_group.add_argument(
         "--filter-controls",
+        "--filter_controls",  # deprecated underscore spelling
         action="store_true",
         help="Apply HWE filter to controls only",
     )
@@ -619,6 +643,7 @@ Examples:
     )
     variant_group.add_argument(
         "--all-variant",
+        "--all_variant",  # deprecated underscore spelling
         action="store_true",
         help="Run all variant-level QC with default thresholds (except LD)",
     )
@@ -632,6 +657,7 @@ Examples:
     )
     ancestry_group.add_argument(
         "--ref-panel",
+        "--ref_panel",  # deprecated underscore spelling
         type=Path,
         default=None,
         metavar="PATH",
@@ -639,6 +665,7 @@ Examples:
     )
     ancestry_group.add_argument(
         "--ref-labels",
+        "--ref_labels",  # deprecated underscore spelling
         type=Path,
         default=None,
         metavar="PATH",
@@ -668,6 +695,7 @@ Examples:
     )
     ancestry_group.add_argument(
         "--subset-ancestry",
+        "--subset_ancestry",  # deprecated underscore spelling
         type=str,
         nargs="*",
         default=None,
@@ -676,6 +704,7 @@ Examples:
     )
     ancestry_group.add_argument(
         "--min-samples",
+        "--min_samples",  # deprecated underscore spelling
         type=int,
         default=0,
         metavar="N",
@@ -714,6 +743,7 @@ Examples:
     )
     gwas_group.add_argument(
         "--covar-names",
+        "--covar_names",  # deprecated underscore spelling
         type=str,
         default=None,
         metavar="NAMES",
@@ -721,6 +751,7 @@ Examples:
     )
     gwas_group.add_argument(
         "--maf-lambdas",
+        "--maf_lambdas",  # deprecated underscore spelling
         action="store_true",
         help="MAF prune before lambda calculations",
     )
@@ -803,6 +834,112 @@ def _parse_ld_args(
         )
 
 
+# Flags whose spelling changed in 2.0. The old spelling is still accepted so
+# existing scripts keep working; using one emits a single deprecation warning.
+_DEPRECATED_SPELLINGS = {
+    "--all_sample": "--all-sample",
+    "--all_variant": "--all-variant",
+    "--amr_het": "--amr-het",
+    "--case_control": "--case-control",
+    "--covar_names": "--covar-names",
+    "--duplicated_cutoff": "--duplicated-cutoff",
+    "--filter_controls": "--filter-controls",
+    "--full_output": "--full-output",
+    "--kinship_check": "--kinship-check",
+    "--maf_lambdas": "--maf-lambdas",
+    "--min_samples": "--min-samples",
+    "--prune_related": "--prune-related",
+    "--ref_labels": "--ref-labels",
+    "--ref_panel": "--ref-panel",
+    "--related_cutoff": "--related-cutoff",
+    "--skip_fails": "--skip-fails",
+    "--subset_ancestry": "--subset-ancestry",
+}
+
+# Flags replaced by a --no- inverse. 1.x defaulted both to on, which is now the
+# default, so passing them changes nothing.
+_DEPRECATED_BOOLEANS = {
+    "--warn": (
+        "warn-and-continue is now the default; pass --no-warn to stop on the "
+        "first error"
+    ),
+    "--prune_duplicated": (
+        "duplicate pruning is now the default; pass --no-prune-duplicated to "
+        "disable it"
+    ),
+}
+
+# 1.x declared every boolean flag as `type=str, nargs='?', const='True'`,
+# copying the shape of the threshold flags (--callrate and friends) where an
+# optional value is genuinely wanted. A presence flag has no value to override,
+# so that pattern only made `--all_sample False` parse and then quietly mean
+# "off". 2.0 declares them action="store_true", which rejects a value - but
+# argparse reports it as a bare "unrecognized arguments: False", which does not
+# tell anyone migrating what to do instead.
+_BOOLEAN_VALUE_TOKENS = frozenset({"True", "False", "true", "false"})
+
+
+def _reject_boolean_values(
+    parser: argparse.ArgumentParser, args: Optional[Sequence[str]] = None
+) -> None:
+    """Give an actionable error for the 1.x ``--flag True/False`` form.
+
+    Derives the presence-only flags from the parser itself (an action that
+    consumes no argument has ``nargs == 0``) so any flag added later is covered
+    without touching this list.
+    """
+    import sys
+
+    presence_only = {
+        opt
+        for action in parser._actions
+        if action.nargs == 0
+        for opt in action.option_strings
+    }
+
+    argv = list(args) if args is not None else sys.argv[1:]
+    for flag, value in zip(argv, argv[1:]):
+        if flag not in presence_only or value not in _BOOLEAN_VALUE_TOKENS:
+            continue
+        hint = _DEPRECATED_BOOLEANS.get(flag)
+        if hint is None:
+            hint = (
+                "pass the flag on its own to enable it, or omit it to disable "
+                "it"
+            )
+        parser.error(
+            f"{flag} takes no value (got {value!r}). In 1.x every boolean flag "
+            f"accepted True/False; they are now presence-only. {hint}."
+        )
+
+
+def _warn_deprecated_flags(args: Optional[Sequence[str]] = None) -> None:
+    """Log one warning naming every deprecated flag spelling that was used."""
+    import sys
+
+    argv = list(args) if args is not None else sys.argv[1:]
+    # Only the flag token matters; strip any "=value" form.
+    used = {tok.split("=", 1)[0] for tok in argv if tok.startswith("--")}
+
+    renamed = sorted(used & set(_DEPRECATED_SPELLINGS))
+    booleans = sorted(used & set(_DEPRECATED_BOOLEANS))
+    if not renamed and not booleans:
+        return
+
+    from ..core.logging import get_logger
+
+    logger = get_logger(__name__)
+    for flag in renamed:
+        logger.warning(
+            f"{flag} is deprecated and will be removed in a future release; "
+            f"use {_DEPRECATED_SPELLINGS[flag]} instead."
+        )
+    for flag in booleans:
+        logger.warning(
+            f"{flag} is deprecated: {_DEPRECATED_BOOLEANS[flag]}."
+        )
+
+
 def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
     """Parse and validate command-line arguments.
 
@@ -817,7 +954,9 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         ValueError: If argument validation fails.
     """
     parser = create_parser()
+    _reject_boolean_values(parser, args)
     ns = parser.parse_args(args)
+    _warn_deprecated_flags(args)
 
     # Validate input files
     if ns.bfile is None and ns.pfile is None and ns.vcf is None:
