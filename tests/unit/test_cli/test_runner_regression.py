@@ -1020,3 +1020,123 @@ class TestAncestryGroupPathsWithoutFullOutput:
         assert seen["EUR"] == {}, "6927 samples clears the het floor"
         assert set(seen["FIN"]) == {"het"}
         assert "12 samples" in seen["FIN"]["het"]
+
+
+def _psam_with_phenos(prefix: Path, phenos: List[int]) -> None:
+    """Write a .psam at prefix with one row per entry in phenos."""
+    lines = ["#FID\tIID\tSEX\tPHENO1"]
+    lines += [f"F{i}\tI{i}\t1\t{p}" for i, p in enumerate(phenos)]
+    Path(f"{prefix}.psam").write_text("\n".join(lines) + "\n")
+
+
+class TestPerGroupCaseControl:
+    """--test-missing needs both cases and controls. The cohort can hold both
+    while an ancestry group holds only one, so the decision has to be re-made
+    per group - otherwise the step raises and the same data-driven decision is
+    reported as outcome="fail" here but "skipped" cohort-wide.
+    """
+
+    def test_group_with_only_cases_skips_case_control(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_FIN"
+        _psam_with_phenos(group, [2] * 80)
+
+        reasons = runner._skip_reasons(["geno", "case_control", "hwe"], str(group))
+        assert set(reasons) == {"case_control"}
+        assert "not both" in reasons["case_control"]
+
+    def test_group_with_only_controls_skips_case_control(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_AAC"
+        _psam_with_phenos(group, [1] * 80)
+
+        assert "case_control" in runner._skip_reasons(["case_control"], str(group))
+
+    def test_group_with_both_runs_case_control(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "out_ancestry_EUR"
+        _psam_with_phenos(group, [1, 2] * 40)
+
+        assert runner._skip_reasons(["geno", "case_control"], str(group)) == {}
+
+    def test_cohort_decision_is_not_overridden_by_the_group(
+        self, tmp_path: Path
+    ) -> None:
+        """A group holding both must not resurrect a cohort-level skip."""
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        runner._validation_decisions = ValidationDecisions(
+            skip_reasons={"case_control": "cohort-level reason"}
+        )
+        group = tmp_path / "both"
+        _psam_with_phenos(group, [1, 2] * 40)
+
+        reasons = runner._skip_reasons(["case_control"], str(group))
+        assert reasons["case_control"] == "cohort-level reason"
+
+    def test_case_control_not_requested_is_not_a_skip(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        group = tmp_path / "cases_only"
+        _psam_with_phenos(group, [2] * 80)
+
+        assert runner._skip_reasons(["geno", "hwe"], str(group)) == {}
+
+    def test_no_dataset_means_no_per_group_decision(self, tmp_path: Path) -> None:
+        """Called without a dataset (the nothing-to-run pre-flight), only the
+        cohort decisions apply - there is nothing to read.
+        """
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        assert runner._skip_reasons(["case_control"]) == {}
+
+    def test_skipped_case_control_reports_zeroed_variant_metrics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The skip has to land in the report as a variant-step row, not vanish."""
+        runner, geno, out = _make_runner(tmp_path, warn_only=False)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+        _psam_with_phenos(geno, [2] * 80)
+
+        steps = ["geno", "case_control"]
+        out_dict = runner._run_qc_pipeline(
+            steps=steps,
+            geno_path=str(geno),
+            out_path=str(out),
+            skip_reasons=runner._skip_reasons(steps, str(geno)),
+        )
+
+        row = out_dict["case_control"]
+        assert row["outcome"] == "skipped"
+        assert row["step"] == "case_control_missingness_prune"
+        assert row["metrics"] == {"mis_removed_count": 0}
+        assert out_dict["pass_fail"]["case_control"]["outcome"] == "skipped"
+
+    def test_ancestry_loop_decides_case_control_per_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fix at its call site: drive the real per-group loop over a cohort
+        that holds both phenotypes but splits into a group that holds one.
+        """
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        _psam_with_phenos(work / "out_ancestry_EUR", [1, 2] * 40)
+        _psam_with_phenos(work / "out_ancestry_FIN", [2] * 80)
+
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": ["EUR", "FIN"]}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        seen: Dict[str, Dict[str, str]] = {}
+
+        def fake_qc(**kwargs: Any) -> None:
+            seen[kwargs["ancestry_label"]] = kwargs["skip_reasons"]
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_qc)
+
+        runner._run_with_ancestry(["geno", "case_control"])
+
+        assert seen["EUR"] == {}, "both phenotypes present - case_control runs"
+        assert set(seen["FIN"]) == {"case_control"}
+        assert "not both" in seen["FIN"]["case_control"]

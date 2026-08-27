@@ -6,7 +6,7 @@ including the data-driven step-skip decisions.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Union
+from typing import Mapping, Optional, Union
 
 import pandas as pd
 
@@ -20,11 +20,39 @@ logger = get_logger(__name__)
 # floor het cannot run at all, so it is skipped rather than left to fail.
 MIN_HET_SAMPLES = 50
 
+# One reason string for one decision, so the cohort-level check in
+# ``validate_input`` and the per-dataset check below cannot drift apart.
+CASE_CONTROL_SKIP_REASON = "only cases or controls are available, not both"
+
 
 def count_samples(geno_path: Union[str, Path]) -> int:
     """Count samples in a pfile's .psam, excluding the header line."""
     with open(f"{geno_path}.psam") as f:
         return sum(1 for _ in f) - 1
+
+
+def case_control_skip_reason(geno_path: Union[str, Path]) -> Optional[str]:
+    """Decide whether case-control missingness can run on a specific dataset.
+
+    ``--test-missing`` needs both cases (2) and controls (1); with only one it
+    raises inside the step. Under ``--ancestry`` the cohort can hold both while
+    an individual group holds only one, so the decision has to be re-made per
+    dataset rather than inherited from the cohort.
+
+    Returns:
+        The skip reason, or None if the step can run - including when the
+        phenotype cannot be read at all, in which case the decision is left to
+        the step rather than guessed at.
+    """
+    try:
+        sam = pd.read_csv(f"{geno_path}.psam", sep=r"\s+", usecols=["PHENO1"])
+    except (OSError, ValueError):
+        return None
+
+    pheno_counts = sam["PHENO1"].value_counts().to_dict()
+    if (1 not in pheno_counts) or (2 not in pheno_counts):
+        return CASE_CONTROL_SKIP_REASON
+    return None
 
 
 @dataclass(frozen=True)
@@ -156,9 +184,7 @@ def validate_input(
         disable_filter_controls = True
 
     if case_control_requested and ((1 not in pheno_counts) or (2 not in pheno_counts)):
-        skip_reasons["case_control"] = (
-            "only cases or controls are available, not both"
-        )
+        skip_reasons["case_control"] = CASE_CONTROL_SKIP_REASON
 
     if het_requested and (sam.shape[0] < MIN_HET_SAMPLES):
         # Pre-2.0 this read var.shape[0] (the variant count, never < 50 on real

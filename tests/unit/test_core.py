@@ -875,3 +875,60 @@ class TestValidation:
         d = validate_input(geno, tmp_path / "o7")  # nothing requested
         assert (d.skip_sex, d.skip_case_control, d.skip_het, d.disable_filter_controls) \
             == (False, False, False, False)
+
+    # --- per-dataset case-control decision (re-decided after the split) ---
+
+    def test_case_control_reason_when_only_cases(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import (
+            CASE_CONTROL_SKIP_REASON,
+            case_control_skip_reason,
+        )
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = 2
+        only_cases = tmp_path / "cc_cases"
+        self._pfile_with(geno, only_cases, psam=psam)
+        assert case_control_skip_reason(only_cases) == CASE_CONTROL_SKIP_REASON
+
+    def test_case_control_reason_when_only_controls(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import case_control_skip_reason
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = 1
+        only_controls = tmp_path / "cc_controls"
+        self._pfile_with(geno, only_controls, psam=psam)
+        assert case_control_skip_reason(only_controls) is not None
+
+    def test_no_case_control_reason_when_both_present(self, geno: Path, tmp_path: Path):
+        import pandas as pd
+        from genotools.core.validation import case_control_skip_reason
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = [1 if i % 2 else 2 for i in range(len(psam))]
+        both = tmp_path / "cc_both"
+        self._pfile_with(geno, both, psam=psam)
+        assert case_control_skip_reason(both) is None
+
+    def test_case_control_reason_is_the_cohort_reason(self, geno: Path, tmp_path: Path):
+        """One decision, one wording: validate_input and the per-dataset check
+        must not drift into two different explanations of the same thing.
+        """
+        import pandas as pd
+        from genotools.core.validation import case_control_skip_reason, validate_input
+        psam = pd.read_csv(geno.with_suffix(".psam"), sep=r"\s+")
+        psam["PHENO1"] = 2
+        bad = tmp_path / "cc_same"
+        self._pfile_with(geno, bad, psam=psam)
+
+        cohort = validate_input(bad, tmp_path / "o8", case_control_requested=True)
+        assert cohort.skip_reasons["case_control"] == case_control_skip_reason(bad)
+
+    def test_unreadable_phenotype_leaves_the_decision_to_the_step(self, tmp_path: Path):
+        """Missing file or missing PHENO1: return None rather than guess a skip,
+        so the step raises its own specific error instead.
+        """
+        from genotools.core.validation import case_control_skip_reason
+        assert case_control_skip_reason(tmp_path / "does_not_exist") is None
+
+        no_pheno = tmp_path / "no_pheno"
+        no_pheno.with_suffix(".psam").write_text("#FID\tIID\tSEX\nF1\tI1\t1\n")
+        assert case_control_skip_reason(no_pheno) is None

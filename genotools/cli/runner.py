@@ -46,6 +46,7 @@ from ..core.logging import (
 from ..core.validation import (
     MIN_HET_SAMPLES,
     ValidationDecisions,
+    case_control_skip_reason,
     count_samples,
     guard_output_not_exists,
 )
@@ -569,6 +570,12 @@ class PipelineRunner:
             if step in steps
         }
 
+        # Both checks below re-decide against this dataset what validate_input
+        # decided against the whole cohort, because the split can change the
+        # answer. They read the psam as it stands before the chain runs, so a
+        # step whose precondition is only broken *by* an earlier prune still
+        # fails rather than skipping.
+
         # The cohort-level het guard sees every sample together, so a small
         # ancestry group can still fall under PLINK's LD floor after the split.
         if geno_path is not None and "het" in steps and "het" not in reasons:
@@ -578,6 +585,18 @@ class PipelineRunner:
                     f"{n_samples} samples is fewer than the {MIN_HET_SAMPLES} "
                     f"PLINK requires to estimate LD"
                 )
+
+        # Likewise a cohort holding both cases and controls can split into a
+        # group holding only one. Without this the step raises instead, which
+        # reported the same data-driven decision as outcome="fail".
+        if (
+            geno_path is not None
+            and "case_control" in steps
+            and "case_control" not in reasons
+        ):
+            reason = case_control_skip_reason(geno_path)
+            if reason is not None:
+                reasons["case_control"] = reason
 
         return reasons
 
