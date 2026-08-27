@@ -101,17 +101,29 @@ class PipelineOutput:
 
     @property
     def success(self) -> bool:
-        """Check if pipeline completed successfully.
+        """Whether the run did everything it could.
 
-        Returns True if all steps passed (or if no steps were run).
+        A step that the data ruled out is a reported outcome of a successful
+        run, not a failure: a 12-sample ancestry group cannot have its
+        heterozygosity estimated, and saying so is the correct result. Only a
+        step that actually failed makes the run unsuccessful, so callers
+        checking the exit code are not told a complete run went wrong.
+
+        ``status`` is False for both, which is why the decision reads
+        ``outcome``. Entries predating ``outcome`` default to "fail" when
+        status is False, preserving the stricter old behavior.
         """
-        for key, value in self.pass_fail.items():
-            if isinstance(value, dict):
-                # Check nested pass_fail structure (e.g., "pass_fail" or "EUR_pass_fail")
-                for step_name, step_info in value.items():
-                    if isinstance(step_info, dict) and "status" in step_info:
-                        if not step_info["status"]:
-                            return False
+        for value in self.pass_fail.values():
+            if not isinstance(value, dict):
+                continue
+            # Nested pass_fail structure ("pass_fail" or "EUR_pass_fail").
+            for step_info in value.values():
+                if not isinstance(step_info, dict) or "status" not in step_info:
+                    continue
+                if step_info["status"]:
+                    continue
+                if step_info.get("outcome", "fail") != "skipped":
+                    return False
         return True
 
     @classmethod

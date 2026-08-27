@@ -438,3 +438,74 @@ class TestQCMetricExtraction:
         _, pruned = self._extract(result, "all", tmp_path)
 
         assert list(pruned[0].columns) == ["#FID", "IID", "step"]
+
+
+class TestSuccessSeparatesSkipFromFailure:
+    """A step the data ruled out is a reported outcome of a successful run.
+
+    Both a skip and a failure set status=False, so deciding on status alone
+    made a 12-sample ancestry group exit 1 on an otherwise complete run -
+    which any caller using `set -e`, a WDL task, or a CI check reads as a
+    hard failure.
+    """
+
+    @staticmethod
+    def _output(**steps: Dict[str, Any]) -> PipelineOutput:
+        return PipelineOutput(pass_fail={"pass_fail": dict(steps)})
+
+    def test_all_pass_is_success(self) -> None:
+        out = self._output(
+            callrate={"status": True, "outcome": "pass"},
+            geno={"status": True, "outcome": "pass"},
+        )
+        assert out.success is True
+
+    def test_skipped_step_is_still_success(self) -> None:
+        out = self._output(
+            callrate={"status": True, "outcome": "pass"},
+            het={
+                "status": False,
+                "outcome": "skipped",
+                "reason": "12 samples is fewer than the 50 PLINK requires",
+            },
+        )
+        assert out.success is True
+
+    def test_failed_step_is_not_success(self) -> None:
+        out = self._output(
+            callrate={"status": True, "outcome": "pass"},
+            het={"status": False, "outcome": "fail", "reason": "plink2 exit 13"},
+        )
+        assert out.success is False
+
+    def test_failure_alongside_a_skip_still_fails(self) -> None:
+        out = self._output(
+            het={"status": False, "outcome": "skipped", "reason": "too few samples"},
+            hwe={"status": False, "outcome": "fail", "reason": "boom"},
+        )
+        assert out.success is False
+
+    def test_missing_outcome_defaults_to_failure(self) -> None:
+        """Entries predating `outcome` keep the stricter old reading."""
+        out = self._output(callrate={"status": False})
+        assert out.success is False
+
+    def test_per_ancestry_skip_is_success(self) -> None:
+        """The real shape: only FIN's het is skipped, across 3 groups."""
+        out = PipelineOutput(
+            pass_fail={
+                "EUR_pass_fail": {"het": {"status": True, "outcome": "pass"}},
+                "AFR_pass_fail": {"het": {"status": True, "outcome": "pass"}},
+                "FIN_pass_fail": {
+                    "het": {
+                        "status": False,
+                        "outcome": "skipped",
+                        "reason": "12 samples is fewer than the 50 PLINK requires",
+                    }
+                },
+            }
+        )
+        assert out.success is True
+
+    def test_no_steps_is_success(self) -> None:
+        assert PipelineOutput().success is True
