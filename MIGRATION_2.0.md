@@ -64,10 +64,11 @@ enable it, or omit it to disable it.
 ```
 
 To migrate: **pass the flag alone to enable, omit it to disable.** Affects
-`--all_sample`, `--all_variant`, `--amr_het`, `--ancestry`, `--container`,
+`--all_sample`, `--all_variant`, `--amr_het`, `--ancestry`,
 `--filter_controls`, `--full_output`, `--gwas`, `--kinship_check`,
-`--maf_lambdas`, `--prune_related`, `--related`, `--singularity`,
-`--skip_fails`, `--warn`, `--prune_duplicated`.
+`--maf_lambdas`, `--prune_related`, `--related`, `--skip_fails`, `--warn`,
+`--prune_duplicated`. (`--container` and `--singularity` are also presence-only
+now, but 2.0 rejects them outright — see below.)
 
 Two of those defaulted to *on* in 1.x, so "disable" needs an explicit flag
 rather than omission:
@@ -82,7 +83,7 @@ since what they requested is now the default.
 
 ### New flags
 
-`--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`, `--cloud`.
+`--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`.
 
 ---
 
@@ -164,15 +165,32 @@ Samples and variants carried forward are identical — het did not run in either
 version. Only the reporting changed. Anything reading `pass` still works; read
 `outcome` to tell a skip from a failure.
 
-### `--container`, `--singularity` and `--cloud` currently do nothing
+### `--container`, `--singularity` and `--cloud` are rejected
 
-1.x ran ancestry prediction inside a Docker or Singularity container, or on
-Google Cloud, when you passed these flags. 2.0 still **accepts** them, but no
-code path acts on them: the run proceeds with normal in-process prediction and
-says nothing about it.
+2.0 does not run ancestry prediction remotely. Passing any of the three is an
+error rather than a silent no-op:
 
-If you relied on containerized or cloud prediction, do not assume 2.0 is doing
-it. Results are still produced — they are computed locally.
+```
+$ genotools ... --ancestry --container
+ERROR: --container is not supported in GenoTools 2.0. 1.x ran prediction in a
+Docker image built around a 1.x model, which 2.0 cannot load. Drop the flag to
+predict locally, or pin 'genotools<2.0' to keep the 1.x container.
+```
+
+**`--container` / `--singularity`** worked in 1.x. They wrote the projected PCs
+to `genotools/container/`, ran `mkoretsky1/genotools_ancestry:python3.11`, and
+read predicted labels back. That image's `run.py` unpickles
+`GP2_merge_release6_NOVEMBER_..._umap_linearsvc_ancestry_model.pkl` — a 1.x
+model, which 2.0's `AncestryModel` cannot load. Restoring the flags therefore
+needs a rebuilt and republished image carrying a 2.0-format model; until that
+exists, the flags fail rather than quietly predicting locally.
+
+**`--cloud` never did anything, in any version.** It is not a lost 1.x feature:
+1.3.6 has no `--cloud` flag and no cloud code path at all. 2.0 added the flag
+name without an implementation behind it.
+
+To migrate: drop the flag — prediction runs locally, which is what 2.0 would
+have done anyway. If you need the 1.x container, pin `genotools<2.0`.
 
 ### 1.x ancestry models cannot be loaded
 

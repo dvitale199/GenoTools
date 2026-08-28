@@ -423,7 +423,6 @@ scikit-learn, xgboost     # ML models
 umap-learn==0.5.3         # Dimensionality reduction (pinned version)
 scipy, statsmodels        # Statistics
 matplotlib, seaborn       # Visualization
-google-cloud-aiplatform   # Cloud predictions
 ```
 
 ---
@@ -471,17 +470,16 @@ All processing uses PLINK2 pfiles. Conversion happens automatically at pipeline 
 - **Step 3**: XGBoost classification
 - **Supported labels**: AFR, SAS, EAS, EUR, AMR, AJ, CAS, MDE, FIN, AAC
 
-### Container Support
-```bash
-# Docker
-genotools --pfile input --out output --ancestry --container
+### Remote execution: not supported in 2.0
 
-# Singularity
-genotools --pfile input --out output --ancestry --singularity
+`--container`, `--singularity` and `--cloud` are **rejected with an error**.
+Ancestry prediction always runs locally, in process.
 
-# Google Cloud
-genotools --pfile input --out output --ancestry --cloud
-```
+`--container`/`--singularity` worked in 1.x but are tied to a Docker image whose
+`run.py` unpickles a 1.x `umap_linearsvc` model that 2.0 cannot load; restoring
+them requires republishing that image with a 2.0-format model. `--cloud` was
+never implemented in any version. See `MIGRATION_2.0.md` and REFACTOR.md
+round 10.
 
 ---
 

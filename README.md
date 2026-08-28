@@ -73,19 +73,7 @@ genotools \
   --model /path/to/nba_v1/model
 ```
 
-if you'd like to run the pipeline using the default nba_v1 model in a Docker container, you can do that like so:
-```
-genotools \
-  --pfile /path/to/genotypes/for/qc \
-  --out /path/to/qc/output \
-  --ancestry \
-  --ref-panel /path/to/reference/panel \
-  --ref-labels /path/to/reference/ancestry/labels \
-  --container \
-  --all-sample \
-  --all-variant
-```
-Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
+Note: `--container`, `--singularity` and `--cloud` are **not supported in 2.0** and exit with an error if passed. Ancestry prediction runs locally, in process. 1.x's containerized prediction relied on a Docker image built around a 1.x model that 2.0 cannot load; `--cloud` was never implemented in any version. See [MIGRATION_2.0.md](MIGRATION_2.0.md).
 
 genotools accepts `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 

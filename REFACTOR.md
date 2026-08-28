@@ -616,6 +616,60 @@ pickles. See `TESTING.md` §8.
 
 ---
 
+### Round 10 (the inert remote-execution flags)
+
+Closes **item 18**, the last blocker the round-9 handoff named before tagging.
+
+**The finding, corrected.** Item 18 recorded that "1.3.6 implemented all three."
+It implemented **two**. `origin/main` (1.3.6) defines `--container` and
+`--singularity` in `pipeline.py:44-45` and acts on them via
+`ancestry.py:675 get_containerized_predictions`. It has **no `--cloud` flag and
+no cloud code path anywhere** — grepping every `.py` in the 1.3.6 tree for
+"cloud" returns nothing, and `google-cloud-aiplatform` is absent from both
+versions' `install_requires` despite `CLAUDE.md` listing it. `--cloud` is a flag
+name 2.0 invented and never implemented. `MIGRATION_2.0.md` had it both ways,
+listing `--cloud` under "New flags" while also claiming 1.x ran predictions on
+Google Cloud.
+
+**Why "implement" was not on the table for 2.0.0.** Container mode is welded to
+the 1.x model format. `genotools/container/run.py:15` unpickles
+`GP2_merge_release6_NOVEMBER_..._umap_linearsvc_ancestry_model.pkl` — one of the
+exact two pickles round 9 dropped from the wheel *because 2.0 cannot load them*.
+Honouring `--container` needs a rebuilt, republished
+`mkoretsky1/genotools_ancestry` image carrying a 2.0-format model; the image is
+outside this repo. (Its `Dockerfile` also `git clone`s GenoTools at **main HEAD**
+unpinned, so once 2.0 merges to main, a rebuild would install 2.0 next to a
+pickle 2.0 rejects — the image breaks on its next rebuild regardless.)
+
+**So: fail loudly.** `_UNSUPPORTED_INFERENCE_FLAGS` in `cli/parser.py` maps each
+flag to its own explanation; `AncestryArgs.__post_init__` raises. The flags stay
+in the parser deliberately — a 1.x command line gets a targeted message instead
+of argparse's bare "unrecognized arguments". `--cloud`'s message says it was
+never implemented rather than implying a regression. Help strings and
+`MIGRATION_2.0.md` now match. `AncestryArgs.inference_mode` is deleted: it was
+read only by tests, and after the rejection it could never return anything but
+`LOCAL`. `InferenceMode`/`InferenceConfig` stay in `ancestry/config.py` as the
+API a future implementation would use.
+
+**A second bug, surfaced by fixing the first.** `main()`'s docstring promises
+that config-validation `ValueError`/`TypeError` reaches the user as a one-line
+`ERROR:`, but `parse_args()` was called **outside** the `try`, and the config
+dataclasses validate in `__post_init__` *inside* `parse_args`. So every
+parse-time validation error printed a raw traceback, contradicting the
+documented contract — including 1.x's own `--model` + `--container` conflict.
+`parse_args()` moved inside the `try`; `--debug` is read from `sys.argv` since
+`args` may not exist yet. argparse's own errors still exit 2 via `SystemExit`,
+which the handler does not catch.
+
+**Gating.** 6 new parser tests plus one CLI-level regression test in
+`test_cli_errors.py` that drives all three flags through a subprocess and
+asserts exit 1, no traceback, and the specific message. All were **revert-checked
+in both directions**: reverting the `__post_init__` rejection fails 6, and
+reverting the `main()` change fails the regression test on the traceback
+assertion.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -705,17 +759,8 @@ Priority order for making the refactor mergeable to `main`:
     de-facto canary (it caught round 9's break). The gap was reproduction, now
     documented in `TESTING.md` §2. Open question: keep floating and keep the
     canary, or add upper bounds and lose the signal.
-18. **⚠ `--container`, `--singularity` and `--cloud` are silently inert** —
-    the parser turns them into `InferenceMode.CONTAINER`/`SINGULARITY`/`CLOUD`
-    (and even validates `--model` against `--container`), but no execution path
-    reads `inference_mode`: `runner._run_ancestry_prediction_new` branches only
-    on `is_inference = model_path is not None`. 1.3.6 implemented all three
-    (`ancestry.py:675 get_containerized_predictions`, with a singularity pull at
-    :698). So a 2.0 user passing `--cloud` or `--container` gets local
-    in-process prediction with no warning. Parity never covered it — no parity
-    scenario passes these flags. Decide before wider release: implement, or
-    make them fail loudly. A silent no-op is the one option that should not
-    ship.
+18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
+    RESOLVED in **round 10**: they now fail loudly. See round 10 below.
 
 17. **Revert-check audit of the round-7 tests** — outstanding since the round-7
     handoff. Several tests added then were written against helpers rather than
