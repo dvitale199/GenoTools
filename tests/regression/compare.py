@@ -602,34 +602,57 @@ def compare_gwas(expected_prefix: Path, actual_prefix: Path, **kwargs) -> Compar
     return compare_gwas_results(exp_glm, act_glm, **kwargs)
 
 
+# PLINK2 needs a sex code per sample to resolve chrX/chrY ploidy. A run that
+# never called --sex can leave some unset, and then --pgen-diff refuses to run
+# at all - so these are dropped from the comparison rather than losing it.
+_SEX_CHROM_CODES = "X,Y,XY,MT"
+
+
 def _run_pgen_diff(
     expected_prefix: Path,
     actual_prefix: Path,
     plink2_exec: str,
     out_prefix: Path,
-) -> tuple[int, set]:
+) -> tuple[int, set, str]:
     """Report genotype differences between two pfile sets via --pgen-diff.
 
     Unlike a .traw export this needs no full-matrix intermediate: PLINK2 walks
     both filesets and writes one row per differing (variant, sample) pair.
 
     Returns:
-        (number of differing calls, set of variant IDs involved).
+        (number of differing calls, set of variant IDs involved, scope note).
+        The scope note is empty when every chromosome was compared, and names
+        what was excluded otherwise - never silently narrowed.
 
     Raises:
         RuntimeError: If PLINK2 fails.
     """
     import subprocess
 
-    cmd = [
-        plink2_exec,
-        "--pfile", str(expected_prefix),
-        # include-missing so a call present on one side and missing on the
-        # other counts as a difference, matching the .traw comparison.
-        "--pgen-diff", str(actual_prefix), "include-missing",
-        "--out", str(out_prefix),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    def _attempt(extra_args: list) -> "subprocess.CompletedProcess":
+        cmd = [
+            plink2_exec,
+            "--pfile", str(expected_prefix),
+            # include-missing so a call present on one side and missing on the
+            # other counts as a difference, matching the .traw comparison.
+            "--pgen-diff", str(actual_prefix), "include-missing",
+            *extra_args,
+            "--out", str(out_prefix),
+        ]
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    result = _attempt([])
+    scope = ""
+    if result.returncode != 0 and "Missing sex code" in result.stderr:
+        # --remove does not help: the sex-code check reads the comparison
+        # fileset's psam before any sample filter applies. The sex chromosomes'
+        # variant and sample ID sets are still compared by compare_pfiles; only
+        # their calls go unchecked.
+        result = _attempt(["--not-chr", _SEX_CHROM_CODES])
+        scope = (
+            f" (autosomes only: {_SEX_CHROM_CODES} excluded because some "
+            f"samples have no sex code)"
+        )
     pdiff = _ext(out_prefix, ".pdiff")
     if result.returncode != 0:
         raise RuntimeError(
@@ -640,7 +663,7 @@ def _run_pgen_diff(
     if not pdiff.exists():
         # PLINK2 writes a header-only .pdiff when there is nothing to report;
         # a missing file means it decided there was nothing to compare.
-        return 0, set()
+        return 0, set(), scope
 
     ids: set = set()
     count = 0
@@ -655,7 +678,7 @@ def _run_pgen_diff(
                 continue
             count += 1
             ids.add(line.split("\t", 1)[0])
-    return count, ids
+    return count, ids, scope
 
 
 def compare_genotypes(
@@ -757,9 +780,10 @@ def compare_genotypes(
         # allele on line N ... conflicts with loaded REF"), so the per-call
         # diff cannot run. The coding mismatch is already a failing verdict.
         genotype_mismatches = None
+        scope = ""
     else:
         with tempfile.TemporaryDirectory() as td:
-            genotype_mismatches, diff_ids = _run_pgen_diff(
+            genotype_mismatches, diff_ids, scope = _run_pgen_diff(
                 expected_prefix, actual_prefix, plink2, Path(td) / "pdiff"
             )
         mismatched_variants.update(diff_ids)
@@ -776,7 +800,7 @@ def compare_genotypes(
     calls = (
         "not compared (allele coding differs)"
         if genotype_mismatches is None
-        else str(genotype_mismatches)
+        else f"{genotype_mismatches}{scope}"
     )
     message = (
         f"variants: missing {len(missing_snps)}, extra {len(extra_snps)}; "

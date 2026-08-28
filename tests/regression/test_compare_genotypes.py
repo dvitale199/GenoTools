@@ -283,3 +283,57 @@ class TestCompareGenotypesMethodsAgree:
         result = compare_genotypes(a, a, plink2_exec=plink2_exec, method=method)
 
         assert result.equal is True
+
+
+class TestUnsetSexCodesDoNotLoseTheCheck:
+    """PLINK2 refuses --pgen-diff outright when a sample has no sex code and
+    chrX/chrY is in scope, which killed the genotype check for any run that
+    never called --sex (a flat --related run, for one). The comparator falls
+    back to autosomes and says so in its message, rather than raising or -
+    worse - passing while claiming full coverage.
+    """
+
+    @staticmethod
+    def _with_unset_sex(src: Path, dst: Path) -> Path:
+        """Copy a pfile set, blanking SEX to NA for one sample."""
+        for ext in (".pgen", ".pvar"):
+            dst.with_suffix(ext).write_bytes(src.with_suffix(ext).read_bytes())
+        lines = src.with_suffix(".psam").read_text().splitlines()
+        sex = lines[0].split().index("SEX")
+        rows = [lines[0]]
+        for i, line in enumerate(lines[1:]):
+            fields = line.split()
+            if i == 0:
+                fields[sex] = "NA"
+            rows.append("\t".join(fields))
+        dst.with_suffix(".psam").write_text("\n".join(rows) + "\n")
+        return dst
+
+    def test_identical_pfiles_still_compare_equal(
+        self, test_geno_path: Path, tmp_path: Path, plink2_exec: str
+    ) -> None:
+        a = self._with_unset_sex(test_geno_path, tmp_path / "a")
+        b = self._with_unset_sex(test_geno_path, tmp_path / "b")
+        assert "X" in {
+            line.split("\t")[0]
+            for line in a.with_suffix(".pvar").read_text().splitlines()
+            if not line.startswith("#")
+        }, "fixture must carry chrX or this tests nothing"
+
+        result = compare_genotypes(a, b, plink2_exec=plink2_exec)
+
+        assert result.equal is True
+        # The narrowing is stated, not silent.
+        assert "autosomes only" in result.message
+        assert "X,Y" in result.message
+
+    def test_full_coverage_says_nothing_about_scope(
+        self, test_geno_path: Path, plink2_exec: str
+    ) -> None:
+        """The note appears only when coverage was actually reduced."""
+        result = compare_genotypes(
+            test_geno_path, test_geno_path, plink2_exec=plink2_exec
+        )
+
+        assert result.equal is True
+        assert "autosomes only" not in result.message

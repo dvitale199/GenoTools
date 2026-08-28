@@ -271,6 +271,17 @@ def check_pruned_samples(rep: Report, old: dict, new: dict) -> None:
         rep.add("pruned samples", True, f"identical IDs across {len(steps)} step(s), {total:,} total")
 
 
+def _scope_note(message: str) -> str:
+    """Surface a narrowed genotype comparison in the PASS line.
+
+    compare_genotypes falls back to autosomes when unset sex codes stop PLINK2
+    from comparing chrX/chrY. A pass that covered less than everything has to
+    say so, or a silently narrowed check reads as full coverage.
+    """
+    start = message.find("(autosomes only")
+    return "" if start < 0 else " " + message[start:]
+
+
 def check_related(rep: Report, old: dict, new: dict) -> None:
     ro, rn = _frame(old, "related_samples"), _frame(new, "related_samples")
     if ro is None and rn is None:
@@ -353,7 +364,10 @@ def check_output_pfiles(rep: Report, old_prefix: Path, new_prefix: Path,
         if not geno.equal:
             rep.add(f"pfiles {label}", False, f"genotypes differ: {geno.message}")
             continue
-        rep.add(f"pfiles {label}", True, "identical IDs + genotypes")
+        rep.add(
+            f"pfiles {label}", True,
+            f"identical IDs + genotypes{_scope_note(geno.message)}",
+        )
         checked.append(label)
 
     if missing:

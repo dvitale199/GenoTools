@@ -45,6 +45,7 @@ Scenarios
     full-pipeline  all_sample + all_variant              (IDs + genotype content)
     gwas           pca + gwas                            (tested-variant set + lambda)
     ancestry       ancestry + all_sample + all_variant   (full report + per-group genotypes)
+    related        related                               (pair REL bins + both counts)
 
 The ``ancestry`` scenario is the production configuration: ancestry prediction
 splits the cohort and QC then runs per group, so the output is
@@ -59,6 +60,21 @@ scenarios. Select it explicitly (``--scenarios ancestry``) or via ``all``. Unlik
 the flat scenarios it runs without ``--full-output``, because the per-ancestry
 ``*_hwe_tmp.bed`` intermediates run to ~10 GB per side and the comparison only
 needs the promoted ``{out}_{LABEL}.*`` outputs.
+
+The ``related`` scenario exists to exercise ``duplicated_cutoff`` (0.354),
+which no parity run had ever reached: the 10k subset holds 52 related pairs and
+zero duplicates, so ``filter_relatedness``'s duplicate ``--king-cutoff`` call
+and the ``duplicate`` bin of its ``pd.cut`` never saw a positive. It compares
+pair-level REL classifications and both counts (related_count and
+duplicated_count) with ``compare_related_run.py``'s battery, and *fails* if
+duplicated_count is zero - a run where nothing is a duplicate would otherwise
+pass every equality check while testing nothing.
+
+It is therefore selected by name only, never via ``all``: it needs a ``--geno``
+subset built to contain pairs above the cutoff. To build one, take both members
+of pairs a prior release classified ``duplicate`` (from its ``related_samples``
+table) and pass the same pairs back via ``--expect-duplicate-pairs`` to assert
+they are re-classified as duplicates.
 
 GWAS parity is asserted at the tested-variant-set + genomic-inflation-lambda
 level, NOT per-variant p-value: the new PCA pruning intentionally excludes
@@ -95,6 +111,7 @@ _STEP_FLAGS = {
     "callrate": ("--callrate", "--callrate"),
     "sex": ("--sex", "--sex"),
     "het": ("--het", "--het"),
+    "related": ("--related", "--related"),
     "geno": ("--geno", "--geno"),
     "case_control": ("--case_control", "--case-control"),
     "haplotype": ("--haplotype", "--haplotype"),
@@ -116,10 +133,17 @@ SCENARIOS = {
     "full-pipeline": ["all_sample", "all_variant"],
     "gwas": ["pca", "gwas"],
     "ancestry": ["ancestry", "all_sample", "all_variant"],
+    "related": ["related"],
 }
 GWAS_SCENARIOS = {"gwas"}
 ANCESTRY_SCENARIOS = {"ancestry"}
+RELATED_SCENARIOS = {"related"}
 DEFAULT_SCENARIOS = ["qc", "full-pipeline", "gwas"]
+
+# "related" is not a default: it asserts that the duplicate branch actually
+# fired, which needs a --geno subset containing pairs above duplicated_cutoff
+# (0.354). On a subset without any it fails by design, rather than passing
+# every equality check while exercising nothing.
 
 # Where genotools caches the GP2 reference panel; overridable on the CLI.
 _REF_DIR = Path.home() / ".genotools" / "ref" / "ref_panel"
@@ -307,6 +331,46 @@ def _parity_ancestry(old_out: Path, new_out: Path, plink2: str,
     return True, f"all {len(rep.rows)} checks identical across {len(labels)} ancestry group(s)"
 
 
+def _parity_related(old_out: Path, new_out: Path, plink2: str,
+                    expect_duplicate_pairs: Path | None = None) -> tuple[bool, str]:
+    """Compare two --related runs with compare_related_run.py's check battery.
+
+    Relatedness reports more than an output fileset: pair-level REL bins and
+    two separate counts, one of which (duplicated_count) went unexercised for
+    the whole refactor. Reuse the checks that back compare_related_run.py so
+    the two entry points cannot drift apart.
+    """
+    from tests.scripts.compare_related_run import (
+        _cmp,
+        check_duplicate_branch_fired,
+        check_expected_duplicates,
+        check_output_pfiles,
+        check_pruned_samples,
+        check_rel_classification,
+        check_related_metrics,
+    )
+
+    for prefix, side in ((old_out, "old"), (new_out, "new")):
+        if not Path(f"{prefix}.json").exists():
+            return False, f"{side} CLI produced no JSON report ({prefix}.json)"
+
+    old, new = _cmp._load_json(old_out), _cmp._load_json(new_out)
+
+    rep = _cmp.Report()
+    check_duplicate_branch_fired(rep, new)
+    check_related_metrics(rep, old, new)
+    check_rel_classification(rep, old, new)
+    check_pruned_samples(rep, old, new)
+    if expect_duplicate_pairs:
+        check_expected_duplicates(rep, new, expect_duplicate_pairs)
+    check_output_pfiles(rep, old_out, new_out, plink2)
+
+    failed = rep.failed()
+    if failed:
+        return False, f"{len(failed)} check(s) diverged: {', '.join(failed)}"
+    return True, f"all {len(rep.rows)} checks identical, duplicate branch exercised"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--geno", required=True, type=Path, help="Real cohort pfile prefix (no extension)")
@@ -333,6 +397,11 @@ def main() -> int:
         help=f"Ancestry reference labels (default: {DEFAULT_REF_LABELS})",
     )
     parser.add_argument(
+        "--expect-duplicate-pairs", type=Path, default=None,
+        help="TSV of IID1 IID2 pairs a prior release called duplicates "
+             "(related scenario only)",
+    )
+    parser.add_argument(
         "--release-json", type=Path, default=None,
         help="Released full-cohort JSON for an informational cross-check (ancestry only)",
     )
@@ -347,7 +416,14 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    scenarios = list(SCENARIOS) if "all" in args.scenarios else args.scenarios
+    # "all" does not pull in "related": that scenario asserts the duplicate
+    # branch fired, which needs input built to contain duplicate pairs. Under
+    # "all" on an ordinary cohort it would fail for the wrong reason, so it is
+    # selected by name only.
+    if "all" in args.scenarios:
+        scenarios = [n for n in SCENARIOS if n not in RELATED_SCENARIOS]
+    else:
+        scenarios = args.scenarios
     wants_ancestry = bool(ANCESTRY_SCENARIOS.intersection(scenarios))
     if args.timeout is None:
         args.timeout = ANCESTRY_TIMEOUT if wants_ancestry else FLAT_TIMEOUT
@@ -407,7 +483,11 @@ def main() -> int:
             cwd=str(REPO_ROOT), timeout=args.timeout,
         )
 
-        if name in ANCESTRY_SCENARIOS:
+        if name in RELATED_SCENARIOS:
+            ok, msg = _parity_related(
+                old_out, new_out, plink2, args.expect_duplicate_pairs
+            )
+        elif name in ANCESTRY_SCENARIOS:
             ok, msg = _parity_ancestry(
                 old_out, new_out, plink2, args.release_json, args.keep
             )
