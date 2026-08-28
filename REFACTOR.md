@@ -785,10 +785,10 @@ Priority order for making the refactor mergeable to `main`:
     de-facto canary (it caught round 9's break). The gap was reproduction, now
     documented in `TESTING.md` §2. Open question: keep floating and keep the
     canary, or add upper bounds and lose the signal.
-18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
-    RESOLVED in **round 10**: they now fail loudly. See round 10 below.
-
 17. ✅ **Revert-check audit of the round-7 tests** — DONE in **round 10**.
     Four round-7 behaviors were mutation-tested at their call sites; three
     gated, one did not. See round 10 above. The audit was a spot check of the
     highest-risk behaviors, not an exhaustive sweep of every round-7 test.
+18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
+    RESOLVED in **round 10**: they now fail loudly. See round 10 above.
+
