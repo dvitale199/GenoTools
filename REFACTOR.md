@@ -661,6 +661,32 @@ documented contract — including 1.x's own `--model` + `--container` conflict.
 `args` may not exist yet. argparse's own errors still exit 2 via `SystemExit`,
 which the handler does not catch.
 
+**Item 17: the round-7 revert-check audit.** Four round-7 behaviors were
+mutation-tested by breaking the production **call site** and running the tests
+that claim to cover it:
+
+| Mutation | Result |
+|---|---|
+| `executors`: stray `{out}.log` no longer removed | **gated** (2 tests fail) |
+| `executors`: `_harvest_raw_log` call site removed | **gated** (3 tests fail) |
+| `runner`: `_emit_run_summary()` call site removed | **gated** (4 tests fail) |
+| `runner`: `runlog.restore_rotated()` call site removed | **NOT gated** — 15 CLI tests all passed |
+
+The gap was exactly the shape item 17 predicted. `restore_rotated` had one test,
+`test_core.py::test_restore_rotated_puts_the_log_back`, which does the removal
+by hand (`log_path.unlink()  # what _teardown_logging(remove_logs=True) does`)
+and so passes whether or not the runner ever calls it. Deleting
+`runner.py:363` left every test green while a failed re-run silently destroyed
+the previous run's log and stranded it at `.1`.
+
+Closed with `test_cli_errors.py::test_preflight_failure_restores_the_rotated_log`,
+which drives the real path — successful run, then `--skip-fails` past the re-run
+guard into a pre-flight failure — and asserts the prior log is back and no `.1`
+is left behind. Revert-checked: it fails with "the prior run's log was removed
+and never restored".
+
+This was a spot check of the highest-risk behaviors, not an exhaustive sweep.
+
 **Gating.** 6 new parser tests plus one CLI-level regression test in
 `test_cli_errors.py` that drives all three flags through a subprocess and
 asserts exit 1, no traceback, and the specific message. All were **revert-checked
@@ -762,8 +788,7 @@ Priority order for making the refactor mergeable to `main`:
 18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
     RESOLVED in **round 10**: they now fail loudly. See round 10 below.
 
-17. **Revert-check audit of the round-7 tests** — outstanding since the round-7
-    handoff. Several tests added then were written against helpers rather than
-    call sites and have never been confirmed to fail with their fix reverted;
-    rounds 8-9 revert-checked only their own. A test that passes with the bug
-    restored is not gating anything.
+17. ✅ **Revert-check audit of the round-7 tests** — DONE in **round 10**.
+    Four round-7 behaviors were mutation-tested at their call sites; three
+    gated, one did not. See round 10 above. The audit was a spot check of the
+    highest-risk behaviors, not an exhaustive sweep of every round-7 test.

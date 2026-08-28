@@ -191,6 +191,47 @@ def test_skip_fails_rerun_preserves_prior_log(
     )
 
 
+def test_preflight_failure_restores_the_rotated_log(
+    test_geno_path: Path, tmp_path: Path
+) -> None:
+    """A run that dies in pre-flight leaves the directory as it found it.
+
+    Setting up logging rotates any existing log to ``.1``. If pre-flight then
+    fails, the fresh log is removed -- so without the matching
+    ``RunLog.restore_rotated()`` the prior run's log is left stranded at ``.1``
+    and the expected path is simply gone.
+
+    This drives the real ``_teardown_logging(remove_logs=True)`` call site.
+    The unit test in ``test_core.py`` covers ``restore_rotated`` itself but
+    performs the removal by hand, so it passes even if the runner never calls
+    it (REFACTOR item 17).
+    """
+    out = tmp_path / "preflight"
+
+    first = _run_cli(["--pfile", str(test_geno_path), "--out", str(out), "--callrate"])
+    assert first.returncode == 0, f"first run failed:\n{first.stderr}"
+
+    log = Path(f"{out}_all_logs.log")
+    original = log.read_text()
+
+    # --skip-fails gets past the re-run guard; the missing input then fails
+    # pre-flight, after the log has already been rotated aside.
+    second = _run_cli([
+        "--pfile", "/nonexistent/nope",
+        "--out", str(out),
+        "--callrate",
+        "--skip-fails",
+    ])
+    assert second.returncode == 1, second.stderr
+    assert "does not exist" in second.stderr
+
+    assert log.exists(), "the prior run's log was removed and never restored"
+    assert log.read_text() == original, "the restored log is not the prior one"
+    assert not Path(f"{out}_all_logs.log.1").exists(), (
+        "the rotated copy was left stranded beside the outputs"
+    )
+
+
 def test_no_stray_tool_log_beside_outputs(
     test_geno_path: Path, tmp_path: Path
 ) -> None:
