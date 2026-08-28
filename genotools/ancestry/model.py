@@ -666,8 +666,19 @@ class AncestryModel:
                 model = pickle.load(f)
 
         if not isinstance(model, cls):
+            # A 1.x model pickles an sklearn Pipeline. Naming that outright
+            # saves the user guessing at a type mismatch, since --model is
+            # exactly where a 1.x model gets pointed at 2.0.
+            hint = ""
+            if type(model).__module__.split(".")[0] == "sklearn":
+                hint = (
+                    " This looks like a GenoTools 1.x model, which 2.0 cannot "
+                    "load. Pass a model directory written by 2.0, or retrain "
+                    "by dropping --model and passing --ref-panel/--ref-labels."
+                )
             raise AncestryError(
-                f"Invalid model file: expected AncestryModel, got {type(model)}"
+                f"Invalid model file: expected AncestryModel, got "
+                f"{type(model)}.{hint}"
             )
 
         logger.info(f"Model loaded from: {path}")
