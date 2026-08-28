@@ -64,7 +64,13 @@ setup(
         'umap_learn==0.5.3',
         'xgboost>=1.7.6'
     ],
+    # container/ is a Docker build context kept as a historical reference, not
+    # library code: its Dockerfile COPYs the build context in, so nothing reads
+    # these from an installed package. The two *.pkl models it holds are
+    # umap_linearsvc pipelines from the 1.x era that 2.0 cannot load at all
+    # (AncestryModel.load rejects them), and they were 2.16 MB of a 2.57 MB
+    # wheel. Ship the text files, not the models.
     package_data={
-      'genotools': ['container/*.pkl','container/*.txt','container/Dockerfile']
+      'genotools': ['container/*.txt','container/Dockerfile']
    }
 )

@@ -1,0 +1,7 @@
+# PEP 517/518 build declaration. Without this, pip falls back to legacy
+# `setup.py bdist_wheel`, which fails with "invalid command 'bdist_wheel'"
+# unless the `wheel` package happens to be installed in the ambient
+# environment. Project metadata stays in setup.py.
+[build-system]
+requires = ["setuptools>=65.6.3", "wheel"]
+build-backend = "setuptools.build_meta"
