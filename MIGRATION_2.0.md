@@ -122,6 +122,28 @@ neither of them visible:
 fields. Nothing about *which* steps run changed — only whether you can tell
 what happened to them.
 
+Three checks are now re-decided **per dataset** rather than inherited from the
+cohort, because `--ancestry` splits the cohort *after* the cohort-level check and
+a group's data can differ sharply from the whole:
+
+| step | why a group can differ | 1.x | 2.0 |
+|---|---|---|---|
+| `het` | group falls under PLINK's 50-sample LD floor | failed inside PLINK | skipped |
+| `sex` | group has no recorded sample sex | failed inside PLINK | skipped |
+| `case_control` | group holds only cases, or only controls | raised in the step | skipped |
+
+In 1.x these were reported as failures for a group even though the cohort-level
+version of the same finding was reported as a skip — one decision with two
+behaviors depending on where it was noticed. Only sample-derived checks are
+re-decided: the X-chromosome half of the sex check cannot change, since the split
+keeps samples and every group inherits the cohort's pvar. All three read the psam
+as it stands *before* the QC chain runs, so a precondition broken by an earlier
+prune (callrate removing the last control, say) still fails in the step.
+
+`--skip-fails` suppresses the cohort-level decisions but not these, so a cohort
+that 1.x would have run-and-failed is now skipped. Samples and variants carried
+forward are unaffected either way — the step did not run in either version.
+
 One skip is new, because the guard behind it never worked. 1.x meant to skip
 het below 50 samples but tested the **variant** count instead of the sample
 count (`utils.py:185`), and a real dataset never has fewer than 50 variants, so
@@ -141,6 +163,23 @@ group's het step changes from a failure to a skip:
 Samples and variants carried forward are identical — het did not run in either
 version. Only the reporting changed. Anything reading `pass` still works; read
 `outcome` to tell a skip from a failure.
+
+### 1.x ancestry models cannot be loaded
+
+`--model` takes a model directory, or a single `.pkl` written by 2.0. A model
+from 1.x holds an `sklearn.pipeline.Pipeline` rather than an `AncestryModel` and
+is rejected:
+
+```
+Invalid model file: expected AncestryModel, got <class 'sklearn.pipeline.Pipeline'>.
+This looks like a GenoTools 1.x model, which 2.0 cannot load. Pass a model
+directory written by 2.0, or retrain by dropping --model and passing
+--ref-panel/--ref-labels.
+```
+
+Retrain once against your reference panel and reuse the resulting directory.
+(1.x's `--model` also required a sibling `.common_snps` file; 2.0 keeps
+`common_snps.txt` inside the model directory instead.)
 
 ### GWAS p-values shift slightly
 

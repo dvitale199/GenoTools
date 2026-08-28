@@ -40,7 +40,8 @@ PLINK/PLINK2 are downloaded automatically the first time a step needs them
   parity, to the pre-refactor CLI. Tests that need something absent (PLINK, the
   `.venv-stable` baseline, golden files) **skip cleanly** rather than fail.
 
-Everything green today: **374 passed** with `.venv-stable` present.
+Everything green today: **609 passed** (534 unit + 75 regression) with
+`.venv-stable` present.
 
 ---
 
@@ -105,9 +106,23 @@ command lines build correctly.
 ## 4. What the comparators actually check (`tests/regression/compare.py`)
 
 - **`compare_pfiles`** — sample and variant **ID sets** only.
-- **`compare_genotypes`** — exports both pfile sets to PLINK2 `.traw` and
-  compares the genotype matrix order-independently. Catches same-IDs-but-changed-
-  genotypes and flipped allele coding, which `compare_pfiles` alone would miss.
+- **`compare_genotypes`** — compares the genotype content itself, catching
+  same-IDs-but-changed-genotypes and flipped allele coding that `compare_pfiles`
+  alone would miss. Two methods, same verdict: `pgen-diff` (the default) walks
+  both filesets in place with PLINK2 `--pgen-diff`, needing no intermediate;
+  `traw` exports both to `.traw` text and diffs the matrices, which costs roughly
+  (samples x variants x 2) bytes per side and is kept only for debugging. Allele
+  coding is compared directly from the `.pvar`, because `--pgen-diff` compares
+  alleles rather than dosage codes and a REF/ALT flip is invisible to it.
+  - **chrX/chrY caveat.** PLINK2 needs a sex code per sample to resolve sex-
+    chromosome ploidy, and refuses `--pgen-diff` outright if any sample lacks
+    one — which happens on any run that never called `--sex` (a flat `--related`
+    run, for instance). `--remove` does not help: the check reads the comparison
+    fileset's psam before any sample filter. The comparator falls back to
+    autosomes and says so in its message, which both parity reporters print on
+    the PASS line, so a narrowed check never reads as full coverage. The sex
+    chromosomes' variant and sample **ID sets** are still compared; only their
+    calls go unchecked.
 - **`compare_gwas_results` / `compare_gwas`** — align two `--glm` association
   tables on variant ID, compare per-variant p-values and the derived genomic-
   inflation **lambda**. `find_gwas_output` locates the `.glm.*` file for a run.
@@ -132,8 +147,10 @@ pytest parity suite but points at your cohort:
   into `--out` before running**, so your source data dir is never written to.
 - It runs old (`.venv-stable`) and new (`python -m genotools`) for each scenario,
   compares, prints a PASS/FAIL summary, and exits non-zero if anything diverges.
-- Scenarios: `qc`, `case_control`, `haplotype`, `ld`, `full-pipeline`, `gwas`
-  (default: `qc full-pipeline gwas`).
+- Scenarios: `qc`, `case_control`, `haplotype`, `ld`, `full-pipeline`, `gwas`,
+  `ancestry`, `related` (default: `qc full-pipeline gwas`). `--scenarios all`
+  selects every one **except** `related`, which needs purpose-built input — see
+  below.
 
 Example output:
 
@@ -143,12 +160,51 @@ Example output:
   [PASS] gwas: same tested-variant set; lambda old=1.00740 new=1.00712; per-variant p-mismatches=40498 (expected under decision B ...)
 ```
 
-For ancestry parity you need a real reference panel + labels (not in the
-synthetic data); run `genotools --ancestry --ref-panel ... --ref-labels ...`
-under both CLIs and compare the predicted-label assignments. The default
-`genotools` entry point still uses the **legacy** ancestry code, so ancestry
-parity there is near-trivial; `genotools-new` (new `AncestryModel`) is
-experimental and out of scope for this gate.
+### The `ancestry` scenario
+
+The production configuration, and no longer a special case: round 6 flipped the
+default engine to the new `AncestryModel` and deleted the legacy path, so the
+plain `genotools` entry point exercises the real code. Prediction splits the
+cohort and QC runs per group, so the output is `{out}_{LABEL}.pgen` per label
+rather than one fileset; it is compared with the whole battery in
+`compare_ancestry_run.py` (labels, counts, model quality, QC metrics, pruned
+samples, related pairs, per-group step pass/fail, per-group genotypes).
+
+It needs a real reference panel and labels (not in the synthetic data) and runs
+about an hour per CLI on a 10k cohort, so it is not a default scenario. Training
+is most of that: `--model <dir>` (the directory, not `pipeline.pkl`) reuses a
+previously trained model and cuts a ~32 min run to ~7. Note 2.0 cannot load a
+1.x pickle.
+
+### The `related` scenario
+
+Exists to exercise `duplicated_cutoff` (0.354), which no parity run reached for
+the whole refactor: the 10k subset holds 52 related pairs and **zero**
+duplicates, so `filter_relatedness`'s duplicate `--king-cutoff` call and the
+`duplicate` bin of its `pd.cut` never saw a positive. It compares pair-level REL
+classifications and both counts with `compare_related_run.py`, and **fails if
+`duplicated_count` is zero** — a run where nothing is a duplicate would
+otherwise pass every equality check while testing nothing. That is why it is
+selected by name only and excluded from `all`.
+
+To build input for it, take both members of pairs a prior release classified
+`duplicate` (from its `related_samples` table), add them to your subset's keep
+file, and pass the same pairs back via `--expect-duplicate-pairs` to assert they
+are re-classified as duplicates:
+
+```bash
+.venv/bin/python tests/scripts/run_parity.py \
+    --geno /path/to/subset_with_duplicates \
+    --out  /path/to/workdir \
+    --scenarios related \
+    --expect-duplicate-pairs dup_pairs.tsv    # two columns: IID1 IID2
+```
+
+A flat `--related` run compares across ancestries, so expect *more* duplicate
+pairs than a per-ancestry release reported — some are cross-ancestry pairs the
+per-group pipeline structurally cannot see, and borderline first-degree pairs can
+be pushed over 0.354 by running KING on a mixed-ancestry cohort. Compare old
+against new, not against the release.
 
 ---
 
@@ -222,6 +278,17 @@ external download hosts are hit at most once per cache key.
   equivalent is `--warn True`/absent.
 - **Where are the run logs?** — `{out}_all_logs.log` is the consolidated,
   step-tagged log; `{out}.json` has the structured metrics.
+- **A new test passes — does it actually test the fix?** Revert the fix and
+  re-run it. A test written against a helper rather than its call site will
+  happily pass with the bug restored; this has caught several. Keep deliberate
+  negative controls (which pass either way) but know which ones they are.
+- **Which plink2 ran?** GenoTools resolves **only** from `$GENOTOOLS_DEP_DIR` or
+  `~/.genotools/misc/executables/`, downloading a pinned build if absent — it
+  never consults `PATH`. The comparators' `_resolve_plink2` prefers `PATH`, so a
+  box with both can have your shell and the pipeline on different versions
+  (v2.0.0-a.6.3 vs the pinned v2.00a5.10 here). Comparison operations are stable
+  across versions but flag semantics are not, so build fixtures explicitly
+  rather than letting the resolved binary decide what they mean.
 
 ---
 

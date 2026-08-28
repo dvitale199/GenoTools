@@ -490,6 +490,85 @@ failure boundary end-to-end).
 
 ---
 
+### Round 8 (per-dataset skip decisions, duplicate-branch coverage)
+
+Closed the last three pre-merge items from the round-7 handoff. Round 7 had
+introduced the three-outcome mechanism (`pass`/`fail`/`skipped`); this round
+found that one decision was still reported two different ways depending on where
+it was noticed, and that one QC branch had never executed at all.
+
+**1 — Data-driven skips are decided per dataset (`11083a3`, `fc3c05a`).**
+`validate_input` decides against the whole cohort, but `--ancestry` splits the
+cohort afterwards, so a group's data can differ sharply from the whole. Only
+`het` was re-decided per group; `sex` and `case_control` were not, so a group
+with no recorded sex, or holding only cases, reached the step and *failed* —
+reporting the same finding as `outcome="fail"` per group and `"skipped"`
+cohort-wide. `--skip-fails` had the same split at cohort level, since it
+suppresses `validate_input`'s decisions entirely.
+
+`core/validation.py` now owns all three per-dataset decisions
+(`het_skip_reason`, `sex_skip_reason`, `case_control_skip_reason`) beside the
+cohort-level ones they mirror, sharing `SEX_SKIP_REASON`, `NO_X_SKIP_REASON`,
+`CASE_CONTROL_SKIP_REASON` and `het_floor_reason()` so the two callers cannot
+drift into different explanations of one finding. `runner.py:_skip_reasons`
+collapsed its three near-identical guard blocks into one loop over
+`(step, decide)`, and no longer imports `MIN_HET_SAMPLES` or `count_samples` —
+it stopped knowing about PLINK's LD floor. Only sample-derived checks are
+re-decided: the X-chromosome half of the sex check cannot change, because the
+split keeps samples and every group inherits the cohort's pvar.
+
+A missing psam now **raises** from all three rather than deciding nothing,
+matching what the het check already did — a wrong prefix is a bug, and swallowing
+it is how every `--ancestry` run without `--full-output` died in round 7. A
+missing *column* still decides nothing and leaves the step to raise its own
+specific error.
+
+**2 — `duplicated_cutoff` exercised for the first time (`24c845d`).** The 10k
+parity subset holds 52 related pairs and **zero** duplicates, so
+`filter_relatedness`'s duplicate `--king-cutoff` call and the `duplicate` bin of
+its `pd.cut` had never seen a positive through the entire refactor. Built a
+10,019-sample subset containing both members of all 10 pairs the r12 release
+classified as duplicates and ran `--related` under both CLIs: identical
+`duplicated_count=20`, identical 50,958 pairs with identical REL bins
+(`duplicate=31, first_deg=1238, second_deg=49689`), the same 20 samples removed,
+identical output genotypes, and all 10 known pairs re-classified `duplicate`.
+
+Added `tests/scripts/compare_related_run.py` (whose battery **fails** when
+`duplicated_count` is zero, so a subset without duplicates cannot pass while
+testing nothing) and a `related` scenario in `run_parity.py` that reuses it.
+Selected by name only, never via `all`, since it needs purpose-built input.
+
+The 31 duplicate pairs exceed the release's 10 because a flat run compares across
+ancestries: 5 are cross-ancestry pairs the per-group pipeline structurally cannot
+see, and the rest sit at 0.357–0.485, consistent with mixed-ancestry KING
+inflating borderline first-degree pairs. 1.x behaves identically — a design
+observation, not a regression.
+
+**3 — Comparator blind spot found by using it (`24c845d`).** PLINK2 refuses
+`--pgen-diff` outright when any sample lacks a sex code and chrX/chrY is in
+scope, which silently killed the genotype check for any run that never called
+`--sex`. `compare.py` falls back to autosomes and reports the narrowing, which
+both parity reporters now print on the PASS line. See `TESTING.md` §4.
+
+**4 — Two misleading help strings, and a self-service error (`6a173cd`,
+`8b5f502`).** `--model` advertised "legacy .pkl file", which reads as a 1.x
+model; it means 2.0's own single-file layout, and the `AncestryModel.load`
+docstring calling that "Legacy format" was the source of the wording.
+`compare_ancestry_run.py`'s `--skip-genotypes` claimed to compare IDs only and
+to skip a `.traw` diff — it skips the whole pfile check, and the diff has been
+`--pgen-diff` since `adfc072`. A 1.x model pointed at `--model` now gets told so
+by name, with the way out, instead of a bare type mismatch.
+
+**Tests: 503 → 609** (534 unit + 75 regression). All 27 new tests were
+revert-checked — reverting the fix must break them, since a test written against
+a helper rather than its call site passes with the bug restored. Includes
+`tests/regression/test_skipped_steps.py`, which drives the real CLI end-to-end
+for both skip-capable steps against `--skip-fails` on and off, with a negative
+control per step so an over-eager skip that silently disables sex or
+case-control QC fails loudly.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -503,9 +582,15 @@ Priority order for making the refactor mergeable to `main`:
    guard decoupled so `validate_input` logs into the consolidated log.
    `tests/regression/test_logging.py` rewritten to lock the new contract.
 
-1. **⭐ NEXT — Prove parity on real data** — run `test_parity.py` on representative real
-   cohorts (not just synthetic), across the full QC set and, ideally, ancestry +
-   GWAS. This is the gate before merging to `main`. (Harness extended in round 2:
+1. ✅ **Prove parity on real data** — DONE (rounds 7-8). On a 10k GP2 r12 subset,
+   `--ancestry --all-sample --all-variant` passes all 20 checks against 1.3.6:
+   ancestry labels/counts/accuracy, all 99 QC `pruned_count`s, 412 pruned samples
+   across 3 steps, 52 related pairs, step pass/fail across 11 groups, and
+   identical IDs + genotypes for every group. Round 8 added the duplicate branch
+   on a purpose-built subset (see above). **Parity is a differential test, not a
+   correctness test** — a bug faithfully carried forward reads as PASS, and both
+   round-8 skip bugs were found by running the real CLI, not by the suite.
+   (Harness extended in round 2:
    multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Per
    decision B above, real-cohort GWAS per-variant p-values will differ slightly
    from the old baseline *by design* — PCA now excludes MHC/high-LD regions — so
@@ -537,3 +622,22 @@ Priority order for making the refactor mergeable to `main`:
    steps are pure functions.
 10. **Tier 3 — automatic ancestry PCA cache** keyed on `(ref_panel, common_snps)`;
     remove redundant UMAP-for-plotting refit; vectorize `_predict_admixed`.
+11. **Skips are decided before the chain runs** — `_skip_reasons` reads the psam
+    at the start, so a precondition broken *by* an earlier prune still fails
+    inside the step (55 samples, callrate drops 10, `--indep-pairwise` gets 45).
+    Applies to all three per-dataset checks. Not a regression — 1.x's guard never
+    fired at all — and the step's own error is the backstop. Fixing it properly
+    means re-deciding between steps.
+12. **No plink2 provenance in the run log** — `dependencies.__check_package`
+    resolves only from `$GENOTOOLS_DEP_DIR`/`~/.genotools/misc/executables/`,
+    downloading a pinned build if absent, and never consults `PATH`. Good for
+    reproducibility, but nothing records *which* plink2 produced a result, and a
+    dev box commonly has a newer one on `PATH` that the pipeline ignores. Log the
+    resolved path + `--version` into the run log.
+13. **Palindromic SNPs not excluded in ancestry matching** — a faithful 1.x port
+    and a real issue, not a 2.0.0 blocker. Related:
+    `ancestry/preprocessing.py:53`'s `drop_duplicates(subset=["chr","pos"])`
+    keeps the first row, so row order decides at multi-allelic and palindromic
+    positions. `test_get_common_snps_matches_legacy` asserts byte-identical
+    output against the legacy function but passes the same bfile as both inputs,
+    so the ambiguous-ordering path is barely exercised.
