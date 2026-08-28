@@ -126,7 +126,7 @@ def get_raw_files(
 
     ref_raw = pd.read_csv(f"{ref_common_snps}.raw", sep=r"\s+")
     ref_ids = ref_raw[["FID", "IID"]]
-    ref_snps = ref_raw.drop(columns=["FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"], axis=1)
+    ref_snps = ref_raw.drop(columns=["FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"])
     ref_snps_cols = ref_snps.columns.str.extract("(.*)_")[0]
     ref_snps.columns = ref_snps_cols
     col_names = ["FID", "IID"] + list(ref_snps_cols)
@@ -178,7 +178,7 @@ def get_raw_files(
 
     raw_geno = pd.read_csv(f"{geno_common_snps}.raw", sep=r"\s+")
     geno_ids = raw_geno[["FID", "IID"]]
-    geno_snps = raw_geno.drop(columns=["FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"], axis=1)
+    geno_snps = raw_geno.drop(columns=["FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"])
     geno_snps.columns = geno_snps.columns.str.extract("(.*)_")[0]
 
     # adding missing snps when not training

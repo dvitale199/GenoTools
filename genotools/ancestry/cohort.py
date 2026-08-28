@@ -24,7 +24,11 @@ def split_cohort_by_ancestry(
     outfiles = []
 
     split_labels = subset if subset else pred_labels.label.unique()
-    pruned_samples = pd.DataFrame(columns=["FID", "IID", "step", "label"])
+    # Collected and concatenated once at the end. Seeding with an empty
+    # DataFrame and concatenating into it would let that frame's dtype-less
+    # object columns decide the result's dtypes instead of the data, which
+    # differs by pandas version (object vs str under pandas 3).
+    pruned_frames: list[pd.DataFrame] = []
 
     for label in split_labels:
         if pred_labels[pred_labels.label == label].shape[0] >= min_samples:
@@ -45,8 +49,15 @@ def split_cohort_by_ancestry(
         else:
             pruned_samples_label = pred_labels[pred_labels.label == label].copy()
             pruned_samples_label["step"] = "insufficient_ancestry_sample_n"
-            pruned_samples_label = pruned_samples_label[["FID", "IID", "step", "label"]]
-            pruned_samples = pd.concat([pruned_samples, pruned_samples_label], axis=0, ignore_index=True)
+            pruned_frames.append(
+                pruned_samples_label[["FID", "IID", "step", "label"]]
+            )
+
+    pruned_samples = (
+        pd.concat(pruned_frames, axis=0, ignore_index=True)
+        if pruned_frames
+        else pd.DataFrame(columns=["FID", "IID", "step", "label"])
+    )
 
     return {
         "labels": labels_list,

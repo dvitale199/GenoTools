@@ -52,3 +52,37 @@ def test_split_cohort_subset_golden(geno21_22_pfile, tmp_path):
         labels_path=str(labels_path), geno_path=str(geno21_22_pfile),
         out_path=str(nd / "out"), min_samples=10, subset=["EUR"])
     assert res["labels"] == ["EUR"]
+
+
+def test_pruned_samples_dtypes_come_from_the_data(geno21_22_pfile, tmp_path):
+    """Column dtypes must be decided by the label data, not by a seed frame.
+
+    split_cohort_by_ancestry used to start from an empty
+    ``pd.DataFrame(columns=[...])`` and concat into it, so the result inherited
+    that frame's dtype-less object columns instead of the data's. Under pandas 3
+    (which reads strings as ``str``, not ``object``) that made the returned
+    frame disagree with a golden parquet written from the same values, and CI
+    went red with no code change.
+
+    Only fails under a pandas whose string dtype differs from object, so it is
+    a CI-side guard rather than something a pandas-2 dev run will catch.
+    """
+    from genotools.ancestry.cohort import split_cohort_by_ancestry
+    labels_path = tmp_path / "pred_labels.txt"
+    _write_labels(geno21_22_pfile, labels_path)
+    nd = tmp_path / "new"; nd.mkdir()
+
+    res = split_cohort_by_ancestry(
+        labels_path=str(labels_path), geno_path=str(geno21_22_pfile),
+        out_path=str(nd / "out"), min_samples=10, subset=None)
+
+    source = pd.read_csv(labels_path, sep="\t")
+    pruned = res["pruned_samples"]
+    assert len(pruned) > 0, "fixture must prune a group or this asserts nothing"
+    for col in ("FID", "IID", "label"):
+        assert pruned[col].dtype == source[col].dtype, (
+            f"{col}: {pruned[col].dtype} came from a seed frame, "
+            f"not from the data ({source[col].dtype})"
+        )
+    # "step" is assigned as a plain Python string, so it follows the same rule.
+    assert pruned["step"].dtype == source["label"].dtype
