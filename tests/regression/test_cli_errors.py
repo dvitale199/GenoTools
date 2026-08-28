@@ -113,6 +113,32 @@ def test_out_of_range_argument_reports_cleanly(
     assert "mind must be between" in res.stderr
 
 
+def test_unsupported_inference_flags_report_cleanly(
+    test_geno_path: Path, tmp_path: Path
+) -> None:
+    """--container/--singularity/--cloud must fail loudly, not run locally.
+
+    No execution path reads these, so accepting one would silently give the
+    user local prediction while they believed it ran in a container or on
+    cloud. They are also raised inside ``parse_args`` rather than during the
+    run, so this doubles as the guard that config-validation errors raised at
+    parse time still get the one-line ``ERROR:`` treatment.
+    """
+    for flag in ("--container", "--singularity", "--cloud"):
+        res = _run_cli(
+            [
+                "--pfile", str(test_geno_path),
+                "--out", str(tmp_path / f"inert{flag.strip('-')}"),
+                "--ancestry",
+                flag,
+            ]
+        )
+
+        assert res.returncode == 1, f"{flag} must exit non-zero, got {res.returncode}"
+        assert "Traceback" not in res.stderr, f"{flag}:\n{res.stderr}"
+        assert f"{flag} is not supported" in res.stderr, f"{flag}:\n{res.stderr}"
+
+
 def test_debug_flag_restores_the_traceback(
     test_geno_path: Path, tmp_path: Path
 ) -> None:

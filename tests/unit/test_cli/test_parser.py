@@ -34,7 +34,6 @@ from genotools.cli.parser import (
     _parse_het_args,
     _parse_ld_args,
 )
-from genotools.ancestry.config import InferenceMode
 
 
 class TestInputArgs:
@@ -171,27 +170,23 @@ class TestAncestryArgs:
         assert args.use_container is False
         assert args.use_singularity is False
         assert args.use_cloud is False
-        assert args.inference_mode == InferenceMode.LOCAL
 
-    def test_container_mode(self) -> None:
-        """Container mode is detected correctly."""
-        args = AncestryArgs(use_container=True)
-        assert args.inference_mode == InferenceMode.CONTAINER
+    @pytest.mark.parametrize(
+        "attr,flag",
+        [
+            ("use_container", "--container"),
+            ("use_singularity", "--singularity"),
+            ("use_cloud", "--cloud"),
+        ],
+    )
+    def test_remote_inference_flags_rejected(self, attr: str, flag: str) -> None:
+        """The three remote-execution flags are refused, not silently ignored.
 
-    def test_singularity_mode(self) -> None:
-        """Singularity mode is detected correctly."""
-        args = AncestryArgs(use_singularity=True)
-        assert args.inference_mode == InferenceMode.SINGULARITY
-
-    def test_cloud_mode(self) -> None:
-        """Cloud mode is detected correctly."""
-        args = AncestryArgs(use_cloud=True)
-        assert args.inference_mode == InferenceMode.CLOUD
-
-    def test_container_with_model_raises(self) -> None:
-        """Using container with model path raises error."""
-        with pytest.raises(ValueError, match="Cannot use both"):
-            AncestryArgs(use_container=True, model_path=Path("/path/to/model.pkl"))
+        No execution path reads them, so accepting one would run local
+        prediction while the user believed it ran in a container or on cloud.
+        """
+        with pytest.raises(ValueError, match=f"{flag} is not supported"):
+            AncestryArgs(**{attr: True})
 
 
 class TestGWASArgs:
@@ -507,16 +502,16 @@ class TestParseArgs:
         ])
         assert args.ancestry.run_ancestry is True
 
-    def test_container_flag(self) -> None:
-        """--container sets container mode."""
-        args = parse_args([
-            "--pfile", "/data/test",
-            "--out", "/output/test",
-            "--ancestry",
-            "--container",
-        ])
-        assert args.ancestry.use_container is True
-        assert args.ancestry.inference_mode == InferenceMode.CONTAINER
+    @pytest.mark.parametrize("flag", ["--container", "--singularity", "--cloud"])
+    def test_remote_inference_flags_rejected(self, flag: str) -> None:
+        """Passing a remote-execution flag on the command line is an error."""
+        with pytest.raises(ValueError, match=f"{flag} is not supported"):
+            parse_args([
+                "--pfile", "/data/test",
+                "--out", "/output/test",
+                "--ancestry",
+                flag,
+            ])
 
     def test_warn_default(self) -> None:
         """warn_only defaults to True."""

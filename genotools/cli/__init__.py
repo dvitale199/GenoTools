@@ -100,11 +100,18 @@ def main():
 
     from genotools.core.exceptions import GenoToolsError
 
-    # Outside the try: argparse reports its own errors and exits.
-    args = parse_args()
-    debug = args.output.debug
+    # argparse reports its own errors and exits via SystemExit, which passes
+    # through untouched. But the config dataclasses validate in __post_init__,
+    # inside parse_args, so their ValueError/TypeError has to be caught here too
+    # -- otherwise a bad argument prints a traceback rather than the one-line
+    # ERROR promised above. --debug is read from argv because args may not exist
+    # yet at that point.
+    debug = "--debug" in sys.argv
 
     try:
+        args = parse_args()
+        debug = args.output.debug
+
         result = run_pipeline(args)
 
         # Save output JSON

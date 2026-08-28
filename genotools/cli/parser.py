@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Sequence
+from typing import Dict, List, Optional, Tuple, Sequence
 
 from ..qc.config import (
     CallrateConfig,
@@ -37,7 +37,6 @@ from ..qc.config import (
     HWEConfig,
     LDConfig,
 )
-from ..ancestry.config import InferenceMode
 
 
 @dataclass
@@ -194,6 +193,35 @@ class VariantQCArgs:
         )
 
 
+#: Remote-execution flags that 2.0 does not implement, mapped to
+#: ``(AncestryArgs attribute, explanatory detail)``.
+#:
+#: 1.x ran ancestry prediction inside a Docker/Singularity image whose
+#: ``run.py`` unpickles a 1.x ``umap_linearsvc`` model. 2.0's ``AncestryModel``
+#: cannot load that format, so honouring ``--container`` would need a rebuilt,
+#: republished image carrying a 2.0-format model. Until that exists these flags
+#: fail loudly rather than silently running local prediction.
+_UNSUPPORTED_INFERENCE_FLAGS: Dict[str, Tuple[str, str]] = {
+    "--container": (
+        "use_container",
+        "1.x ran prediction in a Docker image built around a 1.x model, which "
+        "2.0 cannot load. Drop the flag to predict locally, or pin "
+        "'genotools<2.0' to keep the 1.x container. See MIGRATION_2.0.md.",
+    ),
+    "--singularity": (
+        "use_singularity",
+        "1.x ran prediction in a Singularity image built around a 1.x model, "
+        "which 2.0 cannot load. Drop the flag to predict locally, or pin "
+        "'genotools<2.0' to keep the 1.x container. See MIGRATION_2.0.md.",
+    ),
+    "--cloud": (
+        "use_cloud",
+        "Cloud prediction has never been implemented -- not in 2.0 and not in "
+        "1.x. Drop the flag to predict locally. See MIGRATION_2.0.md.",
+    ),
+}
+
+
 @dataclass
 class AncestryArgs:
     """Ancestry prediction arguments."""
@@ -205,29 +233,18 @@ class AncestryArgs:
     subset_ancestry: Optional[List[str]] = None
     min_samples: int = 0
 
-    # Inference mode
+    # Remote-execution flags. Accepted by the parser so that a 1.x command line
+    # gets a targeted error instead of argparse's bare "unrecognized arguments",
+    # but rejected in __post_init__ -- see _UNSUPPORTED_INFERENCE_FLAGS.
     use_container: bool = False
     use_singularity: bool = False
     use_cloud: bool = False
 
-    @property
-    def inference_mode(self) -> InferenceMode:
-        """Get the inference mode."""
-        if self.use_cloud:
-            return InferenceMode.CLOUD
-        elif self.use_singularity:
-            return InferenceMode.SINGULARITY
-        elif self.use_container:
-            return InferenceMode.CONTAINER
-        return InferenceMode.LOCAL
-
     def __post_init__(self) -> None:
         """Validate ancestry arguments."""
-        if self.use_container and self.model_path is not None:
-            raise ValueError(
-                "Cannot use both --model and --container. "
-                "Container mode uses its own pre-trained model."
-            )
+        for flag, (attr, detail) in _UNSUPPORTED_INFERENCE_FLAGS.items():
+            if getattr(self, attr):
+                raise ValueError(f"{flag} is not supported in GenoTools 2.0. {detail}")
 
 
 @dataclass
@@ -682,17 +699,17 @@ Examples:
     ancestry_group.add_argument(
         "--container",
         action="store_true",
-        help="Run ancestry prediction in Docker container",
+        help="Not supported in 2.0 (1.x-only Docker prediction); errors if passed",
     )
     ancestry_group.add_argument(
         "--singularity",
         action="store_true",
-        help="Run ancestry prediction in Singularity container",
+        help="Not supported in 2.0 (1.x-only Singularity prediction); errors if passed",
     )
     ancestry_group.add_argument(
         "--cloud",
         action="store_true",
-        help="Run ancestry prediction on Google Cloud AI Platform",
+        help="Not supported in 2.0 (never implemented); errors if passed",
     )
     ancestry_group.add_argument(
         "--subset-ancestry",
