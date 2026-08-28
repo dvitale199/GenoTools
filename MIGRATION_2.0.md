@@ -164,6 +164,16 @@ Samples and variants carried forward are identical — het did not run in either
 version. Only the reporting changed. Anything reading `pass` still works; read
 `outcome` to tell a skip from a failure.
 
+### `--container`, `--singularity` and `--cloud` currently do nothing
+
+1.x ran ancestry prediction inside a Docker or Singularity container, or on
+Google Cloud, when you passed these flags. 2.0 still **accepts** them, but no
+code path acts on them: the run proceeds with normal in-process prediction and
+says nothing about it.
+
+If you relied on containerized or cloud prediction, do not assume 2.0 is doing
+it. Results are still produced — they are computed locally.
+
 ### 1.x ancestry models cannot be loaded
 
 `--model` takes a model directory, or a single `.pkl` written by 2.0. A model

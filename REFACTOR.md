@@ -569,6 +569,53 @@ case-control QC fails loudly.
 
 ---
 
+### Round 9 (pandas 3 compatibility, release artifact)
+
+Both found by pushing round 8 and looking at what CI and the wheel actually
+produced, not by the suite.
+
+**1 — CI went red with no code change (`21b7314`).** `setup.py` floats
+(`pandas>=2.0.3`), CI resolved **pandas 3.0.5**, and local `.venv` is 2.3.3, so
+two latent incompatibilities surfaced at once and could not be reproduced
+locally until a pandas-3 venv was built (recipe now in `TESTING.md` §2).
+
+- `ancestry/cohort.py` seeded `pruned_samples` with an empty
+  `pd.DataFrame(columns=[...])` and concatenated into it, so that dtype-less
+  frame decided the result's dtypes instead of the data - `object` even under
+  pandas 3, while the golden parquet reads back as `str`. Now collects the
+  frames and concatenates once. Same values, order and empty-case shape, so
+  JSON output and the parity results are unaffected.
+- `ancestry/preprocessing.py` (x2): `drop(columns=[...], axis=1)`. `axis` is
+  redundant with `columns` and pandas 3 rejects the combination outright.
+- `utils.py`: five unraw `'\s+'` literals, now `r'\s+'`. Byte-identical
+  strings (`'\s+' == r'\s+'`), so this only silences the DeprecationWarning -
+  which a future Python turns into a SyntaxError.
+
+Verified on pandas 3.0.5 and 2.3.3: 610 passed on both. A test pins the
+invariant that dtypes come from the data rather than a seed frame; it can only
+fail under a pandas whose string dtype differs from object, which its docstring
+says.
+
+**2 — The wheel a tag would freeze (`c75db02`).** `package_data` shipped
+`container/*.pkl`: two `umap_linearsvc` models from the 1.x era, **2.16 MB of a
+2.57 MB wheel**, that 2.0 cannot load at all. Nothing reads them from an
+installed package - `container/` is a Docker build context whose Dockerfile
+`COPY`s the build context in. The files stay in the repo as the historical
+reference round 4 intended; they are no longer distributed. Wheel: 2.57 MB ->
+**0.46 MB**.
+
+There was also no `pyproject.toml`, so pip fell back to legacy
+`setup.py bdist_wheel`, which fails with `invalid command 'bdist_wheel'` unless
+`wheel` happens to be installed in the ambient environment. Added a PEP 517/518
+`[build-system]` block; metadata stays in `setup.py`.
+
+Note for release builds: **a stale `build/` masks the `package_data` change
+entirely** - `build_py` copies package data into `build/lib` and never prunes
+files that are no longer declared, so the first rebuild still shipped both
+pickles. See `TESTING.md` §8.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -641,3 +688,37 @@ Priority order for making the refactor mergeable to `main`:
     positions. `test_get_common_snps_matches_legacy` asserts byte-identical
     output against the legacy function but passes the same bfile as both inputs,
     so the ambiguous-ordering path is barely exercised.
+14. **No provenance on a trained model** — `metadata.json` records
+    hyperparameters but not the library versions that produced the fit. A model
+    trained under `umap_learn==0.5.3` and loaded under a newer umap will
+    unpickle *successfully* and yield subtly different embeddings: wrong
+    ancestry calls, no error. Add a `versions` block (umap, sklearn, xgboost,
+    numpy, pandas, genotools) and check it in `AncestryModel.load`. This is the
+    prerequisite for unpinning umap (see below) — same "record what produced
+    this result" gap as item 12.
+15. **Unpin `umap_learn==0.5.3`** — it works under pandas 3 today, but needs
+    `pkg_resources` (which setuptools is removing) and its numba floor caps
+    numpy. UMAP output feeds the classifier, so this can shift ancestry labels:
+    do it after item 14, retrain, re-run the `ancestry` parity scenario, and
+    document the retrain requirement in `MIGRATION_2.0.md`.
+16. **Dev/CI dependency drift** — deps float, so CI resolves newest and is the
+    de-facto canary (it caught round 9's break). The gap was reproduction, now
+    documented in `TESTING.md` §2. Open question: keep floating and keep the
+    canary, or add upper bounds and lose the signal.
+18. **⚠ `--container`, `--singularity` and `--cloud` are silently inert** —
+    the parser turns them into `InferenceMode.CONTAINER`/`SINGULARITY`/`CLOUD`
+    (and even validates `--model` against `--container`), but no execution path
+    reads `inference_mode`: `runner._run_ancestry_prediction_new` branches only
+    on `is_inference = model_path is not None`. 1.3.6 implemented all three
+    (`ancestry.py:675 get_containerized_predictions`, with a singularity pull at
+    :698). So a 2.0 user passing `--cloud` or `--container` gets local
+    in-process prediction with no warning. Parity never covered it — no parity
+    scenario passes these flags. Decide before wider release: implement, or
+    make them fail loudly. A silent no-op is the one option that should not
+    ship.
+
+17. **Revert-check audit of the round-7 tests** — outstanding since the round-7
+    handoff. Several tests added then were written against helpers rather than
+    call sites and have never been confirmed to fail with their fix reverted;
+    rounds 8-9 revert-checked only their own. A test that passes with the bug
+    restored is not gating anything.

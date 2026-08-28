@@ -40,8 +40,30 @@ PLINK/PLINK2 are downloaded automatically the first time a step needs them
   parity, to the pre-refactor CLI. Tests that need something absent (PLINK, the
   `.venv-stable` baseline, golden files) **skip cleanly** rather than fail.
 
-Everything green today: **609 passed** (534 unit + 75 regression) with
+Everything green today: **610 passed** (535 unit + 75 regression) with
 `.venv-stable` present.
+
+### Reproducing a CI-only failure (dependency drift)
+
+Dependencies float (`pandas>=2.0.3` and friends), so CI resolves the newest
+release on every run while your `.venv` stays where you built it. That makes CI
+the de-facto canary for ecosystem drift — it is how the pandas 3 break in round
+9 was caught — but it also means a red CI can be unreproducible locally. Layer
+the version CI resolved over your existing environment:
+
+```bash
+python -m venv --system-site-packages /tmp/venv-p3
+/tmp/venv-p3/bin/pip install --upgrade "pandas>=3" pyarrow pytest
+# whatever else the failing test imports, e.g.:
+/tmp/venv-p3/bin/pip install psutil scikit-learn scipy xgboost umap-learn
+/tmp/venv-p3/bin/python -m pytest tests/unit/test_ancestry -q
+```
+
+Two caveats. The layered venv is not a perfect CI replica — pip will resolve an
+unpinned `umap-learn` here while CI installs the pinned `umap_learn==0.5.3`, so
+check the versions before concluding anything about umap. And delete it when
+you are done: it is ~1.4 GB, and the recipe is the durable artifact, not the
+build.
 
 ---
 
@@ -246,7 +268,32 @@ The new code uses lazy KING init and is unaffected.
 
 ---
 
-## 8. Continuous integration (`.github/workflows/ci.yml`)
+## 8. Building a release artifact
+
+```bash
+rm -rf build dist *.egg-info        # <- not optional, see below
+python -m pip wheel --no-deps -w dist .
+python -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); \
+  print(sum(i.file_size for i in z.infolist())/1024/1024, 'MB'); \
+  print([i.filename for i in z.infolist() if not i.filename.endswith('.py')])"
+```
+
+A healthy 2.0.0 wheel is ~0.46 MB and its only non-`.py` entries are the
+dist-info files plus `container/Dockerfile` and `container/requirements.txt`.
+If you see `container/*.pkl` in there, the wheel is 2.57 MB and shipping two
+1.x ancestry models that the code cannot load.
+
+**Always remove `build/` first.** `setuptools`' `build_py` copies package data
+into `build/lib` and never prunes files that are no longer declared, so a stale
+build directory silently re-ships files that `package_data` no longer lists.
+This masked the round-9 fix on the first rebuild.
+
+`pyproject.toml` declares the PEP 517 build system, so this works in an
+environment without `wheel` installed. Metadata still lives in `setup.py`.
+
+---
+
+## 9. Continuous integration (`.github/workflows/ci.yml`)
 
 Runs on pushes to `main`/`refactor/main`, on every PR, and on manual dispatch.
 Two parallel jobs on Ubuntu / Python 3.11:
@@ -262,7 +309,7 @@ external download hosts are hit at most once per cache key.
 
 ---
 
-## 9. Gotchas / FAQ
+## 10. Gotchas / FAQ
 
 - **`.venv-stable` won't build on Python 3.12+** — use 3.11
   (`PYTHON=python3.11 bash tests/scripts/setup_stable_venv.sh`).
