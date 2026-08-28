@@ -676,7 +676,8 @@ Examples:
         type=Path,
         default=None,
         metavar="PATH",
-        help="Pre-trained ancestry model directory (or legacy .pkl file)",
+        help="Pre-trained ancestry model: a directory, or a single .pkl "
+             "written by GenoTools 2.0 (1.x models cannot be loaded)",
     )
     ancestry_group.add_argument(
         "--container",

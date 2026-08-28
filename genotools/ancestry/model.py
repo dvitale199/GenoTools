@@ -616,16 +616,20 @@ class AncestryModel:
 
     @classmethod
     def load(cls, path: Path) -> "AncestryModel":
-        """Load fitted model from a directory or legacy pickle file.
+        """Load fitted model from a directory or a single pickle file.
 
         Supports two formats:
         - **Directory format**: reads ``pipeline.pkl`` from the directory.
           If the pickle lacks ``common_snps``, falls back to
           ``common_snps.txt`` in the same directory.
-        - **Legacy format**: reads a single ``.pkl`` file directly.
+        - **Single-file format**: reads a ``.pkl`` file directly.
+
+        Both must unpickle to an ``AncestryModel``. Models written by
+        GenoTools 1.x hold an ``sklearn.pipeline.Pipeline`` instead and are
+        rejected - "single-file" is 2.0's own layout, not a 1.x model.
 
         Args:
-            path: Path to model directory or legacy ``.pkl`` file.
+            path: Path to a model directory or a single ``.pkl`` file.
 
         Returns:
             Loaded AncestryModel.
@@ -657,7 +661,7 @@ class AncestryModel:
                             line.strip() for line in f if line.strip()
                         ]
         else:
-            # Legacy single-file format
+            # Single-file format (2.0's own; a 1.x pickle fails the check below)
             with open(path, "rb") as f:
                 model = pickle.load(f)
 

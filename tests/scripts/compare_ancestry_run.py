@@ -425,7 +425,8 @@ def main() -> int:
     parser.add_argument("--keep", type=Path, default=None,
                         help="Keep file used to build the subset (scopes the release cross-check)")
     parser.add_argument("--skip-genotypes", action="store_true",
-                        help="Compare pfile IDs only; skip the .traw genotype diff (faster)")
+                        help="Skip the output pfile check entirely - sample/variant "
+                             "IDs and the plink2 --pgen-diff genotype comparison (faster)")
     args = parser.parse_args()
 
     old, new = _load_json(args.old), _load_json(args.new)

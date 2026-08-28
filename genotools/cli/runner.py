@@ -830,7 +830,8 @@ class PipelineRunner:
 
         Args:
             AncestryModel: The AncestryModel class.
-            model_path: Path to model directory (or legacy .pkl).
+            model_path: Path to a model directory, or a single .pkl written
+                by GenoTools 2.0.
             actual_out: Output path prefix.
 
         Returns:
