@@ -260,11 +260,21 @@ download KING from `kingrelatedness.com` — a slow, flaky host — even for QC/
 runs that never use KING. (On macOS `check_king()` returns `None`, so this never
 happens.) An un-cached download once hung CI for 17 minutes of retries.
 
-`setup_stable_venv.sh` now pre-caches KING on Linux so the old CLI finds it and
-skips the download. If that host is unreachable when you build `.venv-stable`,
-the script warns you; you can drop any executable named `king` at
-`~/.genotools/misc/executables/king` (parity steps never actually invoke it).
-The new code uses lazy KING init and is unaffected.
+`setup_stable_venv.sh` pre-caches KING on Linux so the old CLI finds it and
+skips the download. **If the host is unreachable it installs a stub** (`#!/bin/sh
+exit 0`) rather than leaving the directory empty, because without *some*
+executable there the old CLI cannot import at all — every parity test then fails
+with "Old CLI produced no output" after a ~2 min TCP timeout each. That is
+exactly what happened in CI once the cached `~/.genotools` went away.
+
+The stub is safe: KING is invoked only by `run_confirming_kinship`
+(`--kinship_check`), and no parity scenario requests it — `--all_sample` expands
+to callrate/sex/het/related, and 1.x relatedness runs on `plink2 --king-cutoff`,
+not this binary. The one thing a stubbed run does not cover is `--kinship_check`
+parity, and the script says so on stderr.
+
+The new code uses lazy KING init and is unaffected — only the old baseline has
+the import-time landmine.
 
 ---
 

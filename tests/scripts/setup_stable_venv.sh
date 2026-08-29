@@ -59,18 +59,44 @@ if [ "$(uname -s)" = "Linux" ]; then
     else
         echo ">> Pre-caching KING for the old baseline (Linux)..."
         mkdir -p "${KING_DIR}"
-        if curl -fsSL --retry 3 --retry-delay 5 --max-time 180 \
+        # --connect-timeout so an unreachable host fails in seconds rather than
+        # burning up to 3x180s before the stub fallback below.
+        if curl -fsSL --retry 2 --retry-delay 3 --connect-timeout 15 --max-time 120 \
              -o /tmp/king.tar.gz \
              https://www.kingrelatedness.com/executables/Linux-king232.tar.gz; then
             tar -xzf /tmp/king.tar.gz -C "${KING_DIR}" && chmod +x "${KING_DIR}/king"
             echo ">> KING cached at ${KING_DIR}/king"
         else
+            # kingrelatedness.com is a slow, flaky, third-party host and CI has
+            # hit it unreachable. The old baseline calls check_king() at *module
+            # import* (qc.py:27), so without a binary here every parity test dies
+            # before running -- 8 identical "Old CLI produced no output" failures
+            # after ~2 min of TCP timeout each.
+            #
+            # No parity scenario executes KING: it is used only by
+            # run_confirming_kinship (--kinship_check), and --all_sample expands
+            # to callrate/sex/het/related, whose relatedness runs on
+            # `plink2 --king-cutoff`, not this binary. So a stub that merely
+            # exists and exits 0 satisfies the import-time check and lets the
+            # real comparison run.
             echo "!! WARNING: could not download KING (kingrelatedness.com unreachable)."
-            echo "!! The old baseline calls check_king() at import, so on Linux the old"
-            echo "!! CLI may hang trying to fetch it. Retry, or drop a 'king' binary at"
-            echo "!! ${KING_DIR}/king (any executable works -- parity steps never call it)."
+            echo "!! Installing a STUB so the old baseline can import. Parity is"
+            echo "!! unaffected -- no parity scenario runs KING -- but --kinship_check"
+            echo "!! is NOT covered by this run."
+            printf '#!/bin/sh\nexit 0\n' > "${KING_DIR}/king"
+            chmod +x "${KING_DIR}/king"
         fi
     fi
+
+    # Post-condition, whichever path ran above: the old baseline cannot even
+    # import without an executable here, so never leave this step without one
+    # (a tar whose layout differs would otherwise report success and leave none).
+    if [ ! -x "${KING_DIR}/king" ]; then
+        echo "!! KING still missing after fetch; installing a stub."
+        printf '#!/bin/sh\nexit 0\n' > "${KING_DIR}/king"
+        chmod +x "${KING_DIR}/king"
+    fi
+    echo ">> KING check: $(ls -l "${KING_DIR}/king" | awk '{print $1, $NF}')"
 fi
 
 echo ">> Done. Old baseline installed at:"
