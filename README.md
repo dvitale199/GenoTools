@@ -43,16 +43,20 @@ genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1 --destinatio
 
 Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. Available models are `nba_v1` for the NeuroBooster array and `neurochip_v1` for the NeuroChip Array and both are in GRCh38. If using a different array, we would suggest training a new model by running the standard command below. Please ensure the reference panel and your genotypes are in the same build. If you're using our reference panel, your genotypes must be in GRCh38.
 
+> **Upgrading from 1.x?** Flags moved from `underscore_style` to `hyphen-style`
+> in 2.0. The old spellings still work but warn, and two behaviors changed. See
+> [MIGRATION_2.0.md](MIGRATION_2.0.md).
+
 Modify the paths in the following command to run the standard GP2 pipeline:
 ```
 genotools \
   --pfile /path/to/genotypes/for/qc \
   --out /path/to/qc/output \
   --ancestry \
-  --ref_panel /path/to/reference/panel \
-  --ref_labels /path/to/reference/ancestry/labels \
-  --all_sample \
-  --all_variant
+  --ref-panel /path/to/reference/panel \
+  --ref-labels /path/to/reference/ancestry/labels \
+  --all-sample \
+  --all-variant
 ```
 This will find common snps between your genotype data and the reference panel, run PCA, UMAP-transform PCs, and train a new XGBoost classifier specific to your data/ref panel.
 
@@ -62,26 +66,14 @@ genotools \
   --pfile /path/to/genotypes/for/qc \
   --out /path/to/qc/output \
   --ancestry \
-  --ref_panel /path/to/reference/panel \
-  --ref_labels /path/to/reference/ancestry/labels \
-  --all_sample \
-  --all_variant
+  --ref-panel /path/to/reference/panel \
+  --ref-labels /path/to/reference/ancestry/labels \
+  --all-sample \
+  --all-variant \
   --model /path/to/nba_v1/model
 ```
 
-if you'd like to run the pipeline using the default nba_v1 model in a Docker container, you can do that like so:
-```
-genotools \
-  --pfile /path/to/genotypes/for/qc \
-  --out /path/to/qc/output \
-  --ancestry \
-  --ref_panel /path/to/reference/panel \
-  --ref_labels /path/to/reference/ancestry/labels \
-  --container \
-  --all_sample \
-  --all_variant
-```
-Note: add the ```--singularity``` flag to run containerized ancestry predictions on HPC
+Note: `--container`, `--singularity` and `--cloud` are **not supported in 2.0** and exit with an error if passed. Ancestry prediction runs locally, in process. 1.x's containerized prediction relied on a Docker image built around a 1.x model that 2.0 cannot load; `--cloud` was never implemented in any version. See [MIGRATION_2.0.md](MIGRATION_2.0.md).
 
 genotools accepts `--pfile`, `--bfile`, or `--vcf`. Any bfile or vcf will be converted to a pfile before running any steps. 
 

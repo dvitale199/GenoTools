@@ -18,8 +18,8 @@ from setuptools import setup, find_packages
 
 setup(
     name='the_real_genotools', 
-    version='1.3.6', 
-    packages=find_packages(),
+    version='2.0.0', 
+    packages=find_packages(exclude=["tests", "tests.*"]),
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',
     description='A collection of tools for genotype quality control and analysis',
@@ -40,7 +40,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'genotools=genotools.__main__:handle_main',
+            'genotools=genotools.cli:main',
             'genotools-download=genotools.download_refs:handle_download',
         ]
     },
@@ -53,6 +53,7 @@ setup(
         'pandas>=2.0.3',
         'Pillow>=9.3.0',
         'plotly>=5.11.0',
+        'psutil>=5.9.0',
         'requests>=2.28.1',
         'scikit_learn>=1.3.0',
         'scipy>=1.9.3',
@@ -63,7 +64,13 @@ setup(
         'umap_learn==0.5.3',
         'xgboost>=1.7.6'
     ],
+    # container/ is a Docker build context kept as a historical reference, not
+    # library code: its Dockerfile COPYs the build context in, so nothing reads
+    # these from an installed package. The two *.pkl models it holds are
+    # umap_linearsvc pipelines from the 1.x era that 2.0 cannot load at all
+    # (AncestryModel.load rejects them), and they were 2.16 MB of a 2.57 MB
+    # wheel. Ship the text files, not the models.
     package_data={
-      'genotools': ['container/*.pkl','container/*.txt','container/Dockerfile']
+      'genotools': ['container/*.txt','container/Dockerfile']
    }
 )

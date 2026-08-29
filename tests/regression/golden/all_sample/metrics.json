@@ -1,0 +1,7 @@
+{
+  "pass": true,
+  "step": "all_sample_pipeline",
+  "returncode": 0,
+  "stdout": "Your data has the following breakdown:\n- Genetic Sex:\n250 Males \n\n250 Females \n\n- Phenotypes:\n250 Cases \n\n250 Controls \n\nRunning: callrate with input tests/data/synthetic/genotools_test and output: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate\nRunning: sex with input tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate and output: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex\nRunning: het with input tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex and output: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het\nRunning: related with input tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het and output: tests/regression/golden/all_sample/output\n",
+  "stderr": ""
+}

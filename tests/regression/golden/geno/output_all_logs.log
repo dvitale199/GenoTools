@@ -1,0 +1,30 @@
+Log: tests/regression/golden/geno/output.log
+Process: geno_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --geno 0.05
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/geno/output
+  --pfile tests/regression/golden/related/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253375 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/related/output.psam.
+40500 variants loaded from tests/regression/golden/related/output.pvar.
+1 binary phenotype loaded (113 cases, 118 controls).
+Calculating allele frequencies... done.
+--geno: 225 variants removed due to missing genotype data.
+40275 variants remaining after main filters.
+Writing tests/regression/golden/geno/output.psam ... done.
+Writing tests/regression/golden/geno/output.pvar ... done.
+Writing tests/regression/golden/geno/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+

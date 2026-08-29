@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "step": "ld_prune",
+  "metrics": {
+    "ld_removed_count": 17690
+  },
+  "output": {
+    "plink_out": "tests/regression/golden/ld/output"
+  }
+}

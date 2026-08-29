@@ -1,1649 +1,794 @@
-# GenoTools Refactor Plan
+# GenoTools Refactor — Living Tracker
 
-This document outlines the phased architectural refactor for GenoTools.
+The single source of truth for **finishing and verifying** the `refactor/main`
+cutover. (Formerly `REFACTOR_HARDENING.md`; the original phased build plan is
+archived at `docs/history/REFACTOR-original-plan.md`.)
 
----
+The new modular architecture (`core/`, `qc/`, `ancestry/`, `gwas/`, `cli/`) is in
+place with a real test suite and is now legacy-free (rounds 5–6). This doc tracks
+the remaining work to make the refactor **correct, verified, and trustworthy**
+before merging to `main`.
 
-## Executive Summary
+Workflow: feature branch → PR to `refactor/main` → one final test on real data →
+PR to `main`. **Never commit to `main`.**
 
-GenoTools currently suffers from tight coupling, mutable state, and mixed concerns that make it difficult to test, debug, and extend. This refactor introduces a clean separation between QC (filter pipeline) and Ancestry (ML pipeline), with immutable data flow and pure functions.
-
-**Approach:** Build new architecture alongside existing code, migrate module-by-module, then cutover.
-
----
-
-## Current Problems
-
-### All Issues
-
-| ID | Issue | Priority | Phase |
-|----|-------|----------|-------|
-| A1 | Mutable State Architecture | P0 | 1, 2 |
-| A2 | QC and Ancestry share execution model | P0 | 2, 3 |
-| A3 | No separation of concerns | P1 | 4 |
-| P1 | Repeated format conversions | P0 | 1 |
-| R1 | Inconsistent error handling | P0 | 1 |
-| R2 | Fragile file cleanup | P2 | 1 |
-| R3 | Unsafe subprocess handling | P2 | 1 |
-| M1 | Hardcoded magic values | P1 | 2, 3 |
-| M2 | Duplicated logic patterns | P2 | 2 |
-| M3 | Monolithic main function | P2 | 4 |
-| D1 | No type hints or validation | P1 | 1, 2, 3 |
-| D2 | Module-level dependency init | P1 | 1 |
-| D3 | No structured logging | P1 | 1 |
-| C1 | Boolean string parsing | P2 | 4 |
+> **▶ Start here (next session):** item #0 (logging/pipeline-visibility redesign)
+> is **DONE** (round 7, below). The next work item is **#1 — Prove parity on real
+> data** in [Remaining work](#remaining-work-tracked-not-yet-done): the gate before
+> merging to `main`.
 
 ---
 
-## Current Conventions to Preserve
+## Audit scorecard (branch state at start of hardening)
 
-These patterns from the existing codebase (documented in CLAUDE.md) must be maintained during the refactor.
+Tier list is the "easy wins" audit against `origin/refactor/main`.
 
-### Standard Return Dictionary Format
+| Item | Status | Notes |
+|------|--------|-------|
+| 1a — `shell_do` checks return code + surfaces stderr | ✅ Done | `core/executors.py:215-222` raises `ExternalToolError`; lazy dep init; `shlex.split`. |
+| 1b — geno honors threshold + real pass/fail | ✅ Done | `qc/steps/variant_missingness.py:79`; failure propagates as exception. |
+| 1c — haplotype reports failure | ✅ Fixed here | Step raises correctly; **CLI now catches it under `--warn`** (see below). |
+| 1d — GWAS case/control guard | ✅ Done | `association.py:175-177` uses `.get(k, 0)`. |
+| 1d — GWAS log capture | ✅ Addressed here | Structured logging now routed to `{out}_all_logs.log` (see below); it is no longer header-only. Raw PLINK `.log` aggregation was intentionally **not** resurrected — the FilterResult/GWASResult `log` fields still carry PLINK stderr if per-step raw capture is ever wanted. |
+| 1e — stop destroying input files | ✅ Done | Guarded deletes; `shutil.copy2` not `os.rename`. |
+| 2 — parallelize per-ancestry groups | ❌ Open | Still a serial loop (`cli/runner.py:337-354`). Pure-function design makes it cheap to add. |
+| 3 — cache ancestry PCA | 🟡 Partial | `--model` inference reuses fitted PCA; no `(ref_panel, common_snps)` auto-cache; `get_raw_files` still re-extracts. |
+| logging (structured) | ✅ Wired here | `_setup_logging()` now calls `core.logging.setup_logging(log_file={out}_all_logs.log)` after `upfront_check`; step `logger.info`/`error` (with `[step]` markers) land in the consolidated log. Test: `tests/regression/test_logging.py`. **Superseded by round 7** (full visibility redesign — see below). |
+| tests | ✅ / parity unverified | 343→346 unit tests pass; golden = new-vs-new (self-consistency), not old-vs-new. |
+| CI | ✅ Added here | `.github/workflows/ci.yml`: (1) unit+regression on Python 3.11 with PLINK/PLINK2 auto-downloaded; (2) parity job builds `.venv-stable` and runs `test_parity.py`. |
 
-Every QC method currently returns this structure:
-```python
-{
-    'pass': bool,           # True if step completed successfully
-    'step': str,            # Step identifier (e.g., 'callrate_prune')
-    'metrics': {
-        'outlier_count': int,  # Number of samples/variants pruned
-        # ... other step-specific metrics
-    },
-    'output': {
-        'pruned_samples': str,  # Path to pruned sample IDs (or None)
-        'plink_out': str,       # Path to output pfiles (without extension)
-        # ... other output files
-    }
-}
-```
+---
 
-The new `FilterResult` dataclass must provide a `.to_dict()` method for backward compatibility.
+## Done in this hardening pass
 
-### PLINK2 psam Column Preservation
+### Bug fixes (`fix: repair binary-GWAS summary crash and --warn step-failure handling`)
 
-**Critical:** All `--make-pgen` commands must preserve sample metadata:
+1. **Binary-GWAS summary crash** — `gwas/steps/association.py`.
+   The logistic-result summary log used an invalid f-string format spec
+   (`{lambda_1000:.4f if ... else 'N/A'}`), raising `ValueError`/`TypeError` on
+   **every** binary GWAS right before returning — so binary GWAS was broken on
+   both `genotools` and `genotools-new`. Now formats the value first.
+   Regression test: `tests/unit/test_gwas/test_steps_regression.py`.
+
+2. **`--warn` aborted on a raising step** — `cli/runner.py`.
+   Refactored steps signal failure by raising `GenoToolsError`, but
+   `_run_qc_pipeline` had no `try/except`, so under `--warn` a raising step
+   aborted the whole run instead of being recorded failed and skipped (a
+   regression vs the legacy pipeline). Now catches `GenoToolsError`: record
+   `pass=False` + continue under `--warn`, fail fast otherwise.
+   Regression test: `tests/unit/test_cli/test_runner_regression.py`.
+
+### Parity harness (`test: add old-vs-new genotype-content parity harness`)
+
+The existing golden files were generated by the **new** code, so `matches_golden`
+tests only prove self-consistency. And `compare_pfiles` diffs only sample/variant
+**ID sets** — a regression that keeps IDs but corrupts genotypes or flips allele
+coding would pass. Closed both gaps:
+
+- **`tests/regression/compare.py`** — added `compare_genotypes()` (+ pure
+  `_compare_traw_files()`): exports pfiles to PLINK2 `.traw` and compares the
+  genotype matrix order-independently (detects changed genotypes and flipped
+  COUNTED/ALT coding, treats matching missing values as equal).
+  Tests: `tests/regression/test_compare_genotypes.py` (6, incl. real-PLINK).
+- **`tests/regression/test_parity.py`** — runs the **pre-refactor** CLI (from
+  `.venv-stable`) and the **new** CLI on the same synthetic input and asserts
+  identical IDs *and* genotype content. Skips cleanly if `.venv-stable` is absent.
+- **`tests/scripts/setup_stable_venv.sh`** — builds `.venv-stable` from a
+  pre-refactor ref (default `origin/main`) so parity can run.
+
+**Run parity locally:**
 ```bash
---make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+bash tests/scripts/setup_stable_venv.sh origin/main   # install old baseline
+pytest tests/regression/test_parity.py -v             # old vs new
 ```
 
-### File Path Conventions
+### Round 2 (`refactor/hardening-round-2`)
 
-- Input/output paths never include extensions: `/path/to/data` → `data.pgen`, `data.pvar`, `data.psam`
-- Intermediate files use step suffix: `{out_path}_{step}`
-- Outlier files use `.outliers` extension
+1. **`psutil` declared** in `setup.py::install_requires` (imported by
+   `ancestry/model.py` + legacy `ancestry.py`; a clean `pip install .` used to
+   ImportError). Verified via package metadata.
+2. **`--warn` terminal-step-failure test** — `tests/unit/test_cli/test_runner_regression.py`
+   now covers the *last* step raising under `--warn`, asserting the last-passed
+   output is promoted to `{out}.pgen/.pvar/.psam` (`_handle_final_step_failure`),
+   plus fail-fast without `--warn`.
+3. **Structured logging wired** — `cli/runner.py::_setup_logging()` now calls
+   `core.logging.setup_logging(level="INFO", log_file={out}_all_logs.log,
+   console=False)` *after* `upfront_check` (which errors if that log already
+   exists). It opens the file in append mode, so the ASCII banner stays on top
+   and structured, step-tagged (`[callrate_prune]`, …) records follow.
+   `setup_logging` now also closes handlers before clearing to avoid FD leaks
+   across repeated in-process runs. Test: `tests/regression/test_logging.py`.
 
-### Outlier File Format
+   **Consolidated-log design decision:** chose the *structured-file-handler*
+   approach over resurrecting legacy `concat_logs` raw-PLINK-`.log` aggregation.
+   Rationale: single mechanism, forward-looking (step-context aware), and it
+   reuses the already-built `core/logging.py`. Trade-off: `{out}_cleaned_logs.log`
+   remains an empty placeholder (legacy filename kept for compatibility); the
+   populated consolidated log is `{out}_all_logs.log`. Raw PLINK output is still
+   available per-step in `FilterResult.log`/`GWASResult.log` if finer capture is
+   wanted later.
 
-Outlier files must be tab-separated with `#FID` header:
-```python
-df = df.rename({'FID': '#FID'}, axis=1)
-df.to_csv(outliers_out, sep='\t', header=True, index=False)
-```
+4. **GWAS `--glm` tokenization bug fixed** — `gwas/steps/association.py`.
+   `run_gwas` passed `config.glm_options` (`"hide-covar firth-fallback no-x-sex
+   cols=..."`) as a *single* argv token. The legacy code built an f-string that
+   `shell_do` split on whitespace; `run_command` passes list elements verbatim,
+   so PLINK2 got one giant invalid `--glm` argument and produced **no GWAS
+   output on any run** — silently swallowed under `--warn`. (The prior PR fixed
+   the summary crash, but GWAS never actually ran.) Now splits the modifiers
+   into tokens and keeps `allow-no-covars` in the `--glm` group. Test:
+   `tests/unit/test_gwas/test_steps_regression.py` runs a real PLINK2 `--glm`.
 
-### Platform Constraints
+5. **Parity harness extended** — `tests/regression/test_parity.py` +
+   `tests/regression/compare.py`:
+   - per-step old/new flag map (old `--case_control`/`--full_output`, new
+     `--case-control`/`--full-output`; single-word `haplotype`/`ld`/`pca`/`gwas`
+     identical);
+   - multi-word QC steps `case_control`, `haplotype`, `ld` (parametrized),
+     `--all_sample --all_variant` full pipeline — all **parity-equal** on
+     synthetic data (IDs + genotype content);
+   - GWAS (`--pca --gwas`): new comparator `compare_gwas_results()`/`compare_gwas()`
+     (+ `find_gwas_output`, `_lambda_gc`) in `compare.py`, unit-tested by
+     `tests/regression/test_compare_gwas.py`.
+   All parity tests pass with `.venv-stable` present and skip cleanly without it.
 
-- **KING**: Linux only. Must check `platform.system() == 'Linux'` before use.
+6. **CI added** — `.github/workflows/ci.yml`: a unit+regression job (Python 3.11,
+   PLINK/PLINK2 auto-downloaded via the dependency resolver) and a parity job
+   that builds `.venv-stable` from `origin/main` and runs `test_parity.py`.
+   Both jobs cache `~/.genotools`; the workflow also supports manual dispatch.
+   **The first CI run flaked, then went green:** the pre-refactor code calls
+   `check_king()` at *import*, so on Linux the old CLI downloaded KING from the
+   flaky `kingrelatedness.com` on every start (a 17-min hang across the parity
+   tests). Fixed by pre-caching KING in `setup_stable_venv.sh` (Linux only) plus
+   `~/.genotools` caching. Details: [TESTING.md §7](TESTING.md#7-king-on-linux).
 
-### Pinned Dependencies
+7. **Handoff tooling & docs** — `TESTING.md` (regression/parity guide for the dev
+   running real-cohort testing) and `tests/scripts/run_parity.py` (turnkey
+   old-vs-new parity on a real cohort: copies the cohort to a workdir, runs both
+   CLIs across QC / full-pipeline / GWAS scenarios, prints a PASS/FAIL report and
+   exits non-zero on divergence).
 
-- `umap-learn==0.5.3` - Required for model compatibility
+### Round 3 (`refactor/hardening-round-3-gwas-args`)
 
-### Utility Functions
+1. **GWAS arg threading fixed** — `cli/runner.py::_run_single_step` (assoc branch).
+   The assoc branch built `AssocConfig` threading only `build` and `maf_lambdas`.
+   It silently dropped three user-supplied GWAS args:
+   - `--pca N` (the requested PC count): `PCAConfig` was built without `n_pcs`,
+     so PCA **always ran the default 10 PCs** regardless of `--pca N`.
+   - `--covars` / `--covar-names`: never reached `AssocConfig.covariates`, so
+     external covariates were **silently ignored** and GWAS fell back to the PCA
+     eigenvectors as covariates.
 
-Current code uses `shell_do()` and `concat_logs()` from `genotools.utils`. The new `run_command()` in `core/executors.py` should wrap these patterns.
+   Now threads `n_pcs` into `PCAConfig` and builds a `CovariateConfig` from the
+   covar path/names when given; `run_pca`/`run_gwas` normalized to bool to match
+   the dataclass field types. Added `CovariateConfig` to the runner's
+   config-class map. Regression tests
+   (`tests/unit/test_cli/test_runner_regression.py`): n_pcs + external covariates
+   reach `AssocConfig` (hermetic capture), `build` threading preserved, and an
+   end-to-end `--pca 3 → 3-PC eigenvec` via real PLINK2 (was 10).
+
+2. **Parity harness extended** — `tests/regression/test_parity.py`:
+   - `test_old_vs_new_pca_ncount_parity`: `--pca 20` yields a 20-PC eigenvec in
+     both CLIs (new previously always wrote 10).
+   - `test_old_vs_new_gwas_external_covars_parity`: with `--pca --gwas --covars
+     --covar-names`, both CLIs discard the PCA eigenvectors and use the external
+     covariate file, so **decision B does not apply** and per-variant p-values
+     agree tightly. Before the fix the new CLI ignored `--covars` and fell back to
+     PCA covariates (40500 p-mismatches, lambda 0.978 vs 1.007); now they match.
+   Both verified to fail against the pre-fix runner and pass after; they skip
+   cleanly without `.venv-stable`/plink2. Suite: 391 → 397 tests.
+
+### Round 4 (`refactor/retire-dead-abstractions`, PR #248)
+
+Retired two confirmed-orphaned, runtime-unreachable abstractions (item #7).
+Deletion-only; no execution path touched, so it did not disturb the in-flight
+real-data parity run.
+
+1. **`QCPipeline` removed** — `qc/pipeline.py` (`QCPipeline` + `QCStepProtocol`)
+   plus its `QCResult` return type (`qc/results.py`) and their exports/self-tests.
+   The CLI runner never used it (it reimplements orchestration in
+   `_run_single_step`/`_run_qc_pipeline`), and its golden coverage was redundant
+   with the direct step-function golden tests, which remain. `FilterResult` kept.
+2. **`ReferencePanel` removed** — `ancestry/reference.py` in full (`ReferencePanel`
+   + `get_default_model_path` + `validate_model_files`), its `ancestry/__init__`
+   exports, and the dead `_new_modules["ReferencePanel"]` registration in the
+   runner. It was a public export referenced only in docstrings, never
+   constructed, zero tests. Also corrected `AncestryModel` docstrings that showed
+   a stale `ReferencePanel`-based `fit()` workflow (`fit()` takes a DataFrame +
+   labels).
+3. **`container/` intentionally retained** — the orphaned harness (`run.py`,
+   `Dockerfile`, bundled `*.pkl`, `requirements.txt`) is kept as a historical
+   reference for rebuilding containerized inference later (maintainer decision);
+   its `setup.py` `package_data` entry stays. Not part of "dead abstractions."
+
+Verified: zero remaining references, import smoke, CLI smoke, full suite **397 →
+374** (the 23 removed are the deleted QCPipeline/QCResult self-tests, not
+failures), parity green. CI green; merged to `refactor/main`. Design + plan:
+`docs/superpowers/specs/2026-07-16-retire-dead-abstractions-design.md`,
+`docs/superpowers/plans/2026-07-16-retire-dead-abstractions.md`.
+
+### Round 5 (`refactor/decouple-from-legacy`, item #6)
+
+Decoupled the new modular pipeline from the legacy flat modules so the new code
+imports **zero** top-level legacy modules — the prerequisite for the Phase 5/6
+legacy removal. Two parts, both verified against the pre-refactor baseline.
+
+**6a — import decoupling (behavior-preserving).**
+1. `gt_header` → `core/logging.py::banner()` (byte-identical string).
+2. bfile/vcf input conversion → `core.GenotypeData.to_pfile` + new
+   `GenotypeData.from_vcf()` (faithful to legacy `bfiles_to_pfiles`/`vcf_to_pfiles`).
+3. `upfront_check` → new `core/validation.py::validate_input()` (checks + data
+   breakdown only; the legacy data-driven **step-skip** logic is intentionally
+   **not** ported — see deferred, below).
+4. `genotools/ancestry.py` → `git mv` to `genotools/ancestry/legacy.py`; the
+   runner's importlib `spec_from_file_location` hack replaced with a normal
+   `from ..ancestry.legacy import Ancestry`. Legacy `Ancestry` stays the default
+   `genotools` engine.
+
+**6b — finish the new ancestry path (faithful ports).** Ported the three legacy
+`Ancestry` helpers the `genotools-new` path still leaned on into the new package
+(`ancestry/preprocessing.py`: `get_raw_files`, `get_common_snps`, `clean_up_files`;
+`ancestry/cohort.py`: `split_cohort_by_ancestry`) and rewired
+`_run_ancestry_prediction_new`/`_run_training_mode`/`_run_inference_mode` to use
+them — so `genotools-new` no longer touches legacy `Ancestry`. The inference
+common-SNP round-trip (write list → fake `model_path`) was collapsed to passing
+the file directly; the never-reached container branch was not ported. Each port is
+guarded by a **differential test** that runs the *actual legacy code* as the oracle
+on identical synthetic inputs and asserts byte/frame equality (train + inference
+incl. the missing-column fill loop; cohort retained/pruned/subset branches).
+
+**Verification:** full suite **394 passed**; old-vs-new **parity 8/8** (proves 6a
+conversion/validation are identical to legacy); per-port differential tests green;
+a real end-to-end `genotools-new --ancestry` run on synthetic data completed
+(split pfiles + JSON + saved model dir), validating the rewire's runtime wiring.
+Static gate: zero `from ..utils`/`importlib` in new code. Design + plan:
+`docs/superpowers/specs/2026-07-17-decouple-from-legacy-design.md`,
+`docs/superpowers/plans/2026-07-17-decouple-from-legacy.md`.
+
+**Deferred (gated on item #1, real-data parity) — NOT done here:** flipping the
+default `genotools` engine to new ancestry; deleting the legacy `Ancestry` class
+and the `genotools-new` A/B entry point; the wholesale Phase 5/6 deletion of the
+legacy cluster (`utils.py`, `ancestry/legacy.py`, `gwas.py`, `imputation.py`).
+Also deferred: re-implementing `upfront_check`'s data-driven step auto-skips
+(skip sex if no X chrom, skip het if <50 samples, etc.) — a **pre-existing** gap
+(the old new-runner already discarded them), belongs with the parity work.
+
+**Intentional behavior delta (recorded):** `genotools-new` now runs the input
+validation checks + data breakdown even under `--skip_fails` (previously skipped
+entirely) — this **converges** the new path toward legacy `genotools` behavior and
+does not change genotype output. **Follow-ups (non-blocking):** bump
+`python_requires` ≥3.10 to match the PEP-604 annotations used across the refactor;
+the `var` read in `validate_input` is now used by round 6 (chr_counts + het-skip),
+so the earlier "unused var" note is obsolete; the f-string→`shlex`
+command construction (paths-with-spaces) is a repo-wide pre-existing rough edge.
+
+### Round 6 (`refactor/flip-default-cleave-legacy`)
+
+Made `refactor/main` a **legacy-free** candidate for the real-data parity gate:
+flipped the default engine to the new `AncestryModel` and deleted the dead legacy
+modules. Four parts.
+
+**1 — Flip the default.** `genotools` (via `python -m genotools` → `cli:main` →
+`run_pipeline(args)`) now always runs the new `AncestryModel` path
+(`_run_ancestry_prediction_new`). Removed the `use_new_ancestry` A/B switch from
+`PipelineRunner`/`run_pipeline`, the legacy `_run_ancestry_prediction` method, the
+`self._ancestry`/`from ..ancestry.legacy import Ancestry` wiring, the `main_new()`
+entry point, and the `genotools-new` console script.
+
+**2 — Delete dead legacy modules.** `git rm` of `genotools/ancestry/legacy.py`
+(no longer imported by any non-test module after the flip) and `genotools/gwas.py`
+(orphan file shadowed by the `gwas/` package — all real imports use
+`genotools.gwas.<submodule>`; the two `from genotools.gwas import run_association`
+hits were docstring examples). Also removed the now-obsolete A/B script
+`tests/scripts/test_ancestry_ab.py`.
+
+**3 — Golden-convert the differential tests.** The four ancestry differential
+tests (which ran legacy as the oracle) lose that oracle when `legacy.py` is
+deleted, so they were converted to **golden**: while legacy still existed, a
+one-time generator (kept in scratchpad, **uncommitted**) asserted new == legacy
+byte/frame-for-frame — including split genotype content via
+`compare_genotypes` — then wrote the new output as committed fixtures under
+`tests/unit/test_ancestry/golden/`. The committed tests now compare new vs golden
+with **zero** legacy imports (preprocessing train/inference incl. the
+`np.repeat` missing-column fill spy; cohort retained/pruned/subset). Fixtures use a
+reduced **chr21+22** reference panel (path-complete but tiny); input fixtures are
+staged into a temp dir per run so the committed `golden/` dir stays read-only.
+`TestLegacyAncestryImport` was deleted; a `TestDefaultEntryPoint` guard replaced it.
+
+**4 — Fix the `upfront_check` skip-gap.** Re-implemented legacy `upfront_check`'s
+data-driven step auto-skips (deferred in round 5) as
+`core/validation.py::validate_input` now returning a typed `ValidationDecisions`
+(`skip_sex`, `skip_case_control`, `skip_het`, `disable_filter_controls`); the
+runner applies them (`_filter_steps_by_decisions` + a `filter_controls` override).
+Faithful to legacy, incl. the **preserved quirk** that het-skip triggers on the
+*variant* count (`var.shape[0] < 50`) despite the "less than 50 samples" warning
+text. `validate_input` takes primitive request flags (not `PipelineArgs`) to keep
+`core/` decoupled from `cli/`.
+
+**Verification:** full suite **404 passed**; old-vs-new **parity 8/8** (unaffected —
+the harness exercises QC/GWAS only and shells out to `.venv-stable`, not repo
+legacy); static gate clean (no `genotools-new`/`use_new_ancestry`/`ancestry.legacy`/
+legacy `_run_ancestry_prediction`/`gwas.py` refs in `genotools/`); a real
+end-to-end **default** `genotools --ancestry` run on synthetic data trained a new
+`AncestryModel` (GridSearchCV + UMAP) and produced split pfiles (AFR/EUR/CAH),
+JSON, and a saved model dir. Design + plan:
+`docs/superpowers/specs/2026-07-20-flip-default-cleave-legacy-design.md`,
+`docs/superpowers/plans/2026-07-20-flip-default-cleave-legacy.md`.
+
+**Still deferred (Phase 5/6 / gated on item #1):** `genotools/utils.py` and
+`genotools/imputation.py` (kept as a pair — `imputation.py` imports
+`utils.shell_do`; two differential tests still use `utils.banner`/`get_common_snps`)
+and `genotools/container/`. **Follow-ups (non-blocking):** committed golden
+fixtures total ~2.6 MB (reducible via fewer samples, needs re-running the oracle);
+bump `python_requires` ≥3.10 (PEP-604 annotations); guard `str(ref_panel)` in
+`_run_training_mode` for a clean error when `--ref-panel` is omitted.
+
+### ✅ Resolved (decision B): PCA region exclusion is an intentional fix
+
+The GWAS parity run surfaced a **real old-vs-new scientific difference** in PCA
+pruning (`gwas/steps/pca.py` vs legacy `gwas.py`):
+
+- **New** uses `--exclude range {file}` — correctly drops the high-LD/MHC ranges
+  in the exclusion file (synthetic data: 9741 → 9644 variants; prune.in 3971).
+- **Old** used `--exclude {file}` (no `range`) — PLINK2 treats a ranges file as a
+  variant-ID list, matches nothing, and excludes **zero** of those regions
+  (9741 variants; prune.in 3987). i.e. the old region exclusion was a no-op bug.
+
+Consequence: the PCA eigenvectors differ (eigenvalues differ ~0.01, values
+beyond sign flips), so the GWAS covariates — and hence **every** GWAS p-value —
+differ slightly between old and new. The genomic-inflation **lambda still agrees**
+(synthetic: 1.0074 vs 1.0071) and the **set of tested variants is identical**.
+
+**Decision (maintainer, option B): ratified `--exclude range` as an intentional
+correctness fix** — excluding MHC/high-LD regions before PCA is standard practice,
+and the old behavior was a no-op bug. This is a **deliberate, accepted divergence
+from the pre-refactor GWAS baseline**, not a regression: real-cohort GWAS
+per-variant p-values will differ slightly from the old code, and that is expected.
+
+Implications for the harness:
+- The GWAS parity test asserts the invariants that hold under B (GWAS runs, same
+  tested-variant set, lambda within tolerance) and intentionally does **not**
+  assert per-variant p-equality against the old baseline.
+- A guard test locks the fix in so it can't silently revert to the old no-op:
+  `tests/unit/test_gwas/test_steps_regression.py::TestPcaExcludesHighLdRegions`
+  asserts PCA pruning removes every variant inside the exclusion ranges.
+
+### Round 7 (`refactor/logging-visibility-redesign`, item #0)
+
+Redesigned logging so **each pipeline step's behavior is clearly visible** — on
+the terminal during a run and on disk afterwards. Resolves item #0 (the 6.5/10
+audit: raw PLINK output dropped from disk, dead 0-byte `cleaned_logs.log`, three
+uncoordinated `print`/`logging`/`warnings.warn` channels). Design + plan:
+`docs/superpowers/specs/2026-07-23-logging-visibility-redesign-design.md`,
+`docs/superpowers/plans/2026-07-23-logging-visibility-redesign.md`. The two open
+questions were settled with the maintainer via a grill session (see the spec's
+"Settled decisions").
+
+**1 — `RunLog` consolidated writer (`core/logging.py`).** A single `RunLog` object
+owns `{out}_all_logs.log`: banner → one `===== step =====` section per step
+(structured `[step]` summary lines written live via a thin `_RunLogHandler`, then
+the verbatim harvested PLINK output for that step, flushed at section end) → an
+end-of-run summary table. `install_run_logging(out)` wires the handler + a concise
+step-tagged console stream and registers the run-scoped `raw_sink` ContextVar.
+
+**2 — Executor harvests PLINK's native `.log` (`core/executors.py`).**
+`run_command` now harvests `{--out}.log` (KING: `{--prefix}.log`) after **every**
+invocation into the `raw_sink` — so compound steps (GWAS/PCA, ancestry
+preprocessing) are fully captured, not just their last call. Best-effort (never
+breaks a run); a no-op when no sink is registered (library/unit callers).
+
+**3 — Per-step raw files + logs always persist.** Each step's raw PLINK output is
+also written to `{out}_{step}.log` (`{out}_{label}_{step}.log` under `--ancestry`),
+harvested out of the temp dir **before** cleanup, so logs survive even without
+`--full_output` (which now governs only intermediate pfiles). `cleaned_logs.log`
+is **deleted** (file + all references in `genotools/`; the deferred `utils.py`
+still references the legacy name).
+
+**4 — Channels unified + guard decoupled (`cli/runner.py`, `core/validation.py`).**
+`print()`/`warnings.warn` on the pipeline path are retired → routed through
+`logging` (curated console = concise `[step] message`, `!` prefix on WARN+; raw
+PLINK is file-only). The re-run guard moved out of `validate_input` into
+`guard_output_not_exists`, which runs **before** logging setup so `validate_input`
+(now pure) logs its data breakdown + skip decisions into the fresh consolidated
+log. `run()` reordered: guard → `_setup_logging` (build `RunLog`) → sectioned
+input-prep/QC/ancestry. End-of-run **summary table** to console + log.
+`logging.getLogger(__name__)` standardized to `get_logger(__name__)` across 13
+pipeline modules.
+
+**5 — Console/verbosity polish (review pass).** Three blemishes found by re-reading
+the round-7 output on a real cohort:
+- The summary was written **twice** to the consolidated log (`logger.info` rows
+  landed at the tail of the last step's section, then `write_summary`'s table).
+- The `Running: {step} with input … and output: …` line put two absolute temp-dir
+  paths on the console — the longest and least useful line there.
+- Level/console were hardcoded (`"INFO"`, `console=True`): no way to quiet a
+  cluster job or widen output when debugging.
+
+Fixed with two `extra` routing markers on the `genotools` logger — `file_only`
+(dropped by a new `_ConsoleFilter` on the console handler) and `console_only`
+(dropped by `_RunLogHandler`) — so a record can target one destination without a
+second logging path. The step-path line is now `file_only` (full paths preserved
+in the log); the summary rows are `console_only` (the file keeps only the aligned
+table); a per-group `Ancestry group {label}: running N QC step(s)` console line
+replaces what the file-only line used to convey under `--ancestry`. New
+`--quiet` (drop the console stream; **all log files still written**) and
+`--debug` (DEBUG level on both streams) thread through `OutputArgs` into
+`install_run_logging`'s existing `level`/`console` params. Documented in
+`docs/cli_args.md`.
+
+**Verification:** full suite **437 passed** (unit + regression; +34 new: `RunLog`,
+`_harvest_raw_log`, guard/validation-logging, runner sectioning + summary, logging
+hygiene, and the rewritten `test_logging.py` asserting the sectioned/raw/summary
+contract); old-vs-new **parity 8/8** (logging changes don't touch genotype output);
+static gates clean (no `cleaned_logs`/`warnings.warn`/pipeline-path `print(` left in
+new code). Real end-to-end `--callrate --geno` and `--ancestry` runs on synthetic
+data produce the sectioned consolidated log, per-step raw files, summary table, and
+no `cleaned_logs.log`. After the part-5 polish pass the suite is **456 passed**
+(+9: console/file record routing, `--quiet`/`--debug` parsing + behavior,
+summary-not-duplicated, step-path line file-only) and parity is still 8/8; a real
+3661-sample × 1.95M-variant run gives a console of only step lines + summary.
+
+**6 — Failure-boundary + artifact cleanup (second review pass).** Cleared the four
+blemishes the part-5 pass had only recorded:
+
+1. **One logging API, two honest entry points.** `setup_logging` and
+   `install_run_logging` now share `_reset_genotools_logger` (level coercion,
+   handler close+clear, `propagate=False`), and the docstrings state the split:
+   `install_run_logging` is the pipeline's (RunLog, sections, raw harvest, curated
+   console); `setup_logging` is for **library/embedded** callers driving the step
+   functions directly. Previously untested, it now has a functional test
+   (step-tagged records reach the file; no raw sink registered) plus one pinning
+   that either call replaces the other's handlers.
+2. **Clean CLI failures.** `cli/__init__.py::main` catches `GenoToolsError`,
+   `FileNotFoundError`, and config-validation `ValueError`/`TypeError` → a one-line
+   `ERROR: <message>` on stderr with exit 1 instead of a traceback; `--debug`
+   re-raises, so the traceback is one flag away. Other exception types are bugs and
+   keep their traceback. The runner's "No QC steps" raise became a
+   `ValidationError` (was a bare `ValueError`) so it routes through that path.
+   Writing the tests surfaced two cases beyond the guard: a missing `--pfile`
+   (`FileNotFoundError`) and an out-of-range value like `--callrate 1.5` (range
+   checks live in the step config, not the parser) both used to traceback. Also
+   fixed the guard's own message, which told users to rerun with `--skip_fails` —
+   a spelling argparse **rejects** (it is `--skip-fails`).
+3. **Re-runs no longer destroy the prior log.** `RunLog` rotates an existing
+   consolidated log to the next free `{path}.N` instead of truncating it, and
+   announces it (`! An existing log was found …; the previous run's log is
+   preserved as …`). Only reachable via `--skip-fails`, the one path that bypasses
+   the guard. On a pre-flight failure `_teardown_logging` calls
+   `restore_rotated()`, so a failed re-run leaves the directory exactly as it found
+   it. Per-step raw files are still overwritten — their content is a subset of the
+   rotated consolidated log.
+4. **No stray tool logs.** `_harvest_raw_log` removes each `{prefix}.log` after
+   harvesting it (mirroring what `GenotypeData.to_pfile` already did, and what
+   legacy `concat_logs` did to the files it consumed), so `{out}.log`,
+   `{out}_{label}.log`, and the ancestry-preprocessing strays no longer sit beside
+   the real outputs duplicating `{out}_{step}.log`. Skipped when no sink is
+   registered, so library callers keep their tool logs. This made the 8 step error
+   messages that named a now-deleted `{tmp}.log`/`{out}.log` wrong, so they were
+   replaced with a shared `RAW_LOG_HINT` constant pointing at the consolidated +
+   per-step logs (several were **already** wrong pre-round-7, naming temp files the
+   cleanup had deleted).
+
+Suite **456 → 475 passed** (+19: rotation/restore, library-path `setup_logging`,
+harvest removal, and a new `tests/regression/test_cli_errors.py` covering the
+failure boundary end-to-end).
+
+**Follow-ups (non-blocking):**
+- The per-ancestry consolidated log is single-file/sectioned; item #9
+  parallelization will need per-group log files.
+- Step configs are constructed inside the step loop, so an out-of-range value
+  (`--callrate 1.5`) fails *after* logging is installed, leaving a consolidated log
+  that blocks the prefix on the corrected re-run. Validating configs during
+  pre-flight would fail before any artifact exists.
+- ~~`docs/cli_args.md` documents legacy flag spellings~~ — **done**: rewritten
+  against `genotools/cli/parser.py`. All 42 flags documented and parse-checked
+  (`--cloud_model` never existed in the new parser; `--prune_duplicated` is now
+  `--no-prune-duplicated`; `--warn` is now the default with `--no-warn` to opt
+  out). Added the previously-undocumented `--amr-het`, `--min-samples`,
+  `--maf-lambdas`, `--all-variant`'s LD exclusion, the data-driven auto-skip
+  table, `--skip-fails`'s second effect (it also disables those auto-skips), and
+  `--all-sample`'s callrate threshold of 0.05 (vs 0.02 for a bare `--callrate`).
 
 ---
 
-## Phase 0: Regression Testing Framework
-
-### Goal
-Build a testing harness that ensures new implementations produce identical results to the current pip-installable version.
-
-### Virtual Environment Setup
-
-Use separate virtual environments to keep the stable baseline separate from active development:
-
-```bash
-# .venv - Development version (editable install, changes reflected immediately)
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-
-# .venv-stable - Frozen baseline (non-editable, snapshot before refactoring)
-python -m venv .venv-stable
-source .venv-stable/bin/activate
-pip install .
-```
-
-| Environment | Install Command | Purpose |
-|-------------|-----------------|---------|
-| `.venv` | `pip install -e .` | Active development, code changes reflected immediately |
-| `.venv-stable` | `pip install .` | Frozen "before" snapshot for regression comparison |
-
-**Note:** Both are installed from the local repo (not PyPI) since the PyPI version may be outdated.
-
-### Approach
-1. **Generate golden files** using current implementation
-2. **Compare new implementations** against golden outputs
-3. **Run comparisons per-step** to isolate regressions
-
-### Deliverables
-
-#### 0.1 Directory Structure
-```
-tests/
-├── regression/
-│   ├── conftest.py          # Pytest fixtures for test data paths
-│   ├── compare.py           # Comparison utilities
-│   ├── test_qc_steps.py     # QC step regression tests
-│   ├── test_ancestry.py     # Ancestry regression tests
-│   └── golden/              # Expected outputs (generated once)
-│       ├── callrate/
-│       ├── sex/
-│       ├── het/
-│       ├── related/
-│       └── ancestry/
-├── data/                    # Test genotype data (user-supplied)
-│   └── README.md
-└── scripts/
-    └── generate_golden.py   # One-time golden file generator
-```
-
-#### 0.2 `tests/regression/compare.py`
-```python
-"""Utilities for comparing genomic outputs."""
-from dataclasses import dataclass
-from pathlib import Path
-import pandas as pd
-
-@dataclass
-class ComparisonResult:
-    """Result of comparing two outputs."""
-    equal: bool
-    sample_diff: int
-    variant_diff: int
-    mismatched_samples: list[str]
-    mismatched_variants: list[str]
-    message: str
-
-def compare_sample_ids(expected: Path, actual: Path) -> ComparisonResult:
-    """Compare sample IDs between two psam/fam files."""
-    ext = expected.suffix
-    if ext == ".psam":
-        exp_df = pd.read_csv(expected, sep="\t", dtype=str)
-        act_df = pd.read_csv(actual, sep="\t", dtype=str)
-        exp_ids = set(exp_df["IID"])
-        act_ids = set(act_df["IID"])
-    else:  # .fam
-        exp_df = pd.read_csv(expected, sep=r"\s+", header=None, dtype=str)
-        act_df = pd.read_csv(actual, sep=r"\s+", header=None, dtype=str)
-        exp_ids = set(exp_df[1])
-        act_ids = set(act_df[1])
-
-    missing = exp_ids - act_ids
-    extra = act_ids - exp_ids
-
-    return ComparisonResult(
-        equal=len(missing) == 0 and len(extra) == 0,
-        sample_diff=len(missing) + len(extra),
-        variant_diff=0,
-        mismatched_samples=list(missing | extra),
-        mismatched_variants=[],
-        message=f"Missing: {len(missing)}, Extra: {len(extra)}"
-    )
-
-def compare_variant_ids(expected: Path, actual: Path) -> ComparisonResult:
-    """Compare variant IDs between two pvar/bim files."""
-    ext = expected.suffix
-    if ext == ".pvar":
-        exp_df = pd.read_csv(expected, sep="\t", comment="#", dtype=str)
-        act_df = pd.read_csv(actual, sep="\t", comment="#", dtype=str)
-        exp_ids = set(exp_df["ID"])
-        act_ids = set(act_df["ID"])
-    else:  # .bim
-        exp_df = pd.read_csv(expected, sep="\t", header=None, dtype=str)
-        act_df = pd.read_csv(actual, sep="\t", header=None, dtype=str)
-        exp_ids = set(exp_df[1])
-        act_ids = set(act_df[1])
-
-    missing = exp_ids - act_ids
-    extra = act_ids - exp_ids
-
-    return ComparisonResult(
-        equal=len(missing) == 0 and len(extra) == 0,
-        sample_diff=0,
-        variant_diff=len(missing) + len(extra),
-        mismatched_samples=[],
-        mismatched_variants=list(missing | extra),
-        message=f"Missing: {len(missing)}, Extra: {len(extra)}"
-    )
-
-def compare_pfiles(expected_prefix: Path, actual_prefix: Path) -> ComparisonResult:
-    """Compare two pfile sets (samples + variants)."""
-    sample_result = compare_sample_ids(
-        expected_prefix.with_suffix(".psam"),
-        actual_prefix.with_suffix(".psam")
-    )
-    variant_result = compare_variant_ids(
-        expected_prefix.with_suffix(".pvar"),
-        actual_prefix.with_suffix(".pvar")
-    )
-
-    return ComparisonResult(
-        equal=sample_result.equal and variant_result.equal,
-        sample_diff=sample_result.sample_diff,
-        variant_diff=variant_result.variant_diff,
-        mismatched_samples=sample_result.mismatched_samples,
-        mismatched_variants=variant_result.mismatched_variants,
-        message=f"Samples: {sample_result.message}; Variants: {variant_result.message}"
-    )
-
-def compare_ancestry_predictions(
-    expected: Path,
-    actual: Path,
-    tolerance: float = 0.0
-) -> ComparisonResult:
-    """Compare ancestry prediction outputs."""
-    exp_df = pd.read_csv(expected, sep="\t")
-    act_df = pd.read_csv(actual, sep="\t")
-
-    # Merge on sample ID
-    merged = exp_df.merge(act_df, on="IID", suffixes=("_exp", "_act"))
-
-    # Check predicted ancestry matches
-    mismatched = merged[merged["predicted_ancestry_exp"] != merged["predicted_ancestry_act"]]
-
-    return ComparisonResult(
-        equal=len(mismatched) == 0,
-        sample_diff=len(mismatched),
-        variant_diff=0,
-        mismatched_samples=list(mismatched["IID"]),
-        mismatched_variants=[],
-        message=f"{len(mismatched)} samples have different predictions"
-    )
-```
-
-#### 0.3 `scripts/generate_golden.py`
-```python
-#!/usr/bin/env python3
-"""Generate golden reference files using current (pip-installed) implementation.
-
-Run this ONCE before starting the refactor to capture expected outputs.
-
-Usage:
-    python scripts/generate_golden.py --geno tests/data/test_geno --out tests/regression/golden
-"""
-import argparse
-from pathlib import Path
-import shutil
-
-# Import OLD implementation
-from genotools.qc import SampleQC, VariantQC
-from genotools.ancestry import Ancestry
-
-
-def generate_qc_golden(geno_path: Path, out_dir: Path):
-    """Run each QC step and save outputs."""
-
-    # Sample QC steps
-    sample_qc = SampleQC(geno_path=str(geno_path), out_path=str(out_dir / "callrate" / "output"))
-    sample_qc.run_callrate_prune(0.02)
-    # Copy output files to golden dir
-
-    # Continue for each step...
-    steps = [
-        ("callrate", lambda sq: sq.run_callrate_prune(0.02)),
-        ("sex", lambda sq: sq.run_sex_prune()),
-        ("het", lambda sq: sq.run_het_prune()),
-        ("related", lambda sq: sq.run_related_prune(0.0884)),
-    ]
-
-    for step_name, step_fn in steps:
-        step_out = out_dir / step_name
-        step_out.mkdir(parents=True, exist_ok=True)
-
-        sq = SampleQC()
-        sq.geno_path = str(geno_path)
-        sq.out_path = str(step_out / "output")
-
-        result = step_fn(sq)
-
-        # Save metrics
-        with open(step_out / "metrics.json", "w") as f:
-            json.dump(result, f, indent=2)
-
-
-def generate_ancestry_golden(geno_path: Path, ref_path: Path, out_dir: Path):
-    """Run ancestry prediction and save outputs."""
-    ancestry_out = out_dir / "ancestry"
-    ancestry_out.mkdir(parents=True, exist_ok=True)
-
-    # Run old implementation
-    anc = Ancestry(geno_path=str(geno_path), ref_panel=str(ref_path), out_path=str(ancestry_out / "output"))
-    result = anc.predict()
-
-    # Predictions are saved by the old code
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--geno", type=Path, required=True, help="Test genotype file prefix")
-    parser.add_argument("--ref", type=Path, help="Reference panel for ancestry (optional)")
-    parser.add_argument("--out", type=Path, required=True, help="Golden output directory")
-    args = parser.parse_args()
-
-    args.out.mkdir(parents=True, exist_ok=True)
-
-    print(f"Generating golden files from: {args.geno}")
-    print(f"Output directory: {args.out}")
-
-    generate_qc_golden(args.geno, args.out)
-
-    if args.ref:
-        generate_ancestry_golden(args.geno, args.ref, args.out)
-
-    print("Golden files generated successfully!")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-#### 0.4 `tests/regression/conftest.py`
-```python
-"""Pytest fixtures for regression tests."""
-import pytest
-from pathlib import Path
-
-TESTS_DIR = Path(__file__).parent.parent
-GOLDEN_DIR = TESTS_DIR / "regression" / "golden"
-DATA_DIR = TESTS_DIR / "data"
-
-
-@pytest.fixture
-def test_geno_path() -> Path:
-    """Path to test genotype data."""
-    path = DATA_DIR / "test_geno"
-    if not path.with_suffix(".pgen").exists() and not path.with_suffix(".bed").exists():
-        pytest.skip("Test data not found. Place test data in tests/data/test_geno.*")
-    return path
-
-
-@pytest.fixture
-def golden_dir() -> Path:
-    """Path to golden reference outputs."""
-    if not GOLDEN_DIR.exists():
-        pytest.skip("Golden files not found. Run scripts/generate_golden.py first.")
-    return GOLDEN_DIR
-```
-
-#### 0.5 `tests/regression/test_qc_steps.py`
-```python
-"""Regression tests comparing new QC implementation to golden reference."""
-import pytest
-from pathlib import Path
-
-from genotools.core.genotypes import GenotypeData
-from genotools.qc.steps.callrate import filter_callrate
-from genotools.qc.config import CallrateConfig
-from .compare import compare_pfiles
-
-
-class TestCallrateRegression:
-    """Regression tests for callrate filtering."""
-
-    def test_output_matches_golden(self, test_geno_path: Path, golden_dir: Path, tmp_path: Path):
-        """New implementation produces same output as old."""
-        # Run new implementation
-        data = GenotypeData.from_path(test_geno_path)
-        result = filter_callrate(data, CallrateConfig(), tmp_path / "output")
-
-        # Compare to golden
-        comparison = compare_pfiles(
-            golden_dir / "callrate" / "output",
-            result.output.path
-        )
-
-        assert comparison.equal, (
-            f"Output differs from golden:\n"
-            f"  Sample diff: {comparison.sample_diff}\n"
-            f"  Variant diff: {comparison.variant_diff}\n"
-            f"  {comparison.message}"
-        )
-
-    def test_metrics_match(self, test_geno_path: Path, golden_dir: Path, tmp_path: Path):
-        """Sample/variant counts match golden."""
-        import json
-
-        # Load golden metrics
-        with open(golden_dir / "callrate" / "metrics.json") as f:
-            golden_metrics = json.load(f)
-
-        # Run new implementation
-        data = GenotypeData.from_path(test_geno_path)
-        result = filter_callrate(data, CallrateConfig(), tmp_path / "output")
-
-        assert result.samples_removed == golden_metrics["samples_removed"]
-        assert result.variants_removed == golden_metrics["variants_removed"]
-
-
-# Similar test classes for sex, het, related, etc.
-```
-
-#### 0.6 `tests/data/README.md`
-```markdown
-# Test Data
-
-Place test genotype files here for regression testing.
-
-## Required Files
-
-For pfile format:
-- `test_geno.pgen`
-- `test_geno.pvar`
-- `test_geno.psam`
-
-OR for bfile format:
-- `test_geno.bed`
-- `test_geno.bim`
-- `test_geno.fam`
-
-## Recommendations
-
-- Use a small dataset (100-500 samples, 10k-50k variants)
-- Include samples that will be filtered by each QC step
-- Include known ancestry labels if testing ancestry prediction
-
-## Generating Golden Files
-
-After placing test data, run:
-
-```bash
-python scripts/generate_golden.py --geno tests/data/test_geno --out tests/regression/golden
-```
-
-This uses the CURRENT pip-installed version to generate expected outputs.
-```
-
-### What to Compare Per Step
-
-| Step | Compare | Ignore |
-|------|---------|--------|
-| callrate | Sample IDs, variant IDs, counts | Log files, ordering |
-| sex | Removed sample IDs, F-statistics (within tolerance) | Log files |
-| het | Removed sample IDs, het rates (within tolerance) | Log files |
-| related | Related pairs, removed sample IDs | Log files, pair ordering |
-| ancestry | Predicted labels, probabilities (within tolerance) | Log files |
-
-### Success Criteria
-- [ ] `tests/regression/compare.py` implemented
-- [ ] `scripts/generate_golden.py` implemented
-- [ ] Golden files generated from current pip version
-- [ ] `pytest tests/regression/` passes (baseline: old vs old)
-- [ ] Test data documented in `tests/data/README.md`
-
-### Usage During Refactor
-
-```bash
-# 1. Install current version
-pip install the-real-genotools
-
-# 2. Generate golden files (once)
-python scripts/generate_golden.py --geno tests/data/test_geno --out tests/regression/golden
-
-# 3. Implement new code...
-
-# 4. Run regression tests
-pytest tests/regression/ -v
-
-# 5. If tests fail, investigate differences
-pytest tests/regression/test_qc_steps.py::TestCallrateRegression -v --tb=long
-```
+### Round 8 (per-dataset skip decisions, duplicate-branch coverage)
+
+Closed the last three pre-merge items from the round-7 handoff. Round 7 had
+introduced the three-outcome mechanism (`pass`/`fail`/`skipped`); this round
+found that one decision was still reported two different ways depending on where
+it was noticed, and that one QC branch had never executed at all.
+
+**1 — Data-driven skips are decided per dataset (`11083a3`, `fc3c05a`).**
+`validate_input` decides against the whole cohort, but `--ancestry` splits the
+cohort afterwards, so a group's data can differ sharply from the whole. Only
+`het` was re-decided per group; `sex` and `case_control` were not, so a group
+with no recorded sex, or holding only cases, reached the step and *failed* —
+reporting the same finding as `outcome="fail"` per group and `"skipped"`
+cohort-wide. `--skip-fails` had the same split at cohort level, since it
+suppresses `validate_input`'s decisions entirely.
+
+`core/validation.py` now owns all three per-dataset decisions
+(`het_skip_reason`, `sex_skip_reason`, `case_control_skip_reason`) beside the
+cohort-level ones they mirror, sharing `SEX_SKIP_REASON`, `NO_X_SKIP_REASON`,
+`CASE_CONTROL_SKIP_REASON` and `het_floor_reason()` so the two callers cannot
+drift into different explanations of one finding. `runner.py:_skip_reasons`
+collapsed its three near-identical guard blocks into one loop over
+`(step, decide)`, and no longer imports `MIN_HET_SAMPLES` or `count_samples` —
+it stopped knowing about PLINK's LD floor. Only sample-derived checks are
+re-decided: the X-chromosome half of the sex check cannot change, because the
+split keeps samples and every group inherits the cohort's pvar.
+
+A missing psam now **raises** from all three rather than deciding nothing,
+matching what the het check already did — a wrong prefix is a bug, and swallowing
+it is how every `--ancestry` run without `--full-output` died in round 7. A
+missing *column* still decides nothing and leaves the step to raise its own
+specific error.
+
+**2 — `duplicated_cutoff` exercised for the first time (`24c845d`).** The 10k
+parity subset holds 52 related pairs and **zero** duplicates, so
+`filter_relatedness`'s duplicate `--king-cutoff` call and the `duplicate` bin of
+its `pd.cut` had never seen a positive through the entire refactor. Built a
+10,019-sample subset containing both members of all 10 pairs the r12 release
+classified as duplicates and ran `--related` under both CLIs: identical
+`duplicated_count=20`, identical 50,958 pairs with identical REL bins
+(`duplicate=31, first_deg=1238, second_deg=49689`), the same 20 samples removed,
+identical output genotypes, and all 10 known pairs re-classified `duplicate`.
+
+Added `tests/scripts/compare_related_run.py` (whose battery **fails** when
+`duplicated_count` is zero, so a subset without duplicates cannot pass while
+testing nothing) and a `related` scenario in `run_parity.py` that reuses it.
+Selected by name only, never via `all`, since it needs purpose-built input.
+
+The 31 duplicate pairs exceed the release's 10 because a flat run compares across
+ancestries: 5 are cross-ancestry pairs the per-group pipeline structurally cannot
+see, and the rest sit at 0.357–0.485, consistent with mixed-ancestry KING
+inflating borderline first-degree pairs. 1.x behaves identically — a design
+observation, not a regression.
+
+**3 — Comparator blind spot found by using it (`24c845d`).** PLINK2 refuses
+`--pgen-diff` outright when any sample lacks a sex code and chrX/chrY is in
+scope, which silently killed the genotype check for any run that never called
+`--sex`. `compare.py` falls back to autosomes and reports the narrowing, which
+both parity reporters now print on the PASS line. See `TESTING.md` §4.
+
+**4 — Two misleading help strings, and a self-service error (`6a173cd`,
+`8b5f502`).** `--model` advertised "legacy .pkl file", which reads as a 1.x
+model; it means 2.0's own single-file layout, and the `AncestryModel.load`
+docstring calling that "Legacy format" was the source of the wording.
+`compare_ancestry_run.py`'s `--skip-genotypes` claimed to compare IDs only and
+to skip a `.traw` diff — it skips the whole pfile check, and the diff has been
+`--pgen-diff` since `adfc072`. A 1.x model pointed at `--model` now gets told so
+by name, with the way out, instead of a bare type mismatch.
+
+**Tests: 503 → 609** (534 unit + 75 regression). All 27 new tests were
+revert-checked — reverting the fix must break them, since a test written against
+a helper rather than its call site passes with the bug restored. Includes
+`tests/regression/test_skipped_steps.py`, which drives the real CLI end-to-end
+for both skip-capable steps against `--skip-fails` on and off, with a negative
+control per step so an over-eager skip that silently disables sex or
+case-control QC fails loudly.
 
 ---
 
-## Target Architecture
+### Round 9 (pandas 3 compatibility, release artifact)
 
-### Core Insight
+Both found by pushing round 8 and looking at what CI and the wheel actually
+produced, not by the suite.
 
-**QC and Ancestry are fundamentally different:**
+**1 — CI went red with no code change (`21b7314`).** `setup.py` floats
+(`pandas>=2.0.3`), CI resolved **pandas 3.0.5**, and local `.venv` is 2.3.3, so
+two latent incompatibilities surfaced at once and could not be reproduced
+locally until a pandas-3 venv was built (recipe now in `TESTING.md` §2).
 
-| Aspect | QC | Ancestry |
-|--------|----|---------|
-| Model | Filter pipeline | ML pipeline |
-| Data flow | N samples → N' samples (subset) | Samples → predictions |
-| State | Stateless filters | Fitted model (UMAP, XGBoost) |
-| Composition | Steps are reorderable | Phases are sequential |
+- `ancestry/cohort.py` seeded `pruned_samples` with an empty
+  `pd.DataFrame(columns=[...])` and concatenated into it, so that dtype-less
+  frame decided the result's dtypes instead of the data - `object` even under
+  pandas 3, while the golden parquet reads back as `str`. Now collects the
+  frames and concatenates once. Same values, order and empty-case shape, so
+  JSON output and the parity results are unaffected.
+- `ancestry/preprocessing.py` (x2): `drop(columns=[...], axis=1)`. `axis` is
+  redundant with `columns` and pandas 3 rejects the combination outright.
+- `utils.py`: five unraw `'\s+'` literals, now `r'\s+'`. Byte-identical
+  strings (`'\s+' == r'\s+'`), so this only silences the DeprecationWarning -
+  which a future Python turns into a SyntaxError.
 
-They should not share the same execution model.
+Verified on pandas 3.0.5 and 2.3.3: 610 passed on both. A test pins the
+invariant that dtypes come from the data rather than a seed frame; it can only
+fail under a pandas whose string dtype differs from object, which its docstring
+says.
 
-### Final Directory Structure
+**2 — The wheel a tag would freeze (`c75db02`).** `package_data` shipped
+`container/*.pkl`: two `umap_linearsvc` models from the 1.x era, **2.16 MB of a
+2.57 MB wheel**, that 2.0 cannot load at all. Nothing reads them from an
+installed package - `container/` is a Docker build context whose Dockerfile
+`COPY`s the build context in. The files stay in the repo as the historical
+reference round 4 intended; they are no longer distributed. Wheel: 2.57 MB ->
+**0.46 MB**.
 
-```
-genotools/
-├── __init__.py
-├── __main__.py           # Thin entry point
-│
-├── core/                 # Shared infrastructure (Phase 1)
-│   ├── __init__.py
-│   ├── genotypes.py      # GenotypeData - immutable, format-aware
-│   ├── executors.py      # External tool wrapper (PLINK, KING)
-│   ├── logging.py        # Structured logging setup
-│   ├── config.py         # Base config classes
-│   └── exceptions.py     # Custom exception hierarchy
-│
-├── qc/                   # QC domain (Phase 2)
-│   ├── __init__.py
-│   ├── pipeline.py       # QCPipeline - composes steps
-│   ├── config.py         # QCConfig, step configs
-│   ├── results.py        # FilterResult, QCResult dataclasses
-│   └── steps/            # Pure filter functions
-│       ├── __init__.py
-│       ├── callrate.py
-│       ├── sex.py
-│       ├── heterozygosity.py
-│       ├── relatedness.py
-│       ├── variant_missingness.py
-│       ├── case_control.py
-│       ├── haplotype.py
-│       ├── hwe.py
-│       └── ld_prune.py
-│
-├── ancestry/             # Ancestry domain (Phase 3)
-│   ├── __init__.py
-│   ├── model.py          # AncestryModel - fit/predict interface
-│   ├── reference.py      # ReferencePanel management
-│   ├── config.py         # AncestryConfig
-│   ├── results.py        # AncestryPredictions dataclass
-│   └── reducers/         # Dimensionality reduction
-│       ├── __init__.py
-│       ├── pca.py
-│       └── umap.py
-│
-├── gwas/                 # GWAS domain (Phase 5)
-│   └── ...
-│
-└── cli/                  # CLI layer (Phase 4)
-    ├── __init__.py
-    ├── parser.py         # Argparse with proper types
-    ├── runner.py         # Orchestration logic
-    └── output.py         # Result formatting, JSON serialization
-```
+There was also no `pyproject.toml`, so pip fell back to legacy
+`setup.py bdist_wheel`, which fails with `invalid command 'bdist_wheel'` unless
+`wheel` happens to be installed in the ambient environment. Added a PEP 517/518
+`[build-system]` block; metadata stays in `setup.py`.
+
+Note for release builds: **a stale `build/` masks the `package_data` change
+entirely** - `build_py` copies package data into `build/lib` and never prunes
+files that are no longer declared, so the first rebuild still shipped both
+pickles. See `TESTING.md` §8.
 
 ---
 
-## Phase 1: Core Foundation
+### Round 10 (the inert remote-execution flags)
 
-### Goal
-Build shared infrastructure that all other phases depend on.
+Closes **item 18**, the last blocker the round-9 handoff named before tagging.
 
-### Issues Resolved
-| ID | Issue | Resolution |
-|----|-------|------------|
-| A1 | Mutable state (partial) | GenotypeData is immutable |
-| P1 | Format conversions | GenotypeData manages format, converts once |
-| R1 | Error handling | Custom exception hierarchy |
-| R2 | File cleanup | Context managers in executors.py |
-| R3 | Subprocess handling | shlex.split() or list commands |
-| D1 | Type hints (partial) | Dataclasses with full type hints |
-| D2 | Module-level init | Lazy initialization in executors.py |
-| D3 | Structured logging | core/logging.py with levels and context |
+**The finding, corrected.** Item 18 recorded that "1.3.6 implemented all three."
+It implemented **two**. `origin/main` (1.3.6) defines `--container` and
+`--singularity` in `pipeline.py:44-45` and acts on them via
+`ancestry.py:675 get_containerized_predictions`. It has **no `--cloud` flag and
+no cloud code path anywhere** — grepping every `.py` in the 1.3.6 tree for
+"cloud" returns nothing, and `google-cloud-aiplatform` is absent from both
+versions' `install_requires` despite `CLAUDE.md` listing it. `--cloud` is a flag
+name 2.0 invented and never implemented. `MIGRATION_2.0.md` had it both ways,
+listing `--cloud` under "New flags" while also claiming 1.x ran predictions on
+Google Cloud.
 
-### Deliverables
+**Why "implement" was not on the table for 2.0.0.** Container mode is welded to
+the 1.x model format. `genotools/container/run.py:15` unpickles
+`GP2_merge_release6_NOVEMBER_..._umap_linearsvc_ancestry_model.pkl` — one of the
+exact two pickles round 9 dropped from the wheel *because 2.0 cannot load them*.
+Honouring `--container` needs a rebuilt, republished
+`mkoretsky1/genotools_ancestry` image carrying a 2.0-format model; the image is
+outside this repo. (Its `Dockerfile` also `git clone`s GenoTools at **main HEAD**
+unpinned, so once 2.0 merges to main, a rebuild would install 2.0 next to a
+pickle 2.0 rejects — the image breaks on its next rebuild regardless.)
 
-#### 1.1 `core/exceptions.py`
-```python
-class GenoToolsError(Exception):
-    """Base exception for all GenoTools errors."""
-    pass
+**So: fail loudly.** `_UNSUPPORTED_INFERENCE_FLAGS` in `cli/parser.py` maps each
+flag to its own explanation; `AncestryArgs.__post_init__` raises. The flags stay
+in the parser deliberately — a 1.x command line gets a targeted message instead
+of argparse's bare "unrecognized arguments". `--cloud`'s message says it was
+never implemented rather than implying a regression. Help strings and
+`MIGRATION_2.0.md` now match. `AncestryArgs.inference_mode` is deleted: it was
+read only by tests, and after the rejection it could never return anything but
+`LOCAL`. `InferenceMode`/`InferenceConfig` stay in `ancestry/config.py` as the
+API a future implementation would use.
 
-class QCError(GenoToolsError):
-    """QC-specific errors."""
-    pass
+**A second bug, surfaced by fixing the first.** `main()`'s docstring promises
+that config-validation `ValueError`/`TypeError` reaches the user as a one-line
+`ERROR:`, but `parse_args()` was called **outside** the `try`, and the config
+dataclasses validate in `__post_init__` *inside* `parse_args`. So every
+parse-time validation error printed a raw traceback, contradicting the
+documented contract — including 1.x's own `--model` + `--container` conflict.
+`parse_args()` moved inside the `try`; `--debug` is read from `sys.argv` since
+`args` may not exist yet. argparse's own errors still exit 2 via `SystemExit`,
+which the handler does not catch.
 
-class AncestryError(GenoToolsError):
-    """Ancestry-specific errors."""
-    pass
+**Item 17: the round-7 revert-check audit.** Four round-7 behaviors were
+mutation-tested by breaking the production **call site** and running the tests
+that claim to cover it:
 
-class ExternalToolError(GenoToolsError):
-    """External tool (PLINK, KING) failures."""
-    def __init__(self, tool: str, command: str, returncode: int, stderr: str):
-        self.tool = tool
-        self.command = command
-        self.returncode = returncode
-        self.stderr = stderr
-        super().__init__(f"{tool} failed with code {returncode}: {stderr[:200]}")
-```
+| Mutation | Result |
+|---|---|
+| `executors`: stray `{out}.log` no longer removed | **gated** (2 tests fail) |
+| `executors`: `_harvest_raw_log` call site removed | **gated** (3 tests fail) |
+| `runner`: `_emit_run_summary()` call site removed | **gated** (4 tests fail) |
+| `runner`: `runlog.restore_rotated()` call site removed | **NOT gated** — 15 CLI tests all passed |
 
-#### 1.2 `core/logging.py`
-```python
-import logging
-from contextvars import ContextVar
-from pathlib import Path
-from typing import Optional
+The gap was exactly the shape item 17 predicted. `restore_rotated` had one test,
+`test_core.py::test_restore_rotated_puts_the_log_back`, which does the removal
+by hand (`log_path.unlink()  # what _teardown_logging(remove_logs=True) does`)
+and so passes whether or not the runner ever calls it. Deleting
+`runner.py:363` left every test green while a failed re-run silently destroyed
+the previous run's log and stranded it at `.1`.
 
-current_step: ContextVar[str] = ContextVar("current_step", default="")
+Closed with `test_cli_errors.py::test_preflight_failure_restores_the_rotated_log`,
+which drives the real path — successful run, then `--skip-fails` past the re-run
+guard into a pre-flight failure — and asserts the prior log is back and no `.1`
+is left behind. Revert-checked: it fails with "the prior run's log was removed
+and never restored".
 
-class StepContextFilter(logging.Filter):
-    def filter(self, record):
-        record.step = current_step.get()
-        return True
+This was a spot check of the highest-risk behaviors, not an exhaustive sweep.
 
-def setup_logging(level: str = "INFO", log_file: Optional[Path] = None):
-    """Configure structured logging with optional file output."""
-    formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] [%(step)s] %(message)s"
-    )
-    ...
-```
-
-#### 1.3 `core/genotypes.py`
-```python
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Literal
-
-@dataclass(frozen=True)
-class GenotypeData:
-    """Immutable reference to genotype files."""
-    path: Path
-    format: Literal["pfile", "bfile"]
-    sample_count: int
-    variant_count: int
-
-    @classmethod
-    def from_path(cls, path: Path) -> "GenotypeData":
-        """Detect format and count samples/variants."""
-        ...
-
-    def to_bfile(self, out_path: Path) -> "GenotypeData":
-        """Convert to bfile format, return NEW GenotypeData."""
-        ...
-
-    def to_pfile(self, out_path: Path) -> "GenotypeData":
-        """Convert to pfile format, return NEW GenotypeData."""
-        ...
-
-    def ensure_bfile(self, work_dir: Path) -> "GenotypeData":
-        """Return self if bfile, or convert and return new."""
-        if self.format == "bfile":
-            return self
-        return self.to_bfile(work_dir / f"{self.path.stem}_bfile")
-```
-
-#### 1.4 `core/executors.py`
-```python
-import shlex
-import subprocess
-import platform
-from contextlib import contextmanager
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
-import logging
-
-from .exceptions import ExternalToolError
-
-logger = logging.getLogger(__name__)
-
-# Lazy-loaded executables
-_plink: Optional[Path] = None
-_plink2: Optional[Path] = None
-_king: Optional[Path] = None
-
-# CRITICAL: Always use this flag to preserve sample metadata
-PLINK2_PSAM_COLS = "psam-cols=fid,parents,sex,pheno1,phenos"
-
-def get_plink() -> Path:
-    global _plink
-    if _plink is None:
-        _plink = _find_or_download("plink")
-    return _plink
-
-def get_king() -> Optional[Path]:
-    """Get KING executable. Returns None on non-Linux platforms."""
-    global _king
-    if platform.system() != "Linux":
-        logger.warning("KING is only available on Linux")
-        return None
-    if _king is None:
-        _king = _find_or_download("king")
-    return _king
-
-@dataclass
-class CommandResult:
-    returncode: int
-    stdout: str
-    stderr: str
-    log_file: Optional[Path] = None
-
-def run_command(
-    command: list[str],
-    tool_name: str = "command",
-    check: bool = True
-) -> CommandResult:
-    """Run external command with proper error handling.
-
-    This wraps the existing shell_do() pattern with structured return.
-    """
-    logger.debug(f"Running: {' '.join(command)}")
-
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True
-    )
-
-    cmd_result = CommandResult(
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr
-    )
-
-    if check and result.returncode != 0:
-        raise ExternalToolError(
-            tool=tool_name,
-            command=' '.join(command),
-            returncode=result.returncode,
-            stderr=result.stderr
-        )
-
-    return cmd_result
-
-def run_plink2_make_pgen(
-    input_path: Path,
-    output_path: Path,
-    input_format: str = "pfile",
-    extra_args: list[str] = None
-) -> CommandResult:
-    """Run PLINK2 --make-pgen with required psam column preservation."""
-    input_flag = "--pfile" if input_format == "pfile" else "--bfile"
-    command = [
-        str(get_plink2()),
-        input_flag, str(input_path),
-        "--make-pgen", PLINK2_PSAM_COLS,
-        "--out", str(output_path)
-    ]
-    if extra_args:
-        # Insert extra args before --out
-        command = command[:-2] + extra_args + command[-2:]
-    return run_command(command, tool_name="plink2")
-
-@contextmanager
-def temp_files(*paths: Path):
-    """Context manager for temporary file cleanup."""
-    try:
-        yield
-    finally:
-        for path in paths:
-            for ext in [".bed", ".bim", ".fam", ".pgen", ".pvar", ".psam", ".log"]:
-                f = path.with_suffix(ext)
-                if f.exists():
-                    f.unlink()
-```
-
-### Success Criteria
-- [ ] `from genotools.core import GenotypeData, setup_logging` works
-- [ ] Import time < 100ms (no side effects)
-- [ ] `mypy genotools/core/ --strict` passes
-- [ ] Unit tests for GenotypeData format detection and conversion
+**Gating.** 6 new parser tests plus one CLI-level regression test in
+`test_cli_errors.py` that drives all three flags through a subprocess and
+asserts exit 1, no traceback, and the specific message. All were **revert-checked
+in both directions**: reverting the `__post_init__` rejection fails 6, and
+reverting the `main()` change fails the regression test on the traceback
+assertion.
 
 ---
 
-## Phase 2: QC Migration
+## Remaining work (tracked, not yet done)
+
+Priority order for making the refactor mergeable to `main`:
+
+0. ✅ **Logging / pipeline-visibility redesign** — DONE in **round 7** (see above).
+   `RunLog` consolidated writer (banner → per-step sections with structured
+   summary + inlined raw PLINK → run summary table); executor harvests PLINK's
+   native `.log` for every invocation; per-step raw `{out}_{step}.log` files that
+   persist regardless of `--full_output`; `cleaned_logs.log` deleted; `print`/
+   `warnings.warn` unified into a curated console + file logging stream; re-run
+   guard decoupled so `validate_input` logs into the consolidated log.
+   `tests/regression/test_logging.py` rewritten to lock the new contract.
+
+1. ✅ **Prove parity on real data** — DONE (rounds 7-8). On a 10k GP2 r12 subset,
+   `--ancestry --all-sample --all-variant` passes all 20 checks against 1.3.6:
+   ancestry labels/counts/accuracy, all 99 QC `pruned_count`s, 412 pruned samples
+   across 3 steps, 52 related pairs, step pass/fail across 11 groups, and
+   identical IDs + genotypes for every group. Round 8 added the duplicate branch
+   on a purpose-built subset (see above). **Parity is a differential test, not a
+   correctness test** — a bug faithfully carried forward reads as PASS, and both
+   round-8 skip bugs were found by running the real CLI, not by the suite.
+   (Harness extended in round 2:
+   multi-word QC steps, `--all_sample --all_variant`, and GWAS+lambda. Per
+   decision B above, real-cohort GWAS per-variant p-values will differ slightly
+   from the old baseline *by design* — PCA now excludes MHC/high-LD regions — so
+   GWAS parity is asserted at the tested-variant-set + lambda level, not
+   per-variant. QC and full-pipeline parity remain exact.)
+2. ✅ **Wire structured logging** — DONE in round 2 (see above).
+3. ✅ **Restore GWAS/consolidated log capture** (1d) — DONE in round 2 via the
+   structured-file-handler approach (see above).
+4. ✅ **Add CI** — DONE in round 2 (`.github/workflows/ci.yml`): unit+regression
+   job (auto-downloads PLINK/PLINK2) + parity job (builds `.venv-stable`).
+5. ✅ **Declare `psutil`** — DONE in round 2.
+6. ✅ **Decouple from legacy** — DONE in round 5 (see above). New code
+   (`cli`/`core`/`qc`/`gwas` + new `ancestry` package) now imports **zero**
+   top-level legacy modules; the `utils.py` imports and the `ancestry.py`
+   importlib hack are gone, and `genotools-new`'s ancestry path is fully
+   standalone. **Round 6 (see above)** then flipped the default engine to the new
+   `AncestryModel`, deleted `ancestry/legacy.py`/`gwas.py`, golden-converted the
+   ancestry differential tests, and re-implemented the round-5-deferred
+   `upfront_check` data-driven step auto-skips in `core/validation.py`. Remaining
+   legacy files (`utils.py`, `imputation.py`, `container/`) retained for Phase 5/6.
+7. ✅ **Retire dead abstractions** — DONE in round 4 (PR #248): removed
+   `QCPipeline`/`QCResult`/`QCStepProtocol` and the unadopted `ReferencePanel`
+   module. `ancestry/results.py` was found to be live (not removed).
+   `container/` intentionally **retained** as a historical reference (not deleted).
+8. ✅ **GWAS arg parity** — DONE in round 3 (see above). `n_pcs`, `--covars`,
+   and `--covar-names` now reach the assoc step; parity harness guards both.
+9. **Tier 2 — parallelize per-ancestry groups** (perf): process pool over the
+   `runner.py:337-354` loop; per-group log files; `--threads` cap. Cheap now that
+   steps are pure functions.
+10. **Tier 3 — automatic ancestry PCA cache** keyed on `(ref_panel, common_snps)`;
+    remove redundant UMAP-for-plotting refit; vectorize `_predict_admixed`.
+11. **Skips are decided before the chain runs** — `_skip_reasons` reads the psam
+    at the start, so a precondition broken *by* an earlier prune still fails
+    inside the step (55 samples, callrate drops 10, `--indep-pairwise` gets 45).
+    Applies to all three per-dataset checks. Not a regression — 1.x's guard never
+    fired at all — and the step's own error is the backstop. Fixing it properly
+    means re-deciding between steps.
+12. **No plink2 provenance in the run log** — `dependencies.__check_package`
+    resolves only from `$GENOTOOLS_DEP_DIR`/`~/.genotools/misc/executables/`,
+    downloading a pinned build if absent, and never consults `PATH`. Good for
+    reproducibility, but nothing records *which* plink2 produced a result, and a
+    dev box commonly has a newer one on `PATH` that the pipeline ignores. Log the
+    resolved path + `--version` into the run log.
+13. **Palindromic SNPs not excluded in ancestry matching** — a faithful 1.x port
+    and a real issue, not a 2.0.0 blocker. Related:
+    `ancestry/preprocessing.py:53`'s `drop_duplicates(subset=["chr","pos"])`
+    keeps the first row, so row order decides at multi-allelic and palindromic
+    positions. `test_get_common_snps_matches_legacy` asserts byte-identical
+    output against the legacy function but passes the same bfile as both inputs,
+    so the ambiguous-ordering path is barely exercised.
+14. **No provenance on a trained model** — `metadata.json` records
+    hyperparameters but not the library versions that produced the fit. A model
+    trained under `umap_learn==0.5.3` and loaded under a newer umap will
+    unpickle *successfully* and yield subtly different embeddings: wrong
+    ancestry calls, no error. Add a `versions` block (umap, sklearn, xgboost,
+    numpy, pandas, genotools) and check it in `AncestryModel.load`. This is the
+    prerequisite for unpinning umap (see below) — same "record what produced
+    this result" gap as item 12.
+15. **Unpin `umap_learn==0.5.3`** — it works under pandas 3 today, but needs
+    `pkg_resources` (which setuptools is removing) and its numba floor caps
+    numpy. UMAP output feeds the classifier, so this can shift ancestry labels:
+    do it after item 14, retrain, re-run the `ancestry` parity scenario, and
+    document the retrain requirement in `MIGRATION_2.0.md`.
+16. **Dev/CI dependency drift** — deps float, so CI resolves newest and is the
+    de-facto canary (it caught round 9's break). The gap was reproduction, now
+    documented in `TESTING.md` §2. Open question: keep floating and keep the
+    canary, or add upper bounds and lose the signal.
+17. ✅ **Revert-check audit of the round-7 tests** — DONE in **round 10**.
+    Four round-7 behaviors were mutation-tested at their call sites; three
+    gated, one did not. See round 10 above. The audit was a spot check of the
+    highest-risk behaviors, not an exhaustive sweep of every round-7 test.
+18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
+    RESOLVED in **round 10**: they now fail loudly. See round 10 above.
 
-### Goal
-Replace mutable SampleQC/VariantQC classes with pure functions composed into a pipeline.
-
-### Issues Resolved
-| ID | Issue | Resolution |
-|----|-------|------------|
-| A1 | Mutable state (complete) | Steps are pure functions |
-| A2 | Shared execution model (QC part) | QC uses step composition pattern |
-| M1 | Magic values (QC part) | qc/config.py with documented defaults |
-| M2 | Duplicated logic | Extracted to step protocol |
-| D1 | Type hints (QC part) | Full type hints on all steps |
-
-### Deliverables
-
-#### 2.1 `qc/results.py`
-```python
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
-from ..core.genotypes import GenotypeData
-
-@dataclass(frozen=True)
-class FilterResult:
-    """Result of a single QC step."""
-    output: GenotypeData
-    samples_removed: int
-    variants_removed: int
-    metrics: dict[str, Any] = field(default_factory=dict)
-    log: str = ""
-    pruned_samples_file: Optional[Path] = None  # Path to .outliers file
-
-    def to_dict(self) -> dict:
-        """Convert to legacy dictionary format for backward compatibility.
-
-        Returns the standard format:
-        {
-            'pass': bool,
-            'step': str,
-            'metrics': {'outlier_count': int, ...},
-            'output': {'pruned_samples': str, 'plink_out': str}
-        }
-        """
-        return {
-            'pass': True,  # If we have a result, it passed
-            'step': self.metrics.get('step_name', 'unknown'),
-            'metrics': {
-                'outlier_count': self.samples_removed + self.variants_removed,
-                **self.metrics
-            },
-            'output': {
-                'pruned_samples': str(self.pruned_samples_file) if self.pruned_samples_file else None,
-                'plink_out': str(self.output.path)
-            }
-        }
-
-@dataclass(frozen=True)
-class QCResult:
-    """Result of full QC pipeline."""
-    input: GenotypeData
-    output: GenotypeData
-    step_results: list[tuple[str, FilterResult]]
-
-    @property
-    def total_samples_removed(self) -> int:
-        return sum(r.samples_removed for _, r in self.step_results)
-
-    @property
-    def total_variants_removed(self) -> int:
-        return sum(r.variants_removed for _, r in self.step_results)
-
-    def to_legacy_dict(self) -> dict:
-        """Convert to legacy pass_fail dictionary format."""
-        return {
-            name: result.to_dict()
-            for name, result in self.step_results
-        }
-```
-
-#### 2.2 `qc/config.py`
-```python
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class CallrateConfig:
-    """Sample/variant call rate thresholds."""
-    sample_threshold: float = 0.02  # Remove samples with >2% missing
-    variant_threshold: float = 0.02  # Remove variants with >2% missing
-
-@dataclass(frozen=True)
-class SexConfig:
-    """Sex check configuration."""
-    female_max_f: float = 0.2   # F-statistic threshold for female
-    male_min_f: float = 0.8     # F-statistic threshold for male
-
-@dataclass(frozen=True)
-class HetConfig:
-    """Heterozygosity outlier detection."""
-    std_devs: float = 3.0  # Remove samples beyond N std devs
-
-@dataclass(frozen=True)
-class RelatedConfig:
-    """Relatedness/kinship thresholds."""
-    kinship_threshold: float = 0.0884  # KING kinship for 2nd degree
-    # Reference: Manichaikul et al. 2010
-    # 0.354 = MZ twin/duplicate
-    # 0.177 = 1st degree (parent-child, full sibling)
-    # 0.0884 = 2nd degree (half-sibling, avuncular, grandparent)
-    # 0.0442 = 3rd degree (first cousin)
-
-@dataclass(frozen=True)
-class HWEConfig:
-    """Hardy-Weinberg equilibrium pruning."""
-    p_value: float = 1e-6  # Remove variants with HWE p < threshold
-
-@dataclass(frozen=True)
-class LDConfig:
-    """LD pruning parameters."""
-    window_size: int = 1000    # Window size in kb
-    step_size: int = 10        # Step size in variants
-    r2_threshold: float = 0.02  # r² threshold
-
-# ... additional configs for each step
-```
-
-#### 2.3 `qc/steps/callrate.py` (example step)
-```python
-from pathlib import Path
-import logging
-import pandas as pd
-
-from ...core.genotypes import GenotypeData
-from ...core.executors import run_plink2_make_pgen, get_plink2, run_command
-from ..config import CallrateConfig
-from ..results import FilterResult
-
-logger = logging.getLogger(__name__)
-
-def filter_callrate(
-    data: GenotypeData,
-    config: CallrateConfig,
-    out_path: Path
-) -> FilterResult:
-    """
-    Filter samples and variants by call rate.
-
-    Removes:
-    - Samples with missingness > config.sample_threshold
-    - Variants with missingness > config.variant_threshold
-    """
-    step_name = "callrate_prune"
-    logger.info(f"Filtering by callrate (sample={config.sample_threshold}, variant={config.variant_threshold})")
-
-    # Use helper function that ensures psam-cols preservation
-    result = run_plink2_make_pgen(
-        input_path=data.path,
-        output_path=out_path,
-        input_format=data.format,
-        extra_args=[
-            "--mind", str(config.sample_threshold),
-            "--geno", str(config.variant_threshold),
-        ]
-    )
-
-    output = GenotypeData.from_path(out_path)
-
-    # Write outlier file in correct format (tab-separated, #FID header)
-    outliers_path = out_path.parent / f"{out_path.name}.outliers"
-    if (irem_file := out_path.with_suffix(".mindrem.id")).exists():
-        outliers = pd.read_csv(irem_file, sep=r"\s+", dtype=str)
-        outliers = outliers.rename(columns={"FID": "#FID"})
-        outliers.to_csv(outliers_path, sep="\t", header=True, index=False)
-    else:
-        outliers_path = None
-
-    return FilterResult(
-        output=output,
-        samples_removed=data.sample_count - output.sample_count,
-        variants_removed=data.variant_count - output.variant_count,
-        metrics={
-            "step_name": step_name,
-            "sample_threshold": config.sample_threshold,
-            "variant_threshold": config.variant_threshold,
-        },
-        log=result.stderr,
-        pruned_samples_file=outliers_path
-    )
-```
-
-#### 2.4 `qc/pipeline.py`
-```python
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Protocol, Any
-import logging
-
-from ..core.genotypes import GenotypeData
-from ..core.logging import current_step
-from ..core.exceptions import QCError
-from .results import FilterResult, QCResult
-
-logger = logging.getLogger(__name__)
-
-class QCStep(Protocol):
-    """Protocol for QC step functions."""
-    def __call__(
-        self,
-        data: GenotypeData,
-        config: Any,
-        out_path: Path
-    ) -> FilterResult:
-        ...
-
-@dataclass
-class QCPipeline:
-    """Composes QC steps into a pipeline."""
-    steps: list[tuple[str, QCStep, Any]]  # (name, function, config)
-    warn_only: bool = False  # If True, continue on step failure (--warn flag)
-
-    def run(self, data: GenotypeData, out_dir: Path) -> QCResult:
-        """Execute all steps sequentially."""
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        current = data
-        step_results: list[tuple[str, FilterResult]] = []
-
-        for name, step_fn, config in self.steps:
-            current_step.set(name)
-            logger.info(f"Starting step: {name}")
-
-            step_out = out_dir / name / "output"
-            step_out.parent.mkdir(exist_ok=True)
-
-            try:
-                result = step_fn(current, config, step_out)
-                step_results.append((name, result))
-
-                logger.info(
-                    f"Completed {name}: "
-                    f"-{result.samples_removed} samples, "
-                    f"-{result.variants_removed} variants"
-                )
-
-                current = result.output
-
-                if current.sample_count == 0:
-                    raise QCError(f"All samples removed at step: {name}")
-                if current.variant_count == 0:
-                    raise QCError(f"All variants removed at step: {name}")
-
-            except QCError as e:
-                if self.warn_only:
-                    logger.warning(f"Step {name} failed but continuing (--warn mode): {e}")
-                    # Skip this step, keep using previous data
-                    continue
-                else:
-                    raise
-
-        current_step.set("")
-
-        return QCResult(
-            input=data,
-            output=current,
-            step_results=step_results
-        )
-```
-
-### Success Criteria
-- [ ] Each step function works independently
-- [ ] `QCPipeline.run()` produces same output as old `SampleQC`/`VariantQC`
-- [ ] No mutable state in any QC code
-- [ ] All thresholds documented in config.py
-- [ ] `mypy genotools/qc/ --strict` passes
-
----
-
-## Phase 3: Ancestry Migration
-
-### Goal
-Replace current ancestry code with ML-pattern fit/predict interface.
-
-### Issues Resolved
-| ID | Issue | Resolution |
-|----|-------|------------|
-| A2 | Shared execution model (complete) | Ancestry uses fit/predict pattern |
-| M1 | Magic values (Ancestry part) | ancestry/config.py with documented defaults |
-| D1 | Type hints (Ancestry part) | Full type hints |
-
-### Deliverables
-
-#### 3.1 `ancestry/config.py`
-```python
-from dataclasses import dataclass
-from typing import Literal
-
-# CRITICAL: umap-learn must be pinned to 0.5.3 for model compatibility
-# See requirements.txt: umap-learn==0.5.3
-
-@dataclass(frozen=True)
-class PCAConfig:
-    """PCA configuration."""
-    n_components: int = 20
-    maf: float = 0.01
-    geno: float = 0.01
-    hwe: float = 5e-6
-
-@dataclass(frozen=True)
-class UMAPConfig:
-    """UMAP configuration.
-
-    Note: Requires umap-learn==0.5.3 for model compatibility.
-    """
-    n_neighbors: int = 15
-    min_dist: float = 0.1
-    n_components: int = 2
-    metric: str = "euclidean"
-
-@dataclass(frozen=True)
-class ClassifierConfig:
-    """XGBoost classifier configuration."""
-    n_estimators: int = 100
-    max_depth: int = 6
-    learning_rate: float = 0.1
-
-@dataclass(frozen=True)
-class AncestryConfig:
-    """Full ancestry prediction configuration."""
-    pca: PCAConfig = PCAConfig()
-    umap: UMAPConfig = UMAPConfig()
-    classifier: ClassifierConfig = ClassifierConfig()
-
-    # Supported ancestry labels (all 10 from current implementation)
-    labels: tuple[str, ...] = (
-        "AFR",  # African
-        "SAS",  # South Asian
-        "EAS",  # East Asian
-        "EUR",  # European
-        "AMR",  # American/Latino
-        "AJ",   # Ashkenazi Jewish
-        "CAS",  # Central Asian
-        "MDE",  # Middle Eastern
-        "FIN",  # Finnish
-        "AAC",  # African American
-    )
-```
-
-#### 3.2 `ancestry/results.py`
-```python
-from dataclasses import dataclass
-import pandas as pd
-
-@dataclass
-class AncestryPredictions:
-    """Ancestry prediction results."""
-    predictions: pd.DataFrame  # IID, predicted_ancestry, probabilities...
-
-    def get_ancestry(self, sample_id: str) -> str:
-        """Get predicted ancestry for a sample."""
-        ...
-
-    def filter_by_ancestry(self, ancestry: str) -> list[str]:
-        """Get sample IDs for a given ancestry."""
-        ...
-```
-
-#### 3.3 `ancestry/model.py`
-```python
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
-import pickle
-import logging
-
-from umap import UMAP
-from xgboost import XGBClassifier
-
-from ..core.genotypes import GenotypeData
-from ..core.exceptions import AncestryError
-from .config import AncestryConfig
-from .reference import ReferencePanel
-from .results import AncestryPredictions
-
-logger = logging.getLogger(__name__)
-
-@dataclass
-class AncestryModel:
-    """Ancestry prediction model with fit/predict interface."""
-    config: AncestryConfig = field(default_factory=AncestryConfig)
-    _reducer: Optional[UMAP] = field(default=None, repr=False)
-    _classifier: Optional[XGBClassifier] = field(default=None, repr=False)
-    _is_fitted: bool = field(default=False, repr=False)
-
-    def fit(self, reference: ReferencePanel) -> "AncestryModel":
-        """Fit model on reference panel."""
-        logger.info("Fitting ancestry model on reference panel")
-
-        # 1. Run PCA on reference
-        pca_result = self._run_pca(reference)
-
-        # 2. Fit UMAP on PCA output
-        self._reducer = UMAP(
-            n_neighbors=self.config.umap.n_neighbors,
-            min_dist=self.config.umap.min_dist,
-            n_components=self.config.umap.n_components,
-        )
-        umap_embedding = self._reducer.fit_transform(pca_result)
-
-        # 3. Fit XGBoost classifier
-        self._classifier = XGBClassifier(
-            n_estimators=self.config.classifier.n_estimators,
-            max_depth=self.config.classifier.max_depth,
-            learning_rate=self.config.classifier.learning_rate,
-        )
-        self._classifier.fit(umap_embedding, reference.labels)
-
-        self._is_fitted = True
-        logger.info("Ancestry model fitted successfully")
-        return self
-
-    def predict(self, data: GenotypeData) -> AncestryPredictions:
-        """Predict ancestry for samples."""
-        if not self._is_fitted:
-            raise AncestryError("Model must be fitted before prediction")
-
-        logger.info(f"Predicting ancestry for {data.sample_count} samples")
-        # ... implementation
-        ...
-
-    def save(self, path: Path) -> None:
-        """Serialize fitted model."""
-        if not self._is_fitted:
-            raise AncestryError("Cannot save unfitted model")
-        with open(path, 'wb') as f:
-            pickle.dump(self, f)
-
-    @classmethod
-    def load(cls, path: Path) -> "AncestryModel":
-        """Load fitted model."""
-        with open(path, 'rb') as f:
-            model = pickle.load(f)
-        if not isinstance(model, cls):
-            raise AncestryError(f"Invalid model file: {path}")
-        return model
-```
-
-#### 3.4 `ancestry/reference.py`
-```python
-from dataclasses import dataclass
-from pathlib import Path
-import pandas as pd
-
-from ..core.genotypes import GenotypeData
-
-@dataclass
-class ReferencePanel:
-    """Reference panel for ancestry prediction."""
-    genotypes: GenotypeData
-    labels: pd.Series  # Sample ID -> ancestry label
-
-    @classmethod
-    def load(cls, geno_path: Path, labels_path: Path) -> "ReferencePanel":
-        """Load reference panel from files."""
-        ...
-```
-
-#### 3.5 Container/Cloud Support
-
-The current implementation supports multiple execution modes that must be preserved:
-
-```python
-from dataclasses import dataclass
-from typing import Literal, Optional
-from enum import Enum
-
-class InferenceMode(Enum):
-    """Ancestry inference execution modes."""
-    LOCAL = "local"           # Local Python execution
-    CONTAINER = "container"   # Docker container
-    SINGULARITY = "singularity"  # Singularity container
-    CLOUD = "cloud"           # Google Cloud AI Platform
-
-@dataclass(frozen=True)
-class InferenceConfig:
-    """Configuration for ancestry inference execution."""
-    mode: InferenceMode = InferenceMode.LOCAL
-    container_image: Optional[str] = None
-    cloud_project: Optional[str] = None
-    cloud_region: str = "us-central1"
-```
-
-CLI flags to support:
-- `--container` → Docker execution
-- `--singularity` → Singularity execution
-- `--cloud` → Google Cloud AI Platform
-
-### Success Criteria
-- [ ] `AncestryModel.fit()` works with reference panel
-- [ ] `AncestryModel.predict()` produces same results as old code
-- [ ] Model can be saved/loaded
-- [ ] All ancestry parameters documented in config.py
-- [ ] Container and cloud modes work as before
-- [ ] `mypy genotools/ancestry/ --strict` passes
-
----
-
-## Method Mapping (Old → New)
-
-This table shows how current methods map to new functions.
-
-### SampleQC Methods
-
-| Current Method | New Function | Module |
-|---------------|--------------|--------|
-| `SampleQC.run_callrate_prune()` | `filter_callrate()` | `qc/steps/callrate.py` |
-| `SampleQC.run_sex_prune()` | `filter_sex()` | `qc/steps/sex.py` |
-| `SampleQC.run_het_prune()` | `filter_heterozygosity()` | `qc/steps/heterozygosity.py` |
-| `SampleQC.run_related_prune()` | `filter_relatedness()` | `qc/steps/relatedness.py` |
-| `SampleQC.run_confirming_kinship()` | `verify_kinship()` | `qc/steps/relatedness.py` |
-
-### VariantQC Methods
-
-| Current Method | New Function | Module |
-|---------------|--------------|--------|
-| `VariantQC.run_geno_prune()` | `filter_variant_missingness()` | `qc/steps/variant_missingness.py` |
-| `VariantQC.run_case_control_prune()` | `filter_case_control()` | `qc/steps/case_control.py` |
-| `VariantQC.run_haplotype_prune()` | `filter_haplotype()` | `qc/steps/haplotype.py` |
-| `VariantQC.run_hwe_prune()` | `filter_hwe()` | `qc/steps/hwe.py` |
-| `VariantQC.run_ld_prune()` | `prune_ld()` | `qc/steps/ld_prune.py` |
-
-### Ancestry Methods
-
-| Current Method | New Function | Module |
-|---------------|--------------|--------|
-| `Ancestry.predict()` | `AncestryModel.predict()` | `ancestry/model.py` |
-| `Ancestry.train_umap_classifier()` | `AncestryModel.fit()` | `ancestry/model.py` |
-| PCA calculation | `run_pca()` | `ancestry/reducers/pca.py` |
-| UMAP transformation | `UMAPReducer.fit_transform()` | `ancestry/reducers/umap.py` |
-
----
-
-## Phase 4: CLI Migration
-
-### Goal
-Replace monolithic `__main__.py` with clean CLI layer.
-
-### Issues Resolved
-| ID | Issue | Resolution |
-|----|-------|------------|
-| A3 | No separation of concerns | CLI → Runner → Domain layers |
-| M3 | Monolithic main | Split into parser.py, runner.py, output.py |
-| C1 | Boolean string parsing | argparse action='store_true' |
-
-### Deliverables
-
-#### 4.1 `cli/parser.py`
-```python
-import argparse
-from pathlib import Path
-from typing import Optional
-from dataclasses import dataclass
-
-@dataclass
-class PipelineArgs:
-    """Validated pipeline arguments."""
-    geno_path: Path
-    out_dir: Path
-
-    # QC options
-    run_callrate: bool = True
-    run_sex: bool = True
-    run_het: bool = True
-    run_related: bool = True
-
-    # Ancestry options
-    run_ancestry: bool = False
-    ref_panel: Optional[Path] = None
-
-    # GWAS options
-    run_gwas: bool = False
-    pheno_file: Optional[Path] = None
-
-    # Error handling
-    warn_only: bool = False  # --warn flag: continue on step failure
-
-    # Inference mode
-    use_container: bool = False
-    use_singularity: bool = False
-    use_cloud: bool = False
-
-def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser with proper types."""
-    parser = argparse.ArgumentParser(
-        prog="genotools",
-        description="Genotype QC and ancestry prediction pipeline"
-    )
-
-    parser.add_argument("--geno", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-
-    # Boolean flags - no more string parsing!
-    parser.add_argument("--skip-callrate", action="store_true")
-    parser.add_argument("--skip-sex", action="store_true")
-    # ... other skip flags
-
-    # Error handling - IMPORTANT: preserve --warn behavior
-    parser.add_argument("--warn", action="store_true",
-                        help="Continue pipeline on step failure instead of stopping")
-
-    # Inference mode flags
-    parser.add_argument("--container", action="store_true",
-                        help="Run ancestry inference in Docker container")
-    parser.add_argument("--singularity", action="store_true",
-                        help="Run ancestry inference in Singularity container")
-    parser.add_argument("--cloud", action="store_true",
-                        help="Run ancestry inference on Google Cloud AI Platform")
-
-    return parser
-
-def parse_args(args: Optional[list[str]] = None) -> PipelineArgs:
-    """Parse and validate arguments."""
-    parser = create_parser()
-    ns = parser.parse_args(args)
-    return PipelineArgs(
-        geno_path=ns.geno,
-        out_dir=ns.out,
-        run_callrate=not ns.skip_callrate,
-        warn_only=ns.warn,
-        use_container=ns.container,
-        use_singularity=ns.singularity,
-        use_cloud=ns.cloud,
-        # ...
-    )
-```
-
-#### 4.2 `cli/runner.py`
-```python
-from pathlib import Path
-import logging
-
-from ..core.genotypes import GenotypeData
-from ..core.logging import setup_logging
-from ..core.exceptions import QCError, AncestryError
-from ..qc.pipeline import QCPipeline
-from ..qc.steps import filter_callrate, filter_sex, ...
-from ..qc.config import CallrateConfig, SexConfig, ...
-from ..ancestry.model import AncestryModel
-from ..ancestry.config import InferenceMode
-from .parser import PipelineArgs
-from .output import write_results
-
-logger = logging.getLogger(__name__)
-
-def run_pipeline(args: PipelineArgs) -> dict:
-    """Main pipeline orchestration."""
-    setup_logging(log_file=args.out_dir / "genotools.log")
-
-    # Load data
-    data = GenotypeData.from_path(args.geno_path)
-    logger.info(f"Loaded {data.sample_count} samples, {data.variant_count} variants")
-
-    results = {}
-    pass_fail = {}  # Track step success/failure
-
-    # Build and run QC pipeline
-    if any([args.run_callrate, args.run_sex, args.run_het, args.run_related]):
-        steps = []
-        if args.run_callrate:
-            steps.append(("callrate", filter_callrate, CallrateConfig()))
-        if args.run_sex:
-            steps.append(("sex", filter_sex, SexConfig()))
-        # ... etc
-
-        qc_pipeline = QCPipeline(steps=steps, warn_only=args.warn_only)
-        try:
-            qc_result = qc_pipeline.run(data, args.out_dir / "qc")
-            results["qc"] = qc_result
-            data = qc_result.output
-            pass_fail["qc"] = {"status": True}
-        except QCError as e:
-            logger.error(f"QC failed: {e}")
-            pass_fail["qc"] = {"status": False, "error": str(e)}
-            if not args.warn_only:
-                raise
-
-    # Run ancestry if requested
-    if args.run_ancestry:
-        # Determine inference mode
-        if args.use_container:
-            mode = InferenceMode.CONTAINER
-        elif args.use_singularity:
-            mode = InferenceMode.SINGULARITY
-        elif args.use_cloud:
-            mode = InferenceMode.CLOUD
-        else:
-            mode = InferenceMode.LOCAL
-
-        try:
-            model = AncestryModel.load(args.ref_panel)
-            ancestry_result = model.predict(data, mode=mode)
-            results["ancestry"] = ancestry_result
-            pass_fail["ancestry"] = {"status": True}
-        except AncestryError as e:
-            logger.error(f"Ancestry prediction failed: {e}")
-            pass_fail["ancestry"] = {"status": False, "error": str(e)}
-            if not args.warn_only:
-                raise
-
-    results["pass_fail"] = pass_fail
-
-    # Write outputs
-    write_results(results, args.out_dir)
-
-    return results
-```
-
-#### 4.3 `cli/output.py`
-```python
-from pathlib import Path
-import json
-from dataclasses import asdict
-from typing import Any
-
-from ..qc.results import QCResult
-from ..ancestry.results import AncestryPredictions
-
-def write_results(results: dict, out_dir: Path) -> None:
-    """Write pipeline results to files.
-
-    Output JSON structure must match current format:
-    {
-        "ancestry_counts": {"EUR": 100, "AFR": 50, ...},
-        "ancestry_labels": [{"#FID": "...", "IID": "...", "label": "EUR"}, ...],
-        "QC": [
-            {"step": "callrate_prune", "pruned_count": 5, "metric": "outlier_count", ...}
-        ],
-        "GWAS": [
-            {"value": 1.02, "metric": "lambda", "ancestry": "EUR"}
-        ],
-        "pruned_samples": [...],
-        "related_samples": [...]
-    }
-    """
-    output = {}
-
-    # QC results
-    if "qc" in results:
-        qc_result: QCResult = results["qc"]
-        output["QC"] = [
-            {
-                "step": name,
-                "pruned_count": r.samples_removed + r.variants_removed,
-                "metric": "outlier_count",
-                **r.metrics
-            }
-            for name, r in qc_result.step_results
-        ]
-        output["pruned_samples"] = _collect_pruned_samples(qc_result)
-
-    # Ancestry results
-    if "ancestry" in results:
-        ancestry_result: AncestryPredictions = results["ancestry"]
-        output["ancestry_counts"] = ancestry_result.predictions["predicted_ancestry"].value_counts().to_dict()
-        output["ancestry_labels"] = ancestry_result.predictions[["#FID", "IID", "predicted_ancestry"]].rename(
-            columns={"predicted_ancestry": "label"}
-        ).to_dict(orient="records")
-
-    # GWAS results
-    if "gwas" in results:
-        output["GWAS"] = results["gwas"]
-
-    # Write JSON output
-    with open(out_dir / "results.json", "w") as f:
-        json.dump(output, f, indent=2)
-
-def _collect_pruned_samples(qc_result: QCResult) -> list[dict[str, str]]:
-    """Collect all pruned samples across QC steps."""
-    # Implementation reads from each step's pruned_samples file
-    ...
-```
-
-#### 4.4 Updated `__main__.py`
-```python
-"""GenoTools CLI entry point."""
-from .cli.parser import parse_args
-from .cli.runner import run_pipeline
-
-def main():
-    args = parse_args()
-    run_pipeline(args)
-
-if __name__ == "__main__":
-    main()
-```
-
-### Success Criteria
-- [ ] CLI works identically to old interface
-- [ ] No boolean string parsing
-- [ ] Clean separation: parser → runner → domain
-- [ ] `python -m genotools --help` shows proper help
-- [ ] Easy to add new CLI options
-- [ ] `--warn` flag continues pipeline on step failure
-- [ ] `--container`, `--singularity`, `--cloud` flags work
-- [ ] Output JSON matches expected structure (see `cli/output.py`)
-- [ ] `pass_fail` dict available for step status inspection
-
----
-
-## Phase 5: GWAS & Cleanup
-
-### Goal
-Migrate GWAS module and remove deprecated code.
-
-### Deliverables
-
-#### 5.1 GWAS Migration
-- Apply same patterns as QC (pure functions, typed configs)
-- Determine if step-based or different pattern fits better
-
-#### 5.2 Deprecation
-1. Add deprecation warnings to old modules
-2. Update all documentation
-3. Update examples/tests to use new API
-
-#### 5.3 Removal
-1. Remove old `qc.py`, `ancestry.py`, `pipeline.py`
-2. Remove `REFACTOR.md` and `REFACTOR_ISSUES.md`
-3. Final cleanup pass
-
-### Success Criteria
-- [ ] All tests pass with new implementation
-- [ ] No references to old modules
-- [ ] Documentation updated
-- [ ] Clean git history with squashed commits per phase
-
----
-
-## Open Questions
-
-1. **Backwards compatibility** - Should we maintain the old API surface with deprecation warnings?
-2. **Config file format** - YAML, TOML, or Python dataclasses only?
-3. **Reference panel packaging** - Bundle with package or download on demand?
-4. **GWAS pattern** - Same as QC (steps), or different (more statistical focus)?
-
----
-
-## Progress Tracking
-
-| Phase | Status | Issues Resolved |
-|-------|--------|-----------------|
-| 0: Regression Testing | Not Started | (enables validation) |
-| 1: Core Foundation | Not Started | A1, P1, R1, R2, R3, D1, D2, D3 |
-| 2: QC Migration | Not Started | A1, A2, M1, M2, D1 |
-| 3: Ancestry Migration | Not Started | A2, M1, D1 |
-| 4: CLI Migration | Not Started | A3, M3, C1 |
-| 5: GWAS & Cleanup | Not Started | - |

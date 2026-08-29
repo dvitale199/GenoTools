@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "step": "case_control_missingness_prune",
+  "metrics": {
+    "mis_removed_count": 0
+  },
+  "output": {
+    "plink_out": "tests/regression/golden/case_control/output"
+  }
+}

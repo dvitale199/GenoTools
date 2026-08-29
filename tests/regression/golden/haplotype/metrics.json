@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "step": "haplotype_prune",
+  "metrics": {
+    "haplotype_removed_count": 12
+  },
+  "output": {
+    "plink_out": "tests/regression/golden/haplotype/output"
+  }
+}

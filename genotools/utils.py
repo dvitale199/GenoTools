@@ -125,7 +125,7 @@ def upfront_check(geno_path, args):
         warnings.warn(f'{geno_path} exists but it is in PLINK1.9 binary format. Converting to PLINK2 binaries...', stacklevel=2)
         bfiles_to_pfiles(bfile_path=geno_path)
 
-    sam = pd.read_csv(f'{geno_path}.psam', sep = '\s+')
+    sam = pd.read_csv(f'{geno_path}.psam', sep = r'\s+')
     var = pd.read_csv(f'{geno_path}.pvar', delimiter='\t', comment='#', header=None, usecols=range(5), names=['#CHROM', 'POS', 'ID', 'REF', 'ALT'], low_memory=False)
 
     if 'SEX' not in sam.columns:
@@ -322,9 +322,9 @@ def label_bim_with_genes(bim_file, gene_reference=None, locus_size=1000000):
         raise FileNotFoundError(f"{gene_reference} not found")
 
     # Load SNP data from bim file
-    snps = pd.read_table(bim_file, sep='\s+', header=None, names=['chr', 'snp_id', 'cm_pos', 'pos', 'a1', 'a2'], dtype={'chr': str})
+    snps = pd.read_table(bim_file, sep=r'\s+', header=None, names=['chr', 'snp_id', 'cm_pos', 'pos', 'a1', 'a2'], dtype={'chr': str})
     # Load gene information
-    glist = pd.read_table(gene_reference, sep='\s+', header=None, names=['chr', 'start', 'end', 'name'], dtype={'chr': str})
+    glist = pd.read_table(gene_reference, sep=r'\s+', header=None, names=['chr', 'start', 'end', 'name'], dtype={'chr': str})
 
     # convert glist chr X to 23, Y to 24, XY to 25
     glist.loc[glist.chr=='X', 'chr'] = '23'
@@ -503,8 +503,8 @@ def miss_rates(geno_path, out_path, max_threshold=0.05):
     # concat_logs(step, out_path, listOfFiles)
 
     # get average call rate
-    vmiss = pd.read_csv(f'{out_path}.vmiss', sep='\s+')
-    smiss = pd.read_csv(f'{out_path}.smiss', sep='\s+')
+    vmiss = pd.read_csv(f'{out_path}.vmiss', sep=r'\s+')
+    smiss = pd.read_csv(f'{out_path}.smiss', sep=r'\s+')
     avg_vmiss = vmiss.F_MISS.mean()
     avg_smiss = smiss.F_MISS.mean()
     # print(f'Average Missing Call Rate (lmiss): {avg_lmiss}')

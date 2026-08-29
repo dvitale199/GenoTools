@@ -1,0 +1,11 @@
+{
+  "pass": true,
+  "step": "callrate_prune",
+  "metrics": {
+    "outlier_count": 12
+  },
+  "output": {
+    "pruned_samples": "tests/regression/golden/callrate/output.outliers",
+    "plink_out": "tests/regression/golden/callrate/output"
+  }
+}

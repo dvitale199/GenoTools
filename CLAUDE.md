@@ -423,7 +423,6 @@ scikit-learn, xgboost     # ML models
 umap-learn==0.5.3         # Dimensionality reduction (pinned version)
 scipy, statsmodels        # Statistics
 matplotlib, seaborn       # Visualization
-google-cloud-aiplatform   # Cloud predictions
 ```
 
 ---
@@ -471,17 +470,16 @@ All processing uses PLINK2 pfiles. Conversion happens automatically at pipeline 
 - **Step 3**: XGBoost classification
 - **Supported labels**: AFR, SAS, EAS, EUR, AMR, AJ, CAS, MDE, FIN, AAC
 
-### Container Support
-```bash
-# Docker
-genotools --pfile input --out output --ancestry --container
+### Remote execution: not supported in 2.0
 
-# Singularity
-genotools --pfile input --out output --ancestry --singularity
+`--container`, `--singularity` and `--cloud` are **rejected with an error**.
+Ancestry prediction always runs locally, in process.
 
-# Google Cloud
-genotools --pfile input --out output --ancestry --cloud
-```
+`--container`/`--singularity` worked in 1.x but are tied to a Docker image whose
+`run.py` unpickles a 1.x `umap_linearsvc` model that 2.0 cannot load; restoring
+them requires republishing that image with a 2.0-format model. `--cloud` was
+never implemented in any version. See `MIGRATION_2.0.md` and REFACTOR.md
+round 10.
 
 ---
 
@@ -576,6 +574,50 @@ for step, status in out_dict['pass_fail'].items():
 ```bash
 cat output_all_logs.log      # Full PLINK output
 cat output_cleaned_logs.log  # Formatted summary
+```
+
+---
+
+## AI Communication Guidelines
+
+### Commit Messages
+
+When reaching a good checkpoint, provide a commit message following these rules:
+
+1. **Never include** `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>` or any co-author attribution
+2. Use conventional commit format when appropriate (feat:, fix:, refactor:, docs:, test:)
+3. First line should be concise (50 chars or less if possible)
+4. Include a blank line then detailed bullet points for complex changes
+
+**Example:**
+```
+refactor: migrate QC module to pure function architecture
+
+- Add typed config dataclasses (CallrateConfig, SexConfig, etc.)
+- Create pure functions for each QC step
+- Implement SampleQC and VariantQC wrapper classes
+- Add comprehensive unit tests (84 tests)
+- Maintain backward compatibility with legacy interface
+```
+
+### Pull Request Descriptions
+
+When asked for PR descriptions:
+
+1. **Always return in markdown format** so it can be copied directly to GitHub web interface
+2. **Never include** "Generated with Claude Code" or similar attribution text
+3. Use this structure:
+
+```markdown
+## Summary
+- Bullet point 1
+- Bullet point 2
+- Bullet point 3
+
+## Test plan
+- [ ] Test item 1
+- [ ] Test item 2
+- [ ] Integration testing notes
 ```
 
 ---

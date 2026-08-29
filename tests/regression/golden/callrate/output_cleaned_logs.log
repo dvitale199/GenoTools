@@ -1,0 +1,23 @@
+
+     ██████╗ ███████╗███╗  ██╗ █████╗ ████████╗ █████╗  █████╗ ██╗      ██████╗
+    ██╔════╝ ██╔════╝████╗ ██║██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║     ██╔════╝
+    ██║  ██╗ █████╗  ██╔██╗██║██║  ██║   ██║   ██║  ██║██║  ██║██║     ╚█████╗
+    ██║  ╚██╗██╔══╝  ██║╚████║██║  ██║   ██║   ██║  ██║██║  ██║██║      ╚═══██╗
+    ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
+    
+Log: tests/regression/golden/callrate/output.log
+Process: callrate_prune
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --mind 0.05
+  --out tests/regression/golden/callrate/output
+  --pfile tests/data/synthetic/genotools_test
+workspace.
+1 binary phenotype loaded (250 cases, 250 controls).
+12 samples removed due to missing genotype data (--mind).
+488 samples (244 females, 244 males; 488 founders) remaining after main
+filters.
+244 cases and 244 controls remaining after main filters.
+
+

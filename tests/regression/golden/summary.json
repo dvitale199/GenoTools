@@ -1,0 +1,110 @@
+{
+  "callrate": {
+    "pass": true,
+    "step": "callrate_prune",
+    "metrics": {
+      "outlier_count": 12
+    },
+    "output": {
+      "pruned_samples": "tests/regression/golden/callrate/output.outliers",
+      "plink_out": "tests/regression/golden/callrate/output"
+    }
+  },
+  "sex": {
+    "pass": true,
+    "step": "sex_prune",
+    "metrics": {
+      "outlier_count": 253
+    },
+    "output": {
+      "pruned_samples": "tests/regression/golden/sex/output.outliers",
+      "plink_out": "tests/regression/golden/sex/output"
+    }
+  },
+  "het": {
+    "pass": true,
+    "step": "het_prune",
+    "metrics": {
+      "outlier_count": 3
+    },
+    "output": {
+      "pruned_samples": "tests/regression/golden/het/output.outliers",
+      "plink_out": "tests/regression/golden/het/output"
+    }
+  },
+  "related": {
+    "pass": true,
+    "step": "related_prune",
+    "metrics": {
+      "related_count": 0,
+      "duplicated_count": 1
+    },
+    "output": {
+      "pruned_samples": "tests/regression/golden/related/output.pruned",
+      "related_samples": "tests/regression/golden/related/output_pairs.related",
+      "plink_out": "tests/regression/golden/related/output"
+    }
+  },
+  "geno": {
+    "pass": true,
+    "step": "geno_prune",
+    "metrics": {
+      "geno_removed_count": 225
+    },
+    "output": {
+      "plink_out": "tests/regression/golden/geno/output"
+    }
+  },
+  "hwe": {
+    "pass": true,
+    "step": "hwe_prune",
+    "metrics": {
+      "hwe_removed_count": 636
+    },
+    "output": {
+      "plink_out": "tests/regression/golden/hwe/output"
+    }
+  },
+  "case_control": {
+    "pass": true,
+    "step": "case_control_missingness_prune",
+    "metrics": {
+      "mis_removed_count": 0
+    },
+    "output": {
+      "plink_out": "tests/regression/golden/case_control/output"
+    }
+  },
+  "haplotype": {
+    "pass": true,
+    "step": "haplotype_prune",
+    "metrics": {
+      "haplotype_removed_count": 12
+    },
+    "output": {
+      "plink_out": "tests/regression/golden/haplotype/output"
+    }
+  },
+  "ld": {
+    "pass": true,
+    "step": "ld_prune",
+    "metrics": {
+      "ld_removed_count": 17690
+    },
+    "output": {
+      "plink_out": "tests/regression/golden/ld/output"
+    }
+  },
+  "all_sample": {
+    "pass": true,
+    "output": {
+      "plink_out": "tests/regression/golden/all_sample/output"
+    }
+  },
+  "all_variant": {
+    "pass": true,
+    "output": {
+      "plink_out": "tests/regression/golden/all_variant/output"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "pass": true,
+  "step": "sex_prune",
+  "metrics": {
+    "outlier_count": 253
+  },
+  "output": {
+    "pruned_samples": "tests/regression/golden/sex/output.outliers",
+    "plink_out": "tests/regression/golden/sex/output"
+  }
+}

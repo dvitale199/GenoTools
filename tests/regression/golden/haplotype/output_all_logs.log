@@ -1,0 +1,61 @@
+Log: tests/regression/golden/haplotype/output_hap_tmp.log
+Process: haplotype_prune
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/case_control/output
+  --maf 0.05
+  --out tests/regression/golden/haplotype/output_hap_tmp
+  --test-mishap
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MB RAM detected; reserving 128964 MB for main workspace.
+39639 variants loaded from .bim file.
+231 people (0 males, 231 females) loaded from .fam.
+231 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 231 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.990033.
+3655 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+35984 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+--test-mishap: 2881 loci checked (33103 skipped).
+Report written to tests/regression/golden/haplotype/output_hap_tmp.missing.hap
+.
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/haplotype/output.log
+Process: haplotype_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --bfile tests/regression/golden/case_control/output
+  --exclude tests/regression/golden/haplotype/output_hap_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/haplotype/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253359 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/case_control/output.fam.
+39639 variants loaded from tests/regression/golden/case_control/output.bim.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 39627 variants remaining.
+39627 variants remaining after main filters.
+Writing tests/regression/golden/haplotype/output.psam ... done.
+Writing tests/regression/golden/haplotype/output.pvar ... done.
+Writing tests/regression/golden/haplotype/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+

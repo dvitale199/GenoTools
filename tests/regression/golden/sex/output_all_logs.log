@@ -1,0 +1,105 @@
+Log: tests/regression/golden/sex/output_tmp1.log
+Process: sex_prune
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/callrate/output
+  --check-sex 0.25 0.75
+  --maf 0.05
+  --out tests/regression/golden/sex/output_tmp1
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MB RAM detected; reserving 128964 MB for main workspace.
+40500 variants loaded from .bim file.
+488 people (244 males, 244 females) loaded from .fam.
+488 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 488 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Warning: 42259 het. haploid genotypes present (see
+tests/regression/golden/sex/output_tmp1.hh ); many commands treat these as
+missing.
+Total genotyping rate is 0.989406.
+3388 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+37112 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 450 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+Report written to tests/regression/golden/sex/output_tmp1.sexcheck .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/sex/output_tmp2.log
+Process: sex_prune
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/callrate/output
+  --check-sex 0.25 0.75
+  --chr 23
+  --from-bp 2781479
+  --geno 0.05
+  --hwe 1E-5
+  --maf 0.05
+  --out tests/regression/golden/sex/output_tmp2
+  --to-bp 155701383
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MB RAM detected; reserving 128964 MB for main workspace.
+500 out of 40500 variants loaded from .bim file.
+488 people (244 males, 244 females) loaded from .fam.
+488 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 488 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Warning: 42259 het. haploid genotypes present (see
+tests/regression/golden/sex/output_tmp2.hh ); many commands treat these as
+missing.
+Total genotyping rate is 0.990762.
+0 variants removed due to missing genotype data (--geno).
+--hwe: 14 variants removed due to Hardy-Weinberg exact test.
+46 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+440 variants and 488 people pass filters and QC.
+Among remaining phenotypes, 244 are cases and 244 are controls.
+--check-sex: 440 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
+Report written to tests/regression/golden/sex/output_tmp2.sexcheck .
+
+End time: Fri Jan 16 00:07:27 2026
+
+Log: tests/regression/golden/sex/output.log
+Process: sex_prune
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/sex/output
+  --pfile tests/regression/golden/callrate/output
+  --remove tests/regression/golden/sex/output.outliers
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Fri Jan 16 00:07:27 2026
+
+Random number seed: 1768522047
+257929 MiB RAM detected, ~253386 available; reserving 128964 MiB for main
+workspace.
+Using up to 64 threads (change this with --threads).
+488 samples (244 females, 244 males; 488 founders) loaded from
+tests/regression/golden/callrate/output.psam.
+40500 variants loaded from tests/regression/golden/callrate/output.pvar.
+1 binary phenotype loaded (244 cases, 244 controls).
+--remove: 235 samples remaining.
+235 samples (235 females, 0 males; 235 founders) remaining after main filters.
+114 cases and 121 controls remaining after main filters.
+Writing tests/regression/golden/sex/output.psam ... done.
+Writing tests/regression/golden/sex/output.pvar ... done.
+Writing tests/regression/golden/sex/output.pgen ... done.
+
+End time: Fri Jan 16 00:07:27 2026
+
