@@ -78,11 +78,18 @@ jobs:
           python -c "from genotools.dependencies import check_plink, check_plink2; print(check_plink()); print(check_plink2())"
 
       - name: Fetch pre-refactor baseline ref
-        run: git fetch origin main:refs/remotes/origin/main
+        run: git fetch --tags --force origin
 
       - name: Build .venv-stable (pre-refactor baseline)
+        # Pinned to the v1.3.6 TAG, not origin/main: once this branch merges,
+        # origin/main IS 2.0, and the baseline would silently become the code
+        # under test -- every parity test would compare 2.0 against 2.0 and pass
+        # trivially, leaving a green check that verifies nothing. (The script's
+        # own pre-refactor guard only warns.) The v1.3.6 tag and the current
+        # origin/main have identical genotools/ trees, so this changes nothing
+        # today.
         # umap-learn==0.5.3 (old dep) needs Python <=3.11, matched by this job.
-        run: PYTHON=python bash tests/scripts/setup_stable_venv.sh origin/main
+        run: PYTHON=python bash tests/scripts/setup_stable_venv.sh v1.3.6
 
       - name: Run old-vs-new parity tests
         run: pytest tests/regression/test_parity.py -v
