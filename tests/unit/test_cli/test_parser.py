@@ -1136,3 +1136,33 @@ class TestDeprecatedFlagSpellings:
             logger.removeHandler(handler)
 
         assert any("--ref_panel is deprecated" in r.getMessage() for r in records)
+
+
+class TestInvocationRecorded:
+    """The report says what command produced it.
+
+    Recorded at the CLI boundary rather than read from ``sys.argv`` when the
+    report is written: a Python-API caller has no command line, and argv would
+    then name whatever process happened to be running.
+    """
+
+    BASE = ["--pfile", "/tmp/geno", "--out", "/tmp/out"]
+
+    def test_records_the_arguments_it_parsed(self) -> None:
+        args = parse_args(self.BASE + ["--het", "sd", "2"])
+        assert args.invocation == (
+            "genotools --pfile /tmp/geno --out /tmp/out --het sd 2"
+        )
+
+    def test_quotes_paths_containing_spaces(self) -> None:
+        """The line is meant to be copyable back into a shell, where an
+        unquoted path with a space silently becomes two arguments."""
+        args = parse_args(["--pfile", "/tmp/my geno", "--out", "/tmp/out"])
+        assert "'/tmp/my geno'" in args.invocation
+
+    def test_hand_built_args_record_nothing(self) -> None:
+        """No command line exists, and inventing one would be a lie."""
+        assert PipelineArgs(
+            input=InputArgs(pfile=Path("/tmp/geno")),
+            output=OutputArgs(out_path=Path("/tmp/out")),
+        ).invocation is None

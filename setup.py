@@ -14,11 +14,23 @@
 # ==============================================================================
 
 
+import re
+from pathlib import Path
+
 from setuptools import setup, find_packages
+
+# Parsed rather than imported: importing the package at build time would pull
+# in pandas and the rest of the runtime dependencies. genotools/__init__.py is
+# the single source of truth for the version.
+_VERSION = re.search(
+    r'^__version__ = ["\']([^"\']+)["\']',
+    Path("genotools/__init__.py").read_text(),
+    re.MULTILINE,
+).group(1)
 
 setup(
     name='the_real_genotools', 
-    version='2.0.1', 
+    version=_VERSION,
     packages=find_packages(exclude=["tests", "tests.*"]),
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',

@@ -22,6 +22,8 @@ legacy string-based boolean parsing with proper argparse actions.
 from __future__ import annotations
 
 import argparse
+import shlex
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Sequence
@@ -361,6 +363,10 @@ class PipelineArgs:
     variant_qc: VariantQCArgs = field(default_factory=VariantQCArgs)
     ancestry: AncestryArgs = field(default_factory=AncestryArgs)
     gwas: GWASArgs = field(default_factory=GWASArgs)
+    # The command line this run came from, recorded in the JSON report's
+    # "run_info". Set by parse_args; None for a hand-built PipelineArgs, where
+    # there is no command line to record and guessing one would be a lie.
+    invocation: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate arguments that span more than one group."""
@@ -1237,6 +1243,23 @@ def _warn_deprecated_flags(args: Optional[Sequence[str]] = None) -> None:
         )
 
 
+def _format_invocation(args: Optional[Sequence[str]]) -> str:
+    """Render the argument list as a re-runnable command line.
+
+    Recorded in the JSON report so a report says what produced it. Quoted with
+    shlex so a path containing a space comes back as one argument rather than
+    silently splitting if someone copies the line back into a shell.
+
+    Args:
+        args: The argument list parse_args was given, or None for sys.argv.
+
+    Returns:
+        The command line, starting with "genotools".
+    """
+    argv = list(args) if args is not None else sys.argv[1:]
+    return " ".join(["genotools"] + [shlex.quote(a) for a in argv])
+
+
 def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
     """Parse and validate command-line arguments.
 
@@ -1417,4 +1440,5 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         variant_qc=variant_qc_args,
         ancestry=ancestry_args,
         gwas=gwas_args,
+        invocation=_format_invocation(args),
     )

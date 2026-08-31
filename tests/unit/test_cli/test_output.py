@@ -26,6 +26,7 @@ import pytest
 from genotools.cli.output import (
     QCMetrics,
     GWASMetrics,
+    ParameterRecord,
     PipelineOutput,
     write_results,
     build_metrics_dataframe,
@@ -509,3 +510,97 @@ class TestSuccessSeparatesSkipFromFailure:
 
     def test_no_steps_is_success(self) -> None:
         assert PipelineOutput().success is True
+
+
+class TestParametersSection:
+    """The report records the settings a run used, not only its outcomes.
+
+    Before this section every one of the report's top-level keys was an outcome
+    - counts, labels, PCs, pass/fail - and not one was a threshold. That is
+    survivable while every group is cut by the same rule; ``--het sd`` resolves
+    to different bounds in every ancestry group, so two outlier_count values
+    in the same report stop being comparable and nothing in the file says why.
+    """
+
+    def test_absent_when_nothing_was_recorded(self) -> None:
+        """A report with no parameters must not grow an empty key: consumers
+        reading the pre-2.0 shape see no new section at all."""
+        assert "parameters" not in PipelineOutput().to_dict()
+
+    def test_long_shape_matches_the_qc_table(self) -> None:
+        """Long form, one scalar per row - steps take different settings, so a
+        wide table would be mostly empty and a new setting on one step would
+        add a column to every other step's row."""
+        output = PipelineOutput(
+            parameters=[
+                ParameterRecord("callrate_prune", "mind", 0.05, "AMR"),
+                ParameterRecord(
+                    "het_prune", "het_lower", -0.0157, "AMR", source="resolved"
+                ),
+            ]
+        )
+        params = output.to_dict()["parameters"]
+
+        assert set(params) == {"step", "parameter", "value", "ancestry", "source"}
+        assert params["step"] == {0: "callrate_prune", 1: "het_prune"}
+        assert params["value"] == {0: 0.05, 1: -0.0157}
+        assert params["ancestry"] == {0: "AMR", 1: "AMR"}
+
+    def test_source_separates_the_request_from_the_result(self) -> None:
+        """Neither half is recoverable from the other. ``--het sd 2`` is the
+        request; the bounds it became are what actually cut the samples, and a
+        report carrying only one cannot answer either question."""
+        output = PipelineOutput(
+            parameters=[
+                ParameterRecord("het_prune", "auto_sd", 2.0, "EUR"),
+                ParameterRecord(
+                    "het_prune", "het_upper", 0.0187, "EUR", source="resolved"
+                ),
+            ]
+        )
+        params = output.to_dict()["parameters"]
+
+        assert params["source"] == {0: "requested", 1: "resolved"}
+
+    def test_descriptive_values_stay_out_of_the_qc_table(self) -> None:
+        """The constraint the section exists to respect. Every value in the QC
+        table sits under a column named "pruned_count", so a mode name there
+        would read as a count."""
+        output = PipelineOutput(
+            qc_metrics=[QCMetrics(step="het_prune", count=8, metric="outlier_count")],
+            parameters=[
+                ParameterRecord("het_prune", "het_mode", "sd", source="resolved")
+            ],
+        )
+        result = output.to_dict()
+
+        assert all(
+            isinstance(v, int) for v in result["QC"]["pruned_count"].values()
+        )
+        assert "sd" in result["parameters"]["value"].values()
+
+    def test_serializes_to_json(self) -> None:
+        """Mixed value types in one column - float, bool, str, None - have to
+        survive json.dumps, which runs at the very end of a long pipeline."""
+        output = PipelineOutput(
+            parameters=[
+                ParameterRecord("het_prune", "auto_detect", True),
+                ParameterRecord("het_prune", "auto_sd", 3.0),
+                ParameterRecord("het_prune", "het_mode", "sd", source="resolved"),
+                ParameterRecord("assoc", "covariates.covar_path", None),
+            ]
+        )
+        assert json.loads(output.to_json())["parameters"]["value"]["0"] is True
+
+
+class TestRunInfo:
+    """The report says which build produced it, and from what command."""
+
+    def test_version_is_always_present(self) -> None:
+        from genotools import __version__
+
+        output = PipelineOutput(run_info={"version": __version__})
+        assert output.to_dict()["run_info"]["version"] == __version__
+
+    def test_absent_when_empty(self) -> None:
+        assert "run_info" not in PipelineOutput().to_dict()

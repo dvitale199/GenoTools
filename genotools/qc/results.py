@@ -91,7 +91,13 @@ class FilterResult:
         output: New GenotypeData pointing to filtered output files.
         samples_removed: Number of samples filtered out by this step.
         variants_removed: Number of variants filtered out by this step.
-        metrics: Step-specific metrics (e.g., thresholds used, statistics).
+        metrics: Step-specific counts, and only counts - the JSON report
+            renders each one as a row in a long (step, metric, pruned_count)
+            table. Descriptive or derived values go in ``parameters``.
+        parameters: Values the step *resolved* at runtime that the caller could
+            not know from the config alone - derived bounds, the mode actually
+            taken. Reported under the JSON "parameters" section with
+            source="resolved", never as a metric.
         log: PLINK/tool log output for debugging.
         pruned_samples_file: Path to .outliers file with filtered sample IDs,
             or None if no samples were filtered.
@@ -104,6 +110,7 @@ class FilterResult:
     samples_removed: int
     variants_removed: int
     metrics: dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     log: str = ""
     pruned_samples_file: Optional[Path] = None
     related_samples_file: Optional[Path] = None
@@ -154,5 +161,8 @@ class FilterResult:
             "reason": None,
             "step": self.step_name,
             "metrics": metrics_dict,
+            # Separate from metrics on purpose: these are descriptive, and the
+            # metrics table's value column means "how many were pruned".
+            "parameters": dict(self.parameters),
             "output": output_dict,
         }

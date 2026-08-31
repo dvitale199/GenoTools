@@ -18,7 +18,7 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pytest
 
@@ -326,6 +326,10 @@ class TestAssocStepPcaProducesRequestedPcs:
         )
         runner = PipelineRunner(args)
         runner._initialize_modules()
+        # _run_single_step records the step's parameters into state.
+        runner.state = PipelineState(
+            geno_path=local, out_path=tmp_path / "out", tmp_dir=None
+        )
 
         out_assoc = tmp_path / "out_assoc"
         result = runner._run_single_step(
@@ -1555,3 +1559,262 @@ class TestPerGroupHetConfig:
             )
         assert "no such ancestry group" not in caplog.text
 
+
+
+class _ParamStubResult:
+    """Stand-in for FilterResult that also carries resolved parameters."""
+
+    def __init__(self, out_path: str, step: str, parameters: Dict[str, Any]) -> None:
+        self.out_path = out_path
+        self.step = step
+        self.parameters = parameters
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "pass": True,
+            "step": self.step,
+            "metrics": {"outlier_count": 0},
+            "parameters": dict(self.parameters),
+            "output": {"plink_out": self.out_path},
+        }
+
+
+class TestParametersReachTheReport:
+    """The JSON report had no options tracking at all: every one of its 25
+    top-level keys was an outcome, and not one was a threshold, an invocation
+    or a version. The het grammar made that concrete - ``--het sd`` resolves to
+    different bounds per ancestry group, so two ``outlier_count`` rows in one
+    report are cut by different rules with nothing in the file saying so.
+
+    These drive the two run shapes, not ``_record_parameters`` directly: a
+    per-step thing has to be reachable from both ``_run_qc_only`` and
+    ``_run_with_ancestry``, and a test that drives the helper would pass with
+    either path unwired.
+    """
+
+    @staticmethod
+    def _stub_steps(runner, monkeypatch, resolved: Optional[Dict[str, Any]] = None):
+        """Replace the step functions so no PLINK is needed."""
+        runner._initialize_modules()
+
+        class _StubGenotypeData:
+            @staticmethod
+            def from_path(path):
+                return path
+
+        monkeypatch.setitem(runner._new_modules, "GenotypeData", _StubGenotypeData)
+
+        def make(step_name: str, params: Dict[str, Any]):
+            def fake(data, config, out_path):
+                _touch_pfiles(Path(out_path))
+                return _ParamStubResult(str(out_path), step_name, params)
+            return fake
+
+        monkeypatch.setitem(
+            runner._new_modules, "filter_callrate", make("callrate_prune", {})
+        )
+        monkeypatch.setitem(
+            runner._new_modules,
+            "filter_heterozygosity",
+            make("het_prune", resolved or {}),
+        )
+
+    def _flat_runner(self, tmp_path: Path, sample_qc: SampleQCArgs):
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        _psam_with(geno, 200)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+            sample_qc=sample_qc,
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        return runner, geno, out
+
+    @staticmethod
+    def _rows(runner) -> List[Dict[str, Any]]:
+        return [
+            {
+                "step": r.step,
+                "parameter": r.parameter,
+                "value": r.value,
+                "ancestry": r.ancestry,
+                "source": r.source,
+            }
+            for r in runner.state.parameters
+        ]
+
+    def test_flat_run_records_the_thresholds_it_used(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Revert check: drop the ``_record_parameters`` call from
+        ``_run_single_step``'s tail and this fails with an empty list."""
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_callrate=True, callrate_threshold=0.03)
+        )
+        self._stub_steps(runner, monkeypatch)
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_qc_only(["callrate"])
+
+        assert {
+            "step": "callrate_prune",
+            "parameter": "mind",
+            "value": 0.03,
+            "ancestry": "all",
+            "source": "requested",
+        } in self._rows(runner)
+
+    def test_ancestry_run_labels_every_row_with_its_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point of the section. A per-group setting is unreadable
+        unless the report says which group it applied to - and the ancestry
+        loop is a separate code path from the flat run, the trap --amr-het fell
+        into.
+        """
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        work = tmp_path / "tmpwork"
+        work.mkdir(exist_ok=True)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=False),
+            sample_qc=SampleQCArgs(
+                run_het=True,
+                het_lower=-0.2,
+                het_upper=0.2,
+                het_by_ancestry={"AMR": HetSpec(auto=True, sd=1.5)},
+            ),
+            ancestry=AncestryArgs(run_ancestry=True),
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(
+            geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
+        )
+        for label in ("AMR", "EUR"):
+            # pfiles as well as the .psam: the group's data is what the step
+            # actually reads, and warn_only turns a missing one into a skip.
+            _touch_pfiles(work / f"out_ancestry_{label}")
+            _psam_with(work / f"out_ancestry_{label}", 200)
+        self._stub_steps(runner, monkeypatch)
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": ["AMR", "EUR"]}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_with_ancestry(["het"])
+
+        by_group = {
+            (r["ancestry"], r["parameter"]): r["value"]
+            for r in self._rows(runner)
+            if r["source"] == "requested"
+        }
+        assert by_group[("AMR", "auto_detect")] is True
+        assert by_group[("AMR", "auto_sd")] == 1.5
+        assert by_group[("EUR", "auto_detect")] is False
+        assert (by_group[("EUR", "f_lower")], by_group[("EUR", "f_upper")]) == (
+            -0.2,
+            0.2,
+        )
+
+    def test_derived_bounds_are_recorded_as_resolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``--het sd 2`` is the request; the bounds it became are what
+        actually cut the samples, and only the step knows them.
+
+        Revert check: stop passing ``parameters=`` in ``filter_heterozygosity``
+        and every "resolved" row disappears.
+        """
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_auto=True, het_auto_sd=2.0)
+        )
+        self._stub_steps(
+            runner,
+            monkeypatch,
+            resolved={
+                "het_mode": "sd",
+                "het_statistic": "F",
+                "het_sd": 2.0,
+                "het_lower": -0.0157,
+                "het_upper": 0.0187,
+            },
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_qc_only(["het"])
+        rows = self._rows(runner)
+
+        resolved = {
+            r["parameter"]: r["value"] for r in rows if r["source"] == "resolved"
+        }
+        assert resolved["het_mode"] == "sd"
+        assert resolved["het_lower"] == -0.0157
+        # The request survives alongside it: the multiplier is not recoverable
+        # from the bounds, and the bounds are not predictable from the
+        # multiplier.
+        requested = {
+            r["parameter"]: r["value"] for r in rows if r["source"] == "requested"
+        }
+        assert requested["auto_sd"] == 2.0
+
+    def test_records_under_the_reported_step_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """"het_prune", not "het" - so the parameters section joins the QC
+        table on ``step`` rather than needing a lookup nobody will write."""
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_lower=-0.1, het_upper=0.1)
+        )
+        self._stub_steps(runner, monkeypatch)
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_qc_only(["het"])
+
+        assert {r["step"] for r in self._rows(runner)} == {"het_prune"}
+
+
+class TestFlattenConfig:
+    """Nested configs still produce one scalar per row."""
+
+    def test_flat_config_is_passed_through(self) -> None:
+        from genotools.cli.runner import _flatten_config
+        from genotools.qc.config import CallrateConfig
+
+        assert _flatten_config(CallrateConfig(mind=0.02)) == {"mind": 0.02}
+
+    def test_nested_config_flattens_to_dotted_keys(self) -> None:
+        """AssocConfig holds PCA, GWAS and covariate configs inside itself. A
+        long table has one scalar per row, so a nested member has to be
+        flattened rather than dropped or dumped as a dict."""
+        from genotools.cli.runner import _flatten_config
+        from genotools.gwas.config import AssocConfig, PCAConfig
+
+        flat = _flatten_config(AssocConfig(pca=PCAConfig(n_pcs=3), run_pca=True))
+
+        assert flat["pca.n_pcs"] == 3
+        assert flat["run_pca"] is True
+        assert not any(isinstance(v, dict) for v in flat.values())
+
+    def test_paths_become_strings(self) -> None:
+        """A Path is not JSON-serializable, and the report is written at the
+        very end of a long run - the wrong place to discover that."""
+        from genotools.cli.runner import _flatten_config
+        from genotools.gwas.config import CovariateConfig
+
+        flat = _flatten_config(CovariateConfig(covar_path=Path("/tmp/covars.txt")))
+        assert flat["covar_path"] == "/tmp/covars.txt"
+
+    def test_no_config_records_nothing(self) -> None:
+        """kinship_check takes no config; it must not invent rows."""
+        from genotools.cli.runner import _flatten_config
+
+        assert _flatten_config(None) == {}

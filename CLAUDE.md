@@ -63,8 +63,16 @@ all the same shape, and real code can't drift out of date.
 output. Its `metrics` holds **counts only** — `cli/output.py` renders each
 metric as a row in a long `(step, metric, pruned_count)` table, so a mode name
 or a derived bound would land under a column meaning "how many were pruned."
-Descriptive context goes to the log. Register report metric names in
-`STEP_REPORT` so skipped and failed steps emit matching zero rows.
+Anything a step *works out at runtime* — a derived bound, the mode it took —
+goes in `parameters`, which reaches the report's own `parameters` section.
+Register report metric names in `STEP_REPORT` so skipped and failed steps emit
+matching zero rows.
+
+**Settings are recorded for you.** `_run_single_step` records every step's
+config into the report's `parameters` section from the shared tail after the
+dispatch chain. A new step's branch assigns `config` and `result` and falls
+through — it must not `return` from inside the branch, or the step silently
+reports no settings.
 
 **Validate thresholds in the config, not the step.** Frozen dataclasses
 validating in `__post_init__` via `ThresholdConfig._validate_*`

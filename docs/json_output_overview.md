@@ -63,6 +63,49 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
   - *Process*: `Ancestry`  
   - *Description*: DataFrame containing the UMAP representation for the input samples.
 
+- **`run_info`**  
+  - *Process*: `All`  
+  - *Description*: *New in 2.0.1.* Which build produced the report, and from
+    what command.
+
+    | Key | Meaning |
+    |---|---|
+    | `version` | GenoTools version |
+    | `invocation` | The command line, quoted so it can be pasted back into a shell. Absent when the pipeline was driven from Python rather than the CLI, where there is no command line to record |
+
+- **`parameters`**  
+  - *Process*: `Quality Control (QC)`  
+  - *Description*: *New in 2.0.1.* The settings each step ran with. One row per
+    (step, ancestry, parameter), with these columns:
+
+    | Column | Meaning |
+    |---|---|
+    | `step` | Reported step name, matching the `step` column of `QC` |
+    | `parameter` | Setting name, e.g. `mind`, `auto_sd`, `het_lower`. Nested settings use dotted names (`pca.n_pcs`) |
+    | `value` | Its value |
+    | `ancestry` | Ancestry group, or `all` for a run without `--ancestry` |
+    | `source` | `requested` or `resolved` — see below |
+
+    Before 2.0.1 the report recorded outcomes only: every top-level key was a
+    count, a label or a pass/fail, and not one was a threshold. That is
+    survivable while every group is cut by the same rule. `--het sd` is not —
+    it derives its bounds from each dataset, so `--het -0.2 0.2 --het-ancestry
+    AMR sd` produces `outlier_count` rows cut by two different rules, and
+    nothing in the file said which was which.
+
+    **`source` separates the request from the result.** `requested` is the
+    configuration the step was handed; `resolved` is what the step worked out
+    at runtime. `--het sd 2` is a request that resolves to different bounds in
+    every ancestry group, and neither half is recoverable from the other: the
+    multiplier does not predict the bounds, and the bounds do not reveal the
+    multiplier. `requested` rows are the config as constructed, including
+    defaults a given mode never consults — in `sd` mode `f_lower`/`f_upper`
+    are present but inert, and the `resolved` row `het_mode` says which pair
+    was live.
+
+    Only the heterozygosity step derives anything today, so it is the only one
+    with `resolved` rows. Every step contributes `requested` rows.
+
 - **`QC`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing summary statistics from QC steps. One row
@@ -78,6 +121,10 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     | `pass` | `true` only when the step ran and succeeded |
     | `outcome` | *New in 2.0.* `pass`, `fail`, or `skipped` |
     | `reason` | *New in 2.0.* Why, for `fail` and `skipped`; `null` otherwise |
+
+    `pruned_count` holds a count and nothing else, which is why the settings
+    live in `parameters` rather than here: a mode name or a derived bound in
+    this table would sit under a column meaning "how many were pruned".
 
     A step the run did not request has no row. A step that was requested but
     could not run does: `outcome` distinguishes a step that **failed** from one

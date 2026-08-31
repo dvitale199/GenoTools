@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import pandas as pd
 
+from .. import __version__
+
 if TYPE_CHECKING:
     from .parser import PipelineArgs
     from .runner import PipelineState
@@ -46,6 +48,30 @@ class QCMetrics:
     passed: bool = True  # Internal field, serialized as "pass"
     outcome: str = "pass"  # "pass" | "fail" | "skipped"
     reason: Optional[str] = None  # why, for the two non-pass outcomes
+
+
+@dataclass
+class ParameterRecord:
+    """One setting the run used, as a row in the long parameters table.
+
+    The QC report answers "how many were pruned" and nothing else - it has no
+    room for the threshold that did the pruning, and putting one there would
+    land a value under a column meaning a count. This is the section that
+    records the settings instead.
+
+    ``source`` separates the two things a reader needs and neither one alone
+    gives. "requested" is the configuration the step was handed; "resolved" is
+    what the step worked out at runtime. ``--het sd 2`` is a request that
+    resolves to a different pair of bounds in every ancestry group, and a
+    report carrying only one of the two cannot answer either "what was asked
+    for" or "what was actually cut".
+    """
+
+    step: str
+    parameter: str
+    value: Any
+    ancestry: str = "all"
+    source: str = "requested"  # or "resolved"
 
 
 @dataclass
@@ -77,6 +103,8 @@ class PipelineOutput:
         new_samples_umap: New sample UMAP coordinates.
         qc_metrics: List of QC metrics.
         gwas_metrics: List of GWAS metrics.
+        parameters: Settings the run used, requested and resolved.
+        run_info: Version and invocation of the run that produced the report.
         pruned_samples: DataFrame of pruned samples.
         related_samples: DataFrame of related samples.
         pass_fail: Step pass/fail status by ancestry.
@@ -95,6 +123,8 @@ class PipelineOutput:
     new_samples_umap: Optional[pd.DataFrame] = None
     qc_metrics: List[QCMetrics] = field(default_factory=list)
     gwas_metrics: List[GWASMetrics] = field(default_factory=list)
+    parameters: List[ParameterRecord] = field(default_factory=list)
+    run_info: Dict[str, Any] = field(default_factory=dict)
     pruned_samples: Optional[pd.DataFrame] = None
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -154,6 +184,14 @@ class PipelineOutput:
 
         # Process QC results
         output._process_qc_results(state, args)
+
+        # Parameters and run info. The runner collects parameter records as it
+        # builds each step's config, so nothing has to be reconstructed here
+        # from legacy_args - which cannot express a derived bound anyway.
+        output.parameters = list(state.parameters)
+        output.run_info = {"version": __version__}
+        if args.invocation:
+            output.run_info["invocation"] = args.invocation
 
         return output
 
@@ -399,6 +437,11 @@ class PipelineOutput:
         """
         result: Dict[str, Any] = {}
 
+        # Run info first: which build produced this report, and from what
+        # command. It frames everything below it.
+        if self.run_info:
+            result["run_info"] = dict(self.run_info)
+
         # Input samples
         if self.input_samples is not None:
             result["input_samples"] = self.input_samples.to_dict()
@@ -448,6 +491,22 @@ class PipelineOutput:
                 for m in self.qc_metrics
             ])
             result["QC"] = qc_df.to_dict()
+
+        # Parameters. Long form, like QC: steps take different settings, so a
+        # wide table would be mostly empty, and a new setting on one step would
+        # add a column to every row.
+        if self.parameters:
+            params_df = pd.DataFrame([
+                {
+                    "step": p.step,
+                    "parameter": p.parameter,
+                    "value": p.value,
+                    "ancestry": p.ancestry,
+                    "source": p.source,
+                }
+                for p in self.parameters
+            ])
+            result["parameters"] = params_df.to_dict()
 
         # GWAS metrics
         if self.gwas_metrics:
