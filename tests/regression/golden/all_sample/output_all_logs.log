@@ -6,23 +6,36 @@
     ╚██████╔╝███████╗██║ ╚███║╚█████╔╝   ██║   ╚█████╔╝╚█████╔╝███████╗██████╔╝
     ╚═════╝ ╚══════╝╚═╝  ╚══╝ ╚════╝    ╚═╝    ╚════╝  ╚════╝ ╚══════╝╚═════╝
     
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.log
-Process: callrate_prune
+
+===== input_preparation =====
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation: Your data has the following breakdown:
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation: - Genetic Sex:
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation:   250 Males
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation:   250 Females
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation: - Phenotypes:
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation:   250 Cases
+2026-08-31 22:48:39 [INFO] [input] genotools.core.validation:   250 Controls
+
+===== callrate =====
+2026-08-31 22:48:39 [INFO]  genotools.cli.runner: Running: callrate with input tests/data/synthetic/genotools_test and output: tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate
+2026-08-31 22:48:39 [INFO] [callrate_prune] genotools.qc.steps.callrate: Filtering samples by callrate (mind=0.05)
+2026-08-31 22:48:39 [INFO] [callrate_prune] genotools.qc.steps.callrate: Callrate filtering complete: 12 samples removed
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/data/synthetic/genotools_test --mind 0.05 --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
   --mind 0.05
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate
   --pfile tests/data/synthetic/genotools_test
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:39 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252997 available; reserving 128964 MiB for main
+Random number seed: 1788216519
+56331 MiB RAM detected, ~52681 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 500 samples (250 females, 250 males; 500 founders) loaded from
 tests/data/synthetic/genotools_test.psam.
 40500 variants loaded from tests/data/synthetic/genotools_test.pvar.
@@ -30,34 +43,37 @@ tests/data/synthetic/genotools_test.psam.
 Calculating sample missingness rates... done.
 12 samples removed due to missing genotype data (--mind).
 IDs written to
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.mindrem.id .
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.mindrem.id .
 488 samples (244 females, 244 males; 488 founders) remaining after main
 filters.
 244 cases and 244 controls remaining after main filters.
-Writing tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.psam
+Writing tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.psam
 ... done.
-Writing tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.pvar
+Writing tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.pvar
 ... done.
-Writing tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.pgen
+Writing tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.pgen
 ... done.
 
-End time: Fri Jan 16 00:07:36 2026
+End time: Mon Aug 31 22:48:39 2026
 
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1.log
-Process: sex_prune
+===== sex =====
+2026-08-31 22:48:39 [INFO]  genotools.cli.runner: Running: sex with input tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate and output: tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
+2026-08-31 22:48:39 [INFO] [sex_prune] genotools.qc.steps.sex: Filtering samples by sex check (female_max_f=0.25, male_min_f=0.75)
+2026-08-31 22:48:40 [INFO] [sex_prune] genotools.qc.steps.sex: Sex check filtering complete: 253 samples removed
+$ /home/vitaled2/.genotools/misc/executables/plink --bfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_bfile/output_callrate_bfile --check-sex 0.25 0.75 --maf 0.05 --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp1
 PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
 Options in effect:
-  --bfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --bfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_bfile/output_callrate_bfile
   --check-sex 0.25 0.75
   --maf 0.05
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp1
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:39 2026
 
-Random number seed: 1768522056
-257929 MB RAM detected; reserving 128964 MB for main workspace.
+Random number seed: 1788216519
+56331 MB RAM detected; reserving 28165 MB for main workspace.
 40500 variants loaded from .bim file.
 488 people (244 males, 244 females) loaded from .fam.
 488 phenotype values loaded from .fam.
@@ -65,8 +81,8 @@ Using 1 thread (no multithreaded calculations invoked).
 Before main variant filters, 488 founders and 0 nonfounders present.
 Calculating allele frequencies... done.
 Warning: 42259 het. haploid genotypes present (see
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1.hh );
-many commands treat these as missing.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp1.hh
+); many commands treat these as missing.
 Total genotyping rate is 0.989406.
 3388 variants removed due to minor allele threshold(s)
 (--maf/--max-maf/--mac/--max-mac).
@@ -74,31 +90,29 @@ Total genotyping rate is 0.989406.
 Among remaining phenotypes, 244 are cases and 244 are controls.
 --check-sex: 450 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
 Report written to
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp1.sexcheck
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp1.sexcheck
 .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2.log
-Process: sex_prune
+End time: Mon Aug 31 22:48:39 2026
+$ /home/vitaled2/.genotools/misc/executables/plink --bfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_bfile/output_callrate_bfile --chr 23 --from-bp 2781479 --to-bp 155701383 --maf 0.05 --geno 0.05 --hwe 1E-5 --check-sex 0.25 0.75 --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp2
 PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
 Options in effect:
-  --bfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
+  --bfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_bfile/output_callrate_bfile
   --check-sex 0.25 0.75
   --chr 23
   --from-bp 2781479
   --geno 0.05
   --hwe 1E-5
   --maf 0.05
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp2
   --to-bp 155701383
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:39 2026
 
-Random number seed: 1768522056
-257929 MB RAM detected; reserving 128964 MB for main workspace.
+Random number seed: 1788216519
+56331 MB RAM detected; reserving 28165 MB for main workspace.
 500 out of 40500 variants loaded from .bim file.
 488 people (244 males, 244 females) loaded from .fam.
 488 phenotype values loaded from .fam.
@@ -106,8 +120,8 @@ Using 1 thread (no multithreaded calculations invoked).
 Before main variant filters, 488 founders and 0 nonfounders present.
 Calculating allele frequencies... done.
 Warning: 42259 het. haploid genotypes present (see
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2.hh );
-many commands treat these as missing.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp2.hh
+); many commands treat these as missing.
 Total genotyping rate is 0.990762.
 0 variants removed due to missing genotype data (--geno).
 --hwe: 14 variants removed due to Hardy-Weinberg exact test.
@@ -117,70 +131,71 @@ Total genotyping rate is 0.990762.
 Among remaining phenotypes, 244 are cases and 244 are controls.
 --check-sex: 440 Xchr and 0 Ychr variant(s) scanned, 253 problems detected.
 Report written to
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_tmp2.sexcheck
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_sex_tmp2.sexcheck
 .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.log
-Process: sex_prune
+End time: Mon Aug 31 22:48:39 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate --remove tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.outliers --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate
-  --remove tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.outliers
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate
+  --remove tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.outliers
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:39 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252990 available; reserving 128964 MiB for main
+Random number seed: 1788216519
+56331 MiB RAM detected, ~52681 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 488 samples (244 females, 244 males; 488 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate.pvar.
 1 binary phenotype loaded (244 cases, 244 controls).
 --remove: 235 samples remaining.
 235 samples (235 females, 0 males; 235 founders) remaining after main filters.
 114 cases and 121 controls remaining after main filters.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.psam ...
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.psam ...
 done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.pvar ...
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.pvar ...
 done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.pgen ...
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.pgen ...
 done.
 
-End time: Fri Jan 16 00:07:36 2026
+End time: Mon Aug 31 22:48:39 2026
 
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp.log
-Process: het_prune
+===== het =====
+2026-08-31 22:48:40 [INFO]  genotools.cli.runner: Running: het with input tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex and output: tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
+2026-08-31 22:48:40 [INFO] [het_prune] genotools.qc.steps.heterozygosity: Filtering samples by heterozygosity (f_lower=-0.15, f_upper=0.15)
+2026-08-31 22:48:40 [INFO] [het_prune] genotools.qc.steps.heterozygosity: Heterozygosity filtering complete: 3 samples removed
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex --geno 0.01 --maf 0.05 --indep-pairwise 50 5 0.5 --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --geno 0.01
   --indep-pairwise 50 5 0.5
   --maf 0.05
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252992 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52681 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 235 samples (235 females, 0 males; 235 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.pvar.
 1 binary phenotype loaded (114 cases, 121 controls).
 Calculating allele frequencies... done.
 --geno: 16950 variants removed due to missing genotype data.
@@ -189,138 +204,135 @@ Calculating allele frequencies... done.
 21580 variants remaining after main filters.
 --indep-pairwise (14 compute threads): 9139/21580 variants removed.
 Variant lists written to
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp.prune.in
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp.prune.in
 and
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp.prune.out
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp.prune.out
 .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.log
-Process: het_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex --extract tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp.prune.in --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
-  --extract tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp.prune.in
+  --extract tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp.prune.in
   --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252991 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52677 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 235 samples (235 females, 0 males; 235 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.pvar.
 1 binary phenotype loaded (114 cases, 121 controls).
 --extract: 12441 variants remaining.
 12441 variants remaining after main filters.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.psam
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2.psam
 ... done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.pvar
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2.pvar
 ... done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.pgen
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2.pgen
 ... done.
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp3.log
-Process: het_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2 --het --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp3
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --het
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp3
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp3
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252990 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52676 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 235 samples (235 females, 0 males; 235 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2.psam.
 12441 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp2.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp2.pvar.
 1 binary phenotype loaded (114 cases, 121 controls).
 Calculating allele frequencies... done.
 Excluding 140 variants on non-autosomes from --het.
 --het: done.
 --het: Results written to
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het_tmp3.het
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het_het_tmp3.het
 .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.log
-Process: het_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex --remove tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.outliers --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
-  --out tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex
-  --remove tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.outliers
+  --out tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex
+  --remove tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.outliers
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252987 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52675 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 235 samples (235 females, 0 males; 235 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex.pvar.
 1 binary phenotype loaded (114 cases, 121 controls).
 --remove: 232 samples remaining.
 232 samples (232 females, 0 males; 232 founders) remaining after main filters.
 113 cases and 119 controls remaining after main filters.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.psam
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.psam
 ... done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.pvar
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.pvar
 ... done.
 Writing
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.pgen
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.pgen
 ... done.
 
-End time: Fri Jan 16 00:07:36 2026
+End time: Mon Aug 31 22:48:40 2026
 
-Log: tests/regression/golden/all_sample/output_pairs.log
-Process: related_prune
+===== related =====
+2026-08-31 22:48:40 [INFO]  genotools.cli.runner: Running: related with input tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het and output: tests/regression/golden/all_sample/output
+2026-08-31 22:48:40 [INFO] [related_prune] genotools.qc.steps.relatedness: Filtering samples by relatedness (related_cutoff=0.0884, duplicated_cutoff=0.354)
+2026-08-31 22:48:40 [INFO] [related_prune] genotools.qc.steps.relatedness: Relatedness filtering complete: 1 samples removed (0 related, 1 duplicated)
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het --make-king-table --make-king triangle bin --king-table-filter 0.0884 --out tests/regression/golden/all_sample/output_pairs
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --king-table-filter 0.0884
   --make-king triangle bin
   --make-king-table
   --out tests/regression/golden/all_sample/output_pairs
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252988 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52676 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 232 samples (232 females, 0 males; 232 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.pvar.
 1 binary phenotype loaded (113 cases, 119 controls).
 Excluding 500 variants on non-autosomes from KING-robust calculation.
 --make-king pass 1/1: Scanning for rare variants... done.
@@ -331,26 +343,24 @@ tests/regression/golden/all_sample/output_pairs.king.id .
 Results written to tests/regression/golden/all_sample/output_pairs.kin0 .
 --king-table-filter: 1 relationship reported (26795 filtered out).
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/output_related_king.log
-Process: related_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het --king-cutoff tests/regression/golden/all_sample/output_pairs 0.0884 --out tests/regression/golden/all_sample/output_related_king
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --king-cutoff tests/regression/golden/all_sample/output_pairs 0.0884
   --out tests/regression/golden/all_sample/output_related_king
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252989 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52677 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 232 samples (232 females, 0 males; 232 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.psam.
 1 binary phenotype loaded (113 cases, 119 controls).
 --king-cutoff: 1 constraint loaded.
 --king-cutoff: Excluded sample ID written to
@@ -358,26 +368,24 @@ tests/regression/golden/all_sample/output_related_king.king.cutoff.out.id , and
 231 remaining sample IDs written to
 tests/regression/golden/all_sample/output_related_king.king.cutoff.in.id .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/output_duplicated_king.log
-Process: related_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het --king-cutoff tests/regression/golden/all_sample/output_pairs 0.354 --out tests/regression/golden/all_sample/output_duplicated_king
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --king-cutoff tests/regression/golden/all_sample/output_pairs 0.354
   --out tests/regression/golden/all_sample/output_duplicated_king
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252989 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52674 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 232 samples (232 females, 0 males; 232 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.psam.
 1 binary phenotype loaded (113 cases, 119 controls).
 --king-cutoff: 1 constraint loaded.
 --king-cutoff: Excluded sample ID written to
@@ -385,29 +393,27 @@ tests/regression/golden/all_sample/output_duplicated_king.king.cutoff.out.id ,
 and 231 remaining sample IDs written to
 tests/regression/golden/all_sample/output_duplicated_king.king.cutoff.in.id .
 
-End time: Fri Jan 16 00:07:36 2026
-
-Log: tests/regression/golden/all_sample/output.log
-Process: related_prune
+End time: Mon Aug 31 22:48:40 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het --remove tests/regression/golden/all_sample/output_duplicated_king.king.cutoff.out.id --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_sample/output
 PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
 Options in effect:
   --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
   --out tests/regression/golden/all_sample/output
-  --pfile tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het
+  --pfile tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het
   --remove tests/regression/golden/all_sample/output_duplicated_king.king.cutoff.out.id
 
 Hostname: dan-dev
 Working directory: /home/vitaled2/GenoTools
-Start time: Fri Jan 16 00:07:36 2026
+Start time: Mon Aug 31 22:48:40 2026
 
-Random number seed: 1768522056
-257929 MiB RAM detected, ~252989 available; reserving 128964 MiB for main
+Random number seed: 1788216520
+56331 MiB RAM detected, ~52675 available; reserving 28165 MiB for main
 workspace.
-Using up to 64 threads (change this with --threads).
+Using up to 56 threads (change this with --threads).
 232 samples (232 females, 0 males; 232 founders) loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.psam.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.psam.
 40500 variants loaded from
-tests/regression/golden/all_sample/.q7mh1ac3_tmp/output_callrate_sex_het.pvar.
+tests/regression/golden/all_sample/.3ic3nzix_tmp/output_callrate_sex_het.pvar.
 1 binary phenotype loaded (113 cases, 119 controls).
 --remove: 231 samples remaining.
 231 samples (231 females, 0 males; 231 founders) remaining after main filters.
@@ -416,5 +422,10 @@ Writing tests/regression/golden/all_sample/output.psam ... done.
 Writing tests/regression/golden/all_sample/output.pvar ... done.
 Writing tests/regression/golden/all_sample/output.pgen ... done.
 
-End time: Fri Jan 16 00:07:36 2026
+End time: Mon Aug 31 22:48:40 2026
 
+===== run summary =====
+  callrate                             12 removed   PASS
+  sex                                 253 removed   PASS
+  het                                   3 removed   PASS
+  related                               1 removed   PASS

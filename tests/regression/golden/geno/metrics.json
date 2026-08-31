@@ -1,10 +1,15 @@
 {
   "pass": true,
+  "outcome": "pass",
+  "reason": null,
   "step": "geno_prune",
   "metrics": {
+    "outlier_count": 225,
     "geno_removed_count": 225
   },
+  "parameters": {},
   "output": {
+    "pruned_samples": null,
     "plink_out": "tests/regression/golden/geno/output"
   }
 }

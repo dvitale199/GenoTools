@@ -1,10 +1,15 @@
 {
   "pass": true,
+  "outcome": "pass",
+  "reason": null,
   "step": "ld_prune",
   "metrics": {
+    "outlier_count": 17690,
     "ld_removed_count": 17690
   },
+  "parameters": {},
   "output": {
+    "pruned_samples": null,
     "plink_out": "tests/regression/golden/ld/output"
   }
 }
