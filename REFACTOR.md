@@ -854,6 +854,49 @@ the CLI — is now live.
 
 ---
 
+### Round 12 (`--ancestry` needs its reference panel, said up front)
+
+Closes **item 23**, found while running the round-11 verification.
+
+**The finding, corrected.** Item 23 recorded this as a `--model` bug. It is
+not: **training fails the same way.** `--ancestry` alone reports
+`No such file or directory: 'None.bim'` from `get_common_snps`; `--ancestry
+--model ...` reports `Failed to open None.bed` from `get_raw_files`'s
+inference branch. Both are `str(None)` reaching PLINK as a filename. The panel
+is genuinely required in both modes — `ref_labels` is read unconditionally
+(`ancestry/preprocessing.py:137`) and `ref_panel` is used on both sides of the
+`train` branch — so the fix is one check covering both, not a `--model` special
+case.
+
+**Not a 2.0 capability regression, but a diagnosis regression.** 1.3.6 caught
+the same mistake with "Please make sure geno_path, ref_panel, ref_labels, and
+out_path are all set". 2.0 lost that and let the `None` through to PLINK.
+Reproduced on `afad04c` in a clean worktree, with the round-11 work absent.
+
+**Placement.** The check lives in `parse_args`, beside the existing
+"At least one input required" check, rather than in
+`AncestryArgs.__post_init__` where `_UNSUPPORTED_INFERENCE_FLAGS` lives. Two
+reasons. It is a required-*combination* check on CLI input, which is what that
+part of `parse_args` already does; and `AncestryArgs(run_ancestry=True)` is a
+legitimate unit-test fixture when prediction is monkeypatched (round 11's
+`TestPerGroupHetConfig` builds exactly that), so a dataclass-level constraint
+would have forced dummy paths into fixtures that never touch a panel.
+
+It runs *after* `AncestryArgs` is constructed, so `__post_init__` has already
+rejected `--container`/`--singularity`/`--cloud`. A flag that can never work is
+more useful to report than a panel the user could simply supply; the first
+draft had this backwards and reported the missing panel for
+`--ancestry --container`.
+
+**Gating.** 6 parser tests, including the precedence case. **Revert-checked:**
+removing the check fails 3 of them (the two accept-cases correctly pass either
+way). One pre-existing test, `test_ancestry_flag`, was asserting that
+`--ancestry` with no panel parses cleanly — it was pinning the unusable config,
+and now supplies the panel. Round 11's `TestHetGrammarEndToEnd` gained the two
+flags in its `BASE` for the same reason.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -972,16 +1015,7 @@ Priority order for making the refactor mergeable to `main`:
     serialized, because the QC report is a long `(step, metric, pruned_count)`
     table with no room for a descriptive value (see round 11). Needs a
     dedicated JSON section, which changes the report contract and the goldens.
-23. **`--model` without `--ref-panel`/`--ref-labels` fails inside PLINK.**
-    Inference mode still needs the reference panel — `get_raw_files(train=False)`
-    subsets it to the model's common SNPs and reads its `.raw`
-    (`ancestry/preprocessing.py:110`) — but nothing checks for it, so
-    `runner.py:893`'s `str(self.args.ancestry.ref_panel)` stringifies `None`
-    and PLINK is handed `--bfile None`, reporting
-    `Failed to open None.bed`. Reproduced on `afad04c` with the het work
-    absent, so it predates round 11; 1.3.6 caught the same mistake with
-    "Please make sure geno_path, ref_panel, ref_labels, and out_path are all
-    set", so this is a 2.0 regression in *diagnosis*, not in capability. Wants
-    the same up-front rejection round 10 gave `--container`: validate in
-    `AncestryArgs.__post_init__` that `--model` is accompanied by both.
+23. ✅ **`--ancestry` without `--ref-panel`/`--ref-labels` failed inside
+    PLINK** — RESOLVED in **round 12**. Found to be wider than the `--model`
+    case originally recorded: training fails the same way. See round 12 above.
 

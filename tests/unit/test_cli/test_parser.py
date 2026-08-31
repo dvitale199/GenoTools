@@ -717,11 +717,18 @@ class TestParseArgs:
         assert args.variant_qc.ld_r2_threshold == 0.2
 
     def test_ancestry_flag(self) -> None:
-        """--ancestry enables ancestry prediction."""
+        """--ancestry enables ancestry prediction.
+
+        The reference panel and labels are supplied because --ancestry now
+        requires them; this test previously asserted that an unusable config
+        parsed cleanly.
+        """
         args = parse_args([
             "--pfile", "/data/test",
             "--out", "/output/test",
             "--ancestry",
+            "--ref-panel", "/tmp/ref",
+            "--ref-labels", "/tmp/lab",
         ])
         assert args.ancestry.run_ancestry is True
 
@@ -778,7 +785,14 @@ class TestHetGrammarEndToEnd:
     """Every row of the --het / --het-ancestry semantics table, through
     parse_args - the layer users actually reach."""
 
-    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+    # --ref-panel/--ref-labels ride along because --ancestry requires them;
+    # they are inert for the rows that do not pass --ancestry.
+    BASE = [
+        "--pfile", "/data/test",
+        "--out", "/tmp/out",
+        "--ref-panel", "/tmp/ref",
+        "--ref-labels", "/tmp/lab",
+    ]
 
     def _sample_qc(self, extra: List[str]):
         return parse_args(self.BASE + extra).sample_qc
@@ -927,6 +941,57 @@ class TestAmrHetRemoved:
         }
         assert "--amr-het" not in options
         assert "--amr_het" not in options
+
+
+class TestAncestryRequiresReferencePanel:
+    """--ancestry needs --ref-panel and --ref-labels in both modes.
+
+    Without the check the missing path is stringified into a PLINK command:
+    training reports "No such file or directory: 'None.bim'" and inference
+    reports "Failed to open None.bed", neither of which names the flag or the
+    reason. Predates the het work - reproduced on afad04c.
+    """
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+
+    def test_training_mode_needs_both(self) -> None:
+        with pytest.raises(ValueError, match="--ancestry requires") as excinfo:
+            parse_args(self.BASE + ["--ancestry"])
+        message = str(excinfo.value)
+        assert "--ref-panel" in message
+        assert "--ref-labels" in message
+
+    def test_inference_mode_needs_both_too(self) -> None:
+        """--model does not remove the requirement: get_raw_files(train=False)
+        still subsets the panel to the model's common SNPs."""
+        with pytest.raises(ValueError, match="--ancestry requires") as excinfo:
+            parse_args(self.BASE + ["--ancestry", "--model", "/tmp/model"])
+        assert "--model still needs it" in str(excinfo.value)
+
+    def test_names_only_the_missing_flag(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            parse_args(self.BASE + ["--ancestry", "--ref-panel", "/tmp/ref"])
+        message = str(excinfo.value)
+        assert "--ref-labels" in message
+        assert "--ref-panel" not in message.split(".")[0]
+
+    def test_unsupported_flag_wins_over_the_missing_panel(self) -> None:
+        """--container can never work; a panel the user could supply is the
+        less useful thing to report."""
+        with pytest.raises(ValueError, match="--container is not supported"):
+            parse_args(self.BASE + ["--ancestry", "--container"])
+
+    def test_both_supplied_is_accepted(self) -> None:
+        args = parse_args(
+            self.BASE
+            + ["--ancestry", "--ref-panel", "/tmp/ref", "--ref-labels", "/tmp/lab"]
+        )
+        assert args.ancestry.run_ancestry is True
+
+    def test_no_ancestry_needs_nothing(self) -> None:
+        """The flags stay optional for a run that never predicts ancestry."""
+        args = parse_args(self.BASE + ["--callrate"])
+        assert args.ancestry.run_ancestry is False
 
 
 class TestDeprecatedFlagSpellings:

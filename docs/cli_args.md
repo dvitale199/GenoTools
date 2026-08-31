@@ -312,35 +312,32 @@ should be tightened.
   - *Type*: `path`
   - *Default*: `None`
   - *Description*: Reference panel genotype file path (PLINK format, without
-    extension), used to train the ancestry model.
+    extension). **Required whenever `--ancestry` is used** — training builds
+    the reference PCA from it, and inference (`--model`) re-derives that PCA by
+    subsetting the panel to the model's common SNPs.
 
 - **`--ref-labels`**
   - *Type*: `path`
   - *Default*: `None`
   - *Description*: Reference panel ancestry labels file: tab-separated
-    `FID IID label`, no header.
+    `FID IID label`, no header. **Required whenever `--ancestry` is used**,
+    inference included.
 
 - **`--model`**
   - *Type*: `path`
   - *Default*: `None`
   - *Description*: Pre-trained ancestry model directory (or a legacy `.pkl`
-    file). Runs inference instead of training.
+    file). Runs inference instead of training. Does **not** remove the need for
+    `--ref-panel` and `--ref-labels`.
 
-- **`--container`**
+- **`--container`**, **`--singularity`**, **`--cloud`**
   - *Type*: `flag`
   - *Default*: `False`
-  - *Description*: Run ancestry prediction inside a Docker container. Mutually
-    exclusive with `--model`.
-
-- **`--singularity`**
-  - *Type*: `flag`
-  - *Default*: `False`
-  - *Description*: Run ancestry prediction inside a Singularity container.
-
-- **`--cloud`**
-  - *Type*: `flag`
-  - *Default*: `False`
-  - *Description*: Run ancestry prediction on Google Cloud AI Platform.
+  - *Description*: **Not supported — rejected with an error.** Ancestry
+    prediction always runs locally, in process. The container images were built
+    around a 1.x model format that 2.0 cannot load, and cloud prediction was
+    never implemented in any version. See
+    [MIGRATION_2.0.md](../MIGRATION_2.0.md).
 
 - **`--subset-ancestry [LABEL ...]`**
   - *Type*: `str` (zero or more labels)
