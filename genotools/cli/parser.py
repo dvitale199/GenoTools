@@ -81,6 +81,46 @@ class InputArgs:
         raise ValueError("No input file specified")
 
 
+@dataclass(frozen=True)
+class HetSpec:
+    """One resolved heterozygosity specification.
+
+    Both ``--het`` and ``--het-ancestry LABEL`` accept the same four-row
+    grammar, so both resolve to one of these:
+
+    ==================  ====================================================
+    Tokens              Meaning
+    ==================  ====================================================
+    *(none)*            fixed ``-0.15 0.15`` (the defaults)
+    ``LOWER UPPER``     fixed bounds on PLINK's F
+    ``sd``              ``mean +/- 3 * sd`` of this dataset's F
+    ``sd N``            ``mean +/- N * sd``
+    ==================  ====================================================
+
+    Sharing one spec type is what keeps the two flags from drifting into
+    different rules: :func:`_parse_het_spec` is the only thing that builds one.
+    """
+
+    auto: bool = False
+    sd: float = 3.0
+    lower: float = -0.15
+    upper: float = 0.15
+
+    def to_het_config(self) -> HetConfig:
+        """Convert to the step-level HetConfig.
+
+        ``lower``/``upper`` ride along unused when ``auto`` is set. They are
+        deliberately *not* forced to the legacy ``[-1, -1]`` sentinel, which
+        would select HetConfig's rate-based path instead of the F-based one.
+        """
+        return HetConfig(
+            f_lower=self.lower,
+            f_upper=self.upper,
+            auto_detect=self.auto,
+            auto_sd=self.sd,
+        )
+
+
 @dataclass
 class SampleQCArgs:
     """Sample-level QC arguments."""
@@ -94,11 +134,16 @@ class SampleQCArgs:
     female_max_f: float = 0.25
     male_min_f: float = 0.75
 
-    # Heterozygosity
+    # Heterozygosity. het_lower/het_upper (or het_auto/het_auto_sd) are the
+    # base, applying to every dataset; het_by_ancestry overrides it for named
+    # ancestry groups. Resolve the pair through het_config_for -- never read
+    # them apart, or the two runner paths can disagree again.
     run_het: bool = False
     het_lower: float = -0.15
     het_upper: float = 0.15
-    amr_het: bool = False
+    het_auto: bool = False
+    het_auto_sd: float = 3.0
+    het_by_ancestry: Dict[str, HetSpec] = field(default_factory=dict)
 
     # Relatedness
     run_related: bool = False
@@ -121,12 +166,41 @@ class SampleQCArgs:
             male_min_f=self.male_min_f,
         )
 
-    def to_het_config(self) -> HetConfig:
-        """Convert to HetConfig."""
-        return HetConfig(
-            f_lower=self.het_lower,
-            f_upper=self.het_upper,
+    def het_base_spec(self) -> HetSpec:
+        """The base spec, applying wherever no per-ancestry override does."""
+        return HetSpec(
+            auto=self.het_auto,
+            sd=self.het_auto_sd,
+            lower=self.het_lower,
+            upper=self.het_upper,
         )
+
+    def het_config_for(self, label: Optional[str] = None) -> HetConfig:
+        """Resolve the heterozygosity config for one dataset.
+
+        The single point where base and per-ancestry override are combined.
+        Both runner paths call it -- the flat run with ``label=None``, the
+        ancestry loop with each group's label -- so neither can decide het
+        config on its own. ``--amr-het`` was silently inert outside
+        ``--ancestry`` precisely because the two paths *did* decide separately
+        and only one of them knew about the flag.
+
+        Args:
+            label: Ancestry group being configured, or None for a flat run
+                (which has no labels, so only the base can apply).
+
+        Returns:
+            HetConfig for this dataset: the override for ``label`` if one was
+            given, otherwise the base.
+        """
+        spec = self.het_by_ancestry.get(label) if label is not None else None
+        if spec is None:
+            spec = self.het_base_spec()
+        return spec.to_het_config()
+
+    def to_het_config(self) -> HetConfig:
+        """Convert to HetConfig (the base, with no ancestry override)."""
+        return self.het_config_for(None)
 
     def to_related_config(self) -> RelatedConfig:
         """Convert to RelatedConfig."""
@@ -288,6 +362,19 @@ class PipelineArgs:
     ancestry: AncestryArgs = field(default_factory=AncestryArgs)
     gwas: GWASArgs = field(default_factory=GWASArgs)
 
+    def __post_init__(self) -> None:
+        """Validate arguments that span more than one group."""
+        # A flat run has no ancestry labels, so a per-label override cannot be
+        # honoured. Erroring is the point of this feature: --amr-het's defining
+        # bug was accepting exactly this and quietly doing nothing.
+        if self.sample_qc.het_by_ancestry and not self.ancestry.run_ancestry:
+            labels = ", ".join(sorted(self.sample_qc.het_by_ancestry))
+            raise ValueError(
+                f"--het-ancestry ({labels}) requires --ancestry: a run without "
+                f"ancestry prediction has no ancestry labels to match. To set "
+                f"bounds for the whole input, use --het instead."
+            )
+
     @property
     def geno_path(self) -> Path:
         """Get the input genotype path."""
@@ -377,7 +464,9 @@ class PipelineArgs:
             "het": [self.sample_qc.het_lower, self.sample_qc.het_upper]
             if self.sample_qc.run_het
             else None,
-            "amr_het": self.sample_qc.amr_het,
+            "het_auto": self.sample_qc.het_auto,
+            "het_auto_sd": self.sample_qc.het_auto_sd,
+            "het_by_ancestry": dict(self.sample_qc.het_by_ancestry),
             "related": self.sample_qc.run_related,
             "related_cutoff": self.sample_qc.related_cutoff,
             "duplicated_cutoff": self.sample_qc.duplicated_cutoff,
@@ -539,19 +628,37 @@ Examples:
         metavar="VALUE",
         help="Sex check thresholds [female_max_f male_min_f] (default: 0.25 0.75)",
     )
+    # type=str, not float: the spec grammar mixes numbers with the "sd"
+    # keyword, so coercion moves into _parse_het_spec. argparse still parses
+    # leading negatives here -- its negative-number heuristic keys off whether
+    # the parser has number-like option strings, not off the argument type,
+    # and GenoTools has none (nor any positionals for greedy nargs to eat).
     sample_group.add_argument(
         "--het",
-        type=float,
+        type=str,
         nargs="*",
         default=None,
-        metavar="VALUE",
-        help="Heterozygosity thresholds [lower upper] (default: -0.15 0.15)",
+        metavar="SPEC",
+        help=(
+            "Heterozygosity bounds for every dataset: [LOWER UPPER] fixed "
+            "bounds on F, or 'sd [N]' for bounds at N standard deviations of "
+            "this dataset's own F (default: -0.15 0.15, or 3 sd for bare 'sd')"
+        ),
     )
     sample_group.add_argument(
-        "--amr-het",
-        "--amr_het",  # deprecated underscore spelling
-        action="store_true",
-        help="Use auto-detect heterozygosity for AMR samples",
+        # No underscore alias: underscores exist only as deprecated 1.x
+        # spellings, and this flag is new. Same as every other 2.0 addition.
+        "--het-ancestry",
+        type=str,
+        nargs="+",
+        action="append",
+        default=None,
+        metavar="SPEC",
+        help=(
+            "Override --het for one ancestry group: LABEL followed by the "
+            "same spec ('sd [N]' or LOWER UPPER). Repeatable, one group per "
+            "use. Requires --ancestry"
+        ),
     )
     sample_group.add_argument(
         "--related",
@@ -802,29 +909,162 @@ def _parse_sex_args(
         )
 
 
-def _parse_het_args(
-    het_values: Optional[List[float]],
-) -> Tuple[bool, float, float]:
-    """Parse heterozygosity arguments.
+#: Spelling of the data-derived mode on the command line. The config layer
+#: calls it ``auto_detect``, which predates the multiplier being user-visible;
+#: "auto 3" would read as "automatic... three?". Only the location and scale
+#: are derived from the data - the multiplier is a human choice - so the CLI
+#: says ``sd``, and ``--het sd 2`` says exactly what it does.
+_HET_SD_TOKEN = "sd"
+
+
+def _het_float(token: str, flag: str) -> float:
+    """Coerce one spec token to a float with an actionable error.
+
+    ``--het`` is ``type=str`` so the grammar can carry the ``sd`` keyword,
+    which means argparse no longer supplies the type error. This does.
+    """
+    try:
+        return float(token)
+    except ValueError:
+        raise ValueError(
+            f"{flag} expects numbers or '{_HET_SD_TOKEN}', got {token!r}"
+        ) from None
+
+
+def _parse_het_spec(tokens: Sequence[str], flag: str) -> HetSpec:
+    """Resolve one heterozygosity spec - the single grammar for both flags.
+
+    ``--het`` and ``--het-ancestry LABEL`` share this so they cannot drift into
+    different rules or different error wording. The forms never collide:
+    ``sd`` is a keyword, so a two-token spec is fixed bounds when it starts
+    with a number and a multiplier when it starts with ``sd``.
 
     Args:
-        het_values: List of threshold values or None.
+        tokens: Spec tokens, with any ancestry label already stripped.
+        flag: Flag name, for error messages.
 
     Returns:
-        Tuple of (run_het, het_lower, het_upper).
+        The resolved HetSpec.
+
+    Raises:
+        ValueError: On unparseable tokens, a bad arity, a non-positive
+            multiplier, or bounds that are not ordered.
+    """
+    if len(tokens) == 0:
+        return HetSpec()
+
+    if tokens[0].lower() == _HET_SD_TOKEN:
+        if len(tokens) == 1:
+            return HetSpec(auto=True)
+        if len(tokens) == 2:
+            sd = _het_float(tokens[1], flag)
+            if sd <= 0:
+                raise ValueError(
+                    f"{flag} '{_HET_SD_TOKEN}' multiplier must be greater "
+                    f"than 0, got {sd}"
+                )
+            return HetSpec(auto=True, sd=sd)
+        raise ValueError(
+            f"{flag} '{_HET_SD_TOKEN}' takes at most one multiplier, got "
+            f"{len(tokens) - 1}: {list(tokens[1:])}"
+        )
+
+    if len(tokens) == 2:
+        lower = _het_float(tokens[0], flag)
+        upper = _het_float(tokens[1], flag)
+        # The 1.x sentinel for "derive the bounds", still reachable on old
+        # command lines. It has a real keyword now, so accept but redirect:
+        # a silent second spelling is worse than a deprecation.
+        if lower == -1.0 and upper == -1.0:
+            from ..core.logging import get_logger
+
+            get_logger(__name__).warning(
+                f"{flag} -1 -1 is deprecated; use "
+                f"'{flag} {_HET_SD_TOKEN}' instead."
+            )
+            return HetSpec(auto=True)
+        if lower >= upper:
+            raise ValueError(
+                f"{flag} lower bound ({lower}) must be less than the upper "
+                f"bound ({upper})"
+            )
+        return HetSpec(lower=lower, upper=upper)
+
+    # Report an unparseable token as a type error before falling back to the
+    # arity message: "--het abc" wanted 'abc' explained, not counted.
+    for token in tokens:
+        _het_float(token, flag)
+    raise ValueError(
+        f"{flag} requires 0 or 2 values, or '{_HET_SD_TOKEN}' [N], got "
+        f"{len(tokens)}: {list(tokens)}"
+    )
+
+
+def _parse_het_args(
+    het_values: Optional[List[str]],
+) -> Tuple[bool, HetSpec]:
+    """Parse the base --het argument.
+
+    Args:
+        het_values: Raw spec tokens, or None when the flag was not passed.
+
+    Returns:
+        Tuple of (run_het, spec).
     """
     if het_values is None:
-        return False, -0.15, 0.15
+        return False, HetSpec()
+    return True, _parse_het_spec(het_values, "--het")
 
-    if len(het_values) == 0:
-        # Flag used without values - use defaults
-        return True, -0.15, 0.15
-    elif len(het_values) == 2:
-        return True, het_values[0], het_values[1]
-    else:
-        raise ValueError(
-            f"--het requires 0 or 2 values, got {len(het_values)}: {het_values}"
-        )
+
+def _parse_het_ancestry_args(
+    occurrences: Optional[List[List[str]]],
+) -> Dict[str, HetSpec]:
+    """Parse repeated --het-ancestry occurrences into per-label specs.
+
+    Args:
+        occurrences: One token list per use of the flag, each beginning with
+            an ancestry label, or None when the flag was not passed.
+
+    Returns:
+        Mapping of ancestry label to its spec. Empty when the flag is unused.
+
+    Raises:
+        ValueError: On a missing spec, a label that looks like a spec token,
+            or the same label overridden twice.
+    """
+    specs: Dict[str, HetSpec] = {}
+    for tokens in occurrences or []:
+        label, rest = tokens[0], tokens[1:]
+        # Guard the easy transposition: --het-ancestry sd 2 names no group.
+        if label.lower() == _HET_SD_TOKEN or _is_number(label):
+            raise ValueError(
+                f"--het-ancestry expects an ancestry label first, got "
+                f"{label!r}. Usage: --het-ancestry LABEL "
+                f"['{_HET_SD_TOKEN}' [N] | LOWER UPPER]"
+            )
+        # A bare label would silently mean "fixed defaults for this group",
+        # which is the class of quiet no-op this flag exists to remove.
+        if not rest:
+            raise ValueError(
+                f"--het-ancestry {label} needs a spec: "
+                f"'{_HET_SD_TOKEN}' [N], or LOWER UPPER"
+            )
+        if label in specs:
+            raise ValueError(
+                f"--het-ancestry {label} given more than once; pass one "
+                f"spec per ancestry group"
+            )
+        specs[label] = _parse_het_spec(rest, f"--het-ancestry {label}")
+    return specs
+
+
+def _is_number(token: str) -> bool:
+    """Whether a token parses as a float."""
+    try:
+        float(token)
+    except ValueError:
+        return False
+    return True
 
 
 def _parse_ld_args(
@@ -857,7 +1097,6 @@ def _parse_ld_args(
 _DEPRECATED_SPELLINGS = {
     "--all_sample": "--all-sample",
     "--all_variant": "--all-variant",
-    "--amr_het": "--amr-het",
     "--case_control": "--case-control",
     "--covar_names": "--covar-names",
     "--duplicated_cutoff": "--duplicated-cutoff",
@@ -873,6 +1112,46 @@ _DEPRECATED_SPELLINGS = {
     "--skip_fails": "--skip-fails",
     "--subset_ancestry": "--subset-ancestry",
 }
+
+#: Flags removed outright, mapped to what to use instead. Declared here rather
+#: than in the parser so a 1.x command line gets a targeted error naming the
+#: replacement instead of argparse's bare "unrecognized arguments".
+#:
+#: ``--amr-het`` switched the het step to data-derived bounds for one
+#: hardcoded label. It was read in exactly one place, inside the --ancestry
+#: branch, so it did nothing at all in a flat run - which is how the
+#: per-ancestry production workflow runs QC. ``--het-ancestry AMR sd`` is the
+#: same rule, on any label, in either run shape.
+_REMOVED_FLAGS: Dict[str, str] = {
+    "--amr-het": (
+        "Use '--het-ancestry AMR sd' instead, which also works in a flat run "
+        "(--amr-het silently did nothing without --ancestry). See "
+        "MIGRATION_2.0.md."
+    ),
+    "--amr_het": (
+        "Use '--het-ancestry AMR sd' instead, which also works in a flat run "
+        "(--amr_het silently did nothing without --ancestry). See "
+        "MIGRATION_2.0.md."
+    ),
+}
+
+
+def _reject_removed_flags(args: Optional[Sequence[str]] = None) -> None:
+    """Give an actionable error for a flag that 2.1 removed.
+
+    Runs before argparse so the message survives - and before
+    ``_reject_boolean_values``, so ``--amr-het False`` reports the removal
+    rather than the (now irrelevant) presence-flag rule.
+    """
+    import sys
+
+    argv = list(args) if args is not None else sys.argv[1:]
+    used = {tok.split("=", 1)[0] for tok in argv if tok.startswith("--")}
+    for flag in sorted(used & set(_REMOVED_FLAGS)):
+        raise ValueError(
+            f"{flag} was removed in GenoTools 2.0.1. {_REMOVED_FLAGS[flag]}"
+        )
+
 
 # Flags replaced by a --no- inverse. 1.x defaulted both to on, which is now the
 # default, so passing them changes nothing.
@@ -972,6 +1251,7 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         ValueError: If argument validation fails.
     """
     parser = create_parser()
+    _reject_removed_flags(args)
     _reject_boolean_values(parser, args)
     ns = parser.parse_args(args)
     _warn_deprecated_flags(args)
@@ -982,8 +1262,15 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
 
     # Parse complex arguments
     run_sex, female_max_f, male_min_f = _parse_sex_args(ns.sex)
-    run_het, het_lower, het_upper = _parse_het_args(ns.het)
+    run_het, het_spec = _parse_het_args(ns.het)
+    het_by_ancestry = _parse_het_ancestry_args(ns.het_ancestry)
     run_ld, ld_window, ld_step, ld_r2 = _parse_ld_args(ns.ld)
+
+    # An override implies the system it overrides is on. (Unlike the round-10
+    # treatment of --container, which fails loudly: those flags could not work,
+    # this one can.)
+    if het_by_ancestry:
+        run_het = True
 
     # Handle --all-sample
     run_callrate = ns.callrate is not None
@@ -1041,9 +1328,11 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         female_max_f=female_max_f,
         male_min_f=male_min_f,
         run_het=run_het,
-        het_lower=het_lower,
-        het_upper=het_upper,
-        amr_het=ns.amr_het,
+        het_lower=het_spec.lower,
+        het_upper=het_spec.upper,
+        het_auto=het_spec.auto,
+        het_auto_sd=het_spec.sd,
+        het_by_ancestry=het_by_ancestry,
         run_related=run_related,
         related_cutoff=ns.related_cutoff,
         duplicated_cutoff=ns.duplicated_cutoff,

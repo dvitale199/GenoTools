@@ -19,6 +19,7 @@ Removes samples with extreme heterozygosity rates using PLINK2.
 """
 
 from pathlib import Path
+from typing import Any, Dict, Tuple
 
 import pandas as pd
 
@@ -32,6 +33,79 @@ from genotools.qc.results import FilterResult
 logger = get_logger(__name__)
 
 
+def select_het_outliers(
+    het: pd.DataFrame, config: HetConfig
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Pick the outlier rows from a PLINK ``--het`` table.
+
+    Split out from :func:`filter_heterozygosity` so the bound arithmetic can be
+    tested against a frame with known mean and sigma, without PLINK in the loop.
+
+    Three modes, in precedence order:
+
+    1. ``config.auto_detect`` - bounds at ``mean +/- auto_sd * sd`` of **F**.
+       This is the CLI's ``--het sd [N]`` mode. Thresholding F (rather than the
+       derived rate) means both CLI spellings of ``--het`` bound the same
+       statistic.
+    2. The legacy ``f_lower == f_upper == -1.0`` sentinel - bounds at 3 standard
+       deviations of the derived **heterozygosity rate**. Preserved verbatim,
+       including the ``HET`` column it adds to the output, for Python-API
+       callers that already pass it. The CLI no longer produces this form.
+    3. Otherwise - fixed bounds on F.
+
+    Note that mean and sd are computed over every sample, outliers included, so
+    a genuinely dispersed group widens its own bounds. That is deliberate: a
+    real admixed subpopulation should not be clipped as contamination. The cost
+    is that ``sd`` mode is a weak contamination screen for wide groups.
+
+    Args:
+        het: Parsed ``.het`` table, with F, OBS_CT and O(HOM) columns.
+        config: Heterozygosity filtering configuration.
+
+    Returns:
+        Tuple of (outlier rows, metrics describing the mode and bounds).
+    """
+    if config.auto_detect:
+        mean = het["F"].mean()
+        std = het["F"].std()
+        low = mean - (config.auto_sd * std)
+        high = mean + (config.auto_sd * std)
+        outliers = het[(het["F"] < low) | (het["F"] > high)]
+        metrics = {
+            "het_mode": "sd",
+            "het_statistic": "F",
+            "het_sd": config.auto_sd,
+            "het_lower": low,
+            "het_upper": high,
+        }
+    elif config.f_lower == -1.0 and config.f_upper == -1.0:
+        het = het.assign(HET=(het["OBS_CT"] - het["O(HOM)"]) / het["OBS_CT"])
+        mean = het["HET"].mean()
+        std = het["HET"].std()
+        low = mean - (3 * std)
+        high = mean + (3 * std)
+        outliers = het[(het["HET"] < low) | (het["HET"] > high)]
+        metrics = {
+            "het_mode": "sd",
+            "het_statistic": "rate",
+            "het_sd": 3.0,
+            "het_lower": low,
+            "het_upper": high,
+        }
+    else:
+        outliers = het[
+            (het["F"] <= config.f_lower) | (het["F"] >= config.f_upper)
+        ]
+        metrics = {
+            "het_mode": "fixed",
+            "het_statistic": "F",
+            "het_sd": None,
+            "het_lower": config.f_lower,
+            "het_upper": config.f_upper,
+        }
+    return outliers, metrics
+
+
 def filter_heterozygosity(
     data: GenotypeData,
     config: HetConfig,
@@ -43,7 +117,8 @@ def filter_heterozygosity(
     sample contamination or inbreeding. The filtering process:
     1. LD-prune variants (geno=0.01, maf=0.05, indep-pairwise 50 5 0.5)
     2. Calculate per-sample heterozygosity on pruned set
-    3. Filter samples outside F-statistic bounds or 3 std devs from mean
+    3. Filter samples outside fixed F bounds, or outside bounds derived
+       from the data - see :func:`select_het_outliers`
 
     Args:
         data: Input genotype data.
@@ -63,11 +138,16 @@ def filter_heterozygosity(
     step_name = "het_prune"
 
     with step_context(step_name):
-        logger.info(
-            f"Filtering samples by heterozygosity "
-            f"(f_lower={config.f_lower}, f_upper={config.f_upper}, "
-            f"auto_detect={config.auto_detect})"
-        )
+        if config.auto_detect:
+            logger.info(
+                f"Filtering samples by heterozygosity "
+                f"(bounds derived per dataset at {config.auto_sd} sd of F)"
+            )
+        else:
+            logger.info(
+                f"Filtering samples by heterozygosity "
+                f"(f_lower={config.f_lower}, f_upper={config.f_upper})"
+            )
 
         # Validate input exists
         input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
@@ -129,28 +209,15 @@ def filter_heterozygosity(
         if het_file.exists():
             het = pd.read_csv(het_file, sep=r"\s+")
 
-            # Determine if using auto-detect mode
-            use_auto = config.auto_detect or (
-                config.f_lower == -1.0 and config.f_upper == -1.0
-            )
+            het_outliers, het_metrics = select_het_outliers(het, config)
 
-            if use_auto:
-                # Calculate heterozygosity rate and use 3 std devs
-                het["HET"] = (het["OBS_CT"] - het["O(HOM)"]) / het["OBS_CT"]
-                het_mean = het["HET"].mean()
-                het_std = het["HET"].std()
-                het_low = het_mean - (3 * het_std)
-                het_high = het_mean + (3 * het_std)
-                het_outliers = het[(het["HET"] < het_low) | (het["HET"] > het_high)]
+            if het_metrics["het_mode"] == "sd":
                 logger.info(
-                    f"Auto-detect mode: mean={het_mean:.4f}, std={het_std:.4f}, "
-                    f"bounds=[{het_low:.4f}, {het_high:.4f}]"
+                    f"Derived bounds from the data: "
+                    f"sd={het_metrics['het_sd']} on {het_metrics['het_statistic']}, "
+                    f"bounds=[{het_metrics['het_lower']:.4f}, "
+                    f"{het_metrics['het_upper']:.4f}]"
                 )
-            else:
-                # Use fixed F-statistic bounds
-                het_outliers = het[
-                    (het["F"] <= config.f_lower) | (het["F"] >= config.f_upper)
-                ]
 
             outlier_count = het_outliers.shape[0]
             het_outliers.to_csv(outliers_out, sep="\t", header=True, index=False)
@@ -191,6 +258,12 @@ def filter_heterozygosity(
                 output=output,
                 samples_removed=samples_removed,
                 variants_removed=0,
+                # Counts only. The JSON report renders every metric as a row
+                # in a long (step, metric, pruned_count) table, so a
+                # descriptive value like het_mode="sd" would land under a
+                # column meaning "how many were pruned". The mode, statistic,
+                # multiplier and derived bounds go to the log instead - see
+                # the "Derived bounds from the data" line above.
                 metrics={
                     "outlier_count": outlier_count,
                 },

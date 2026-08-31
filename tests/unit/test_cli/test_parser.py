@@ -15,12 +15,14 @@
 
 """Tests for CLI argument parsing."""
 
+import logging
 from pathlib import Path
 from typing import List
 
 import pytest
 
 from genotools.cli.parser import (
+    HetSpec,
     InputArgs,
     SampleQCArgs,
     VariantQCArgs,
@@ -32,6 +34,8 @@ from genotools.cli.parser import (
     parse_args,
     _parse_sex_args,
     _parse_het_args,
+    _parse_het_ancestry_args,
+    _parse_het_spec,
     _parse_ld_args,
 )
 
@@ -88,6 +92,9 @@ class TestSampleQCArgs:
         assert args.run_het is False
         assert args.het_lower == -0.15
         assert args.het_upper == 0.15
+        assert args.het_auto is False
+        assert args.het_auto_sd == 3.0
+        assert args.het_by_ancestry == {}
         assert args.run_related is False
         assert args.related_cutoff == 0.0884
         assert args.duplicated_cutoff == 0.354
@@ -111,6 +118,78 @@ class TestSampleQCArgs:
         config = args.to_het_config()
         assert config.f_lower == -0.2
         assert config.f_upper == 0.2
+
+    def test_het_config_for_no_label_uses_base(self) -> None:
+        """A flat run has no label, so only the base can apply."""
+        args = SampleQCArgs(het_lower=-0.2, het_upper=0.2)
+        config = args.het_config_for(None)
+        assert config.auto_detect is False
+        assert (config.f_lower, config.f_upper) == (-0.2, 0.2)
+
+    def test_het_config_for_adaptive_base(self) -> None:
+        args = SampleQCArgs(het_auto=True, het_auto_sd=2.0)
+        config = args.het_config_for(None)
+        assert config.auto_detect is True
+        assert config.auto_sd == 2.0
+
+    def test_adaptive_base_avoids_the_legacy_sentinel(self) -> None:
+        """auto_detect must not arrive as [-1, -1].
+
+        HetConfig reads that sentinel as the legacy *rate*-based mode; the CLI's
+        sd mode thresholds F. If the spec ever forced the sentinel the two would
+        silently swap statistics.
+        """
+        config = SampleQCArgs(het_auto=True).het_config_for(None)
+        assert (config.f_lower, config.f_upper) != (-1.0, -1.0)
+
+    def test_het_config_for_unknown_label_falls_back_to_base(self) -> None:
+        args = SampleQCArgs(
+            het_lower=-0.2,
+            het_upper=0.2,
+            het_by_ancestry={"AMR": HetSpec(auto=True)},
+        )
+        config = args.het_config_for("EUR")
+        assert config.auto_detect is False
+        assert (config.f_lower, config.f_upper) == (-0.2, 0.2)
+
+    def test_override_beats_fixed_base(self) -> None:
+        args = SampleQCArgs(
+            het_lower=-0.2,
+            het_upper=0.2,
+            het_by_ancestry={"AMR": HetSpec(auto=True, sd=3.0)},
+        )
+        assert args.het_config_for("AMR").auto_detect is True
+        assert args.het_config_for("EUR").auto_detect is False
+
+    def test_fixed_override_beats_adaptive_base(self) -> None:
+        """The reverse direction: an adaptive base pinned back for one group."""
+        args = SampleQCArgs(
+            het_auto=True,
+            het_auto_sd=2.0,
+            het_by_ancestry={"CAH": HetSpec(lower=-0.3, upper=0.3)},
+        )
+        cah = args.het_config_for("CAH")
+        assert cah.auto_detect is False
+        assert (cah.f_lower, cah.f_upper) == (-0.3, 0.3)
+        assert args.het_config_for("EUR").auto_detect is True
+
+    def test_per_group_multiplier_differs_from_base(self) -> None:
+        args = SampleQCArgs(
+            het_auto=True,
+            het_auto_sd=2.0,
+            het_by_ancestry={"AMR": HetSpec(auto=True, sd=1.5)},
+        )
+        assert args.het_config_for("AMR").auto_sd == 1.5
+        assert args.het_config_for("EUR").auto_sd == 2.0
+
+    def test_to_het_config_matches_the_base(self) -> None:
+        """to_het_config is het_config_for(None); they cannot drift."""
+        args = SampleQCArgs(
+            het_auto=True,
+            het_auto_sd=2.5,
+            het_by_ancestry={"AMR": HetSpec(auto=True, sd=1.0)},
+        )
+        assert args.to_het_config() == args.het_config_for(None)
 
     def test_to_related_config(self) -> None:
         """to_related_config creates correct config."""
@@ -331,29 +410,173 @@ class TestParseSexArgs:
             _parse_sex_args([0.2])
 
 
+class TestParseHetSpec:
+    """Tests for _parse_het_spec, the shared grammar for both het flags.
+
+    One resolver backs --het and --het-ancestry, so these rows are the whole
+    grammar surface for both.
+    """
+
+    def test_no_tokens_is_fixed_defaults(self) -> None:
+        spec = _parse_het_spec([], "--het")
+        assert spec == HetSpec(auto=False, lower=-0.15, upper=0.15)
+
+    def test_two_numbers_are_fixed_bounds(self) -> None:
+        spec = _parse_het_spec(["-0.2", "0.2"], "--het")
+        assert spec.auto is False
+        assert (spec.lower, spec.upper) == (-0.2, 0.2)
+
+    def test_bare_sd_uses_default_multiplier(self) -> None:
+        spec = _parse_het_spec(["sd"], "--het")
+        assert spec.auto is True
+        assert spec.sd == 3.0
+
+    def test_sd_with_multiplier(self) -> None:
+        spec = _parse_het_spec(["sd", "2.5"], "--het")
+        assert spec.auto is True
+        assert spec.sd == 2.5
+
+    def test_sd_is_case_insensitive(self) -> None:
+        assert _parse_het_spec(["SD"], "--het").auto is True
+
+    def test_legacy_sentinel_maps_to_sd(self, caplog) -> None:
+        """--het -1 -1 was the 1.x way to ask for derived bounds.
+
+        Still accepted, since old command lines carry it, but redirected to the
+        keyword: a silent second spelling would be worse than a deprecation.
+        """
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            spec = _parse_het_spec(["-1", "-1"], "--het")
+        assert spec == HetSpec(auto=True, sd=3.0)
+        assert "deprecated" in caplog.text
+        assert "sd" in caplog.text
+
+    def test_sd_rejects_two_multipliers(self) -> None:
+        with pytest.raises(ValueError, match="at most one multiplier"):
+            _parse_het_spec(["sd", "2", "3"], "--het")
+
+    def test_sd_rejects_non_positive_multiplier(self) -> None:
+        with pytest.raises(ValueError, match="greater than 0"):
+            _parse_het_spec(["sd", "0"], "--het")
+
+    def test_sd_rejects_negative_multiplier(self) -> None:
+        with pytest.raises(ValueError, match="greater than 0"):
+            _parse_het_spec(["sd", "-2"], "--het")
+
+    def test_sd_rejects_unparseable_multiplier(self) -> None:
+        with pytest.raises(ValueError, match="expects numbers or 'sd'"):
+            _parse_het_spec(["sd", "abc"], "--het")
+
+    def test_lone_number_is_an_arity_error(self) -> None:
+        with pytest.raises(ValueError, match="requires 0 or 2 values"):
+            _parse_het_spec(["0.1"], "--het")
+
+    def test_three_numbers_is_an_arity_error(self) -> None:
+        with pytest.raises(ValueError, match="requires 0 or 2 values"):
+            _parse_het_spec(["0.1", "0.2", "0.3"], "--het")
+
+    def test_unparseable_token_reports_type_not_arity(self) -> None:
+        """--het abc lost argparse's type check when it became type=str.
+
+        The helper has to supply it, and the type error has to win over the
+        arity one: 'abc' wants explaining, not counting.
+        """
+        with pytest.raises(ValueError, match="expects numbers or 'sd'"):
+            _parse_het_spec(["abc"], "--het")
+
+    def test_unordered_bounds_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must be less than"):
+            _parse_het_spec(["0.3", "0.1"], "--het")
+
+    def test_error_names_the_calling_flag(self) -> None:
+        """Both flags share the resolver, so errors must name the right one."""
+        with pytest.raises(ValueError, match="--het-ancestry AMR"):
+            _parse_het_spec(["0.1"], "--het-ancestry AMR")
+
+
 class TestParseHetArgs:
     """Tests for _parse_het_args helper."""
 
     def test_none_input(self) -> None:
         """None input returns disabled state."""
-        run, lower, upper = _parse_het_args(None)
+        run, spec = _parse_het_args(None)
         assert run is False
-        assert lower == -0.15
-        assert upper == 0.15
+        assert spec == HetSpec()
 
     def test_empty_list(self) -> None:
         """Empty list enables with defaults."""
-        run, lower, upper = _parse_het_args([])
+        run, spec = _parse_het_args([])
         assert run is True
-        assert lower == -0.15
-        assert upper == 0.15
+        assert (spec.auto, spec.lower, spec.upper) == (False, -0.15, 0.15)
 
     def test_two_values(self) -> None:
         """Two values are parsed correctly."""
-        run, lower, upper = _parse_het_args([-0.2, 0.2])
+        run, spec = _parse_het_args(["-0.2", "0.2"])
         assert run is True
-        assert lower == -0.2
-        assert upper == 0.2
+        assert (spec.lower, spec.upper) == (-0.2, 0.2)
+
+    def test_sd(self) -> None:
+        run, spec = _parse_het_args(["sd"])
+        assert run is True
+        assert (spec.auto, spec.sd) == (True, 3.0)
+
+    def test_sd_with_multiplier(self) -> None:
+        run, spec = _parse_het_args(["sd", "2"])
+        assert run is True
+        assert (spec.auto, spec.sd) == (True, 2.0)
+
+    def test_wrong_count_raises(self) -> None:
+        """Wrong value count raises error.
+
+        TestParseSexArgs and TestParseLdArgs both have this; --het's was
+        missing.
+        """
+        with pytest.raises(ValueError, match="requires 0 or 2 values"):
+            _parse_het_args(["0.2"])
+
+
+class TestParseHetAncestryArgs:
+    """Tests for _parse_het_ancestry_args helper."""
+
+    def test_none_is_empty(self) -> None:
+        assert _parse_het_ancestry_args(None) == {}
+
+    def test_single_sd_override(self) -> None:
+        specs = _parse_het_ancestry_args([["AMR", "sd"]])
+        assert specs == {"AMR": HetSpec(auto=True, sd=3.0)}
+
+    def test_sd_with_multiplier(self) -> None:
+        specs = _parse_het_ancestry_args([["AMR", "sd", "1.5"]])
+        assert specs["AMR"].sd == 1.5
+
+    def test_fixed_range_override(self) -> None:
+        specs = _parse_het_ancestry_args([["CAH", "-0.3", "0.3"]])
+        assert specs["CAH"] == HetSpec(auto=False, lower=-0.3, upper=0.3)
+
+    def test_repeats_accumulate(self) -> None:
+        specs = _parse_het_ancestry_args([["AMR", "sd"], ["CAH", "-0.3", "0.3"]])
+        assert set(specs) == {"AMR", "CAH"}
+        assert specs["AMR"].auto is True
+        assert specs["CAH"].auto is False
+
+    def test_duplicate_label_rejected(self) -> None:
+        with pytest.raises(ValueError, match="given more than once"):
+            _parse_het_ancestry_args([["AMR", "sd"], ["AMR", "-0.3", "0.3"]])
+
+    def test_label_without_spec_rejected(self) -> None:
+        """A bare label would silently mean "fixed defaults for this group" -
+        the class of quiet no-op this flag exists to remove."""
+        with pytest.raises(ValueError, match="needs a spec"):
+            _parse_het_ancestry_args([["AMR"]])
+
+    def test_missing_label_rejected(self) -> None:
+        """--het-ancestry sd 2 names no group; catch the transposition."""
+        with pytest.raises(ValueError, match="expects an ancestry label first"):
+            _parse_het_ancestry_args([["sd", "2"]])
+
+    def test_numeric_label_rejected(self) -> None:
+        with pytest.raises(ValueError, match="expects an ancestry label first"):
+            _parse_het_ancestry_args([["-0.3", "0.3"]])
 
 
 class TestParseLdArgs:
@@ -549,6 +772,161 @@ class TestParseArgs:
         ])
         assert args.gwas.run_pca is True
         assert args.gwas.n_pcs == 20
+
+
+class TestHetGrammarEndToEnd:
+    """Every row of the --het / --het-ancestry semantics table, through
+    parse_args - the layer users actually reach."""
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+
+    def _sample_qc(self, extra: List[str]):
+        return parse_args(self.BASE + extra).sample_qc
+
+    def test_bare_het_is_unchanged(self) -> None:
+        sq = self._sample_qc(["--het"])
+        assert sq.run_het is True
+        assert (sq.het_lower, sq.het_upper) == (-0.15, 0.15)
+        assert sq.het_auto is False
+
+    def test_fixed_bounds(self) -> None:
+        sq = self._sample_qc(["--het", "-0.2", "0.2"])
+        assert (sq.het_lower, sq.het_upper) == (-0.2, 0.2)
+
+    def test_negative_bounds_survive_type_str(self) -> None:
+        """--het is type=str now; argparse's negative-number heuristic keys off
+        the parser's option strings, not the argument type, so a leading
+        negative must still parse rather than read as a flag."""
+        sq = self._sample_qc(["--het", "-0.5", "-0.1"])
+        assert (sq.het_lower, sq.het_upper) == (-0.5, -0.1)
+
+    def test_sd_base(self) -> None:
+        sq = self._sample_qc(["--het", "sd"])
+        assert sq.het_auto is True
+        assert sq.het_auto_sd == 3.0
+
+    def test_sd_base_with_multiplier(self) -> None:
+        sq = self._sample_qc(["--het", "sd", "2.5"])
+        assert (sq.het_auto, sq.het_auto_sd) == (True, 2.5)
+
+    def test_amr_override_on_fixed_base(self) -> None:
+        """Today's --amr-het, generalized."""
+        sq = self._sample_qc(
+            ["--ancestry", "--het", "-0.2", "0.2", "--het-ancestry", "AMR", "sd"]
+        )
+        assert sq.het_config_for("AMR").auto_detect is True
+        assert sq.het_config_for("EUR").f_lower == -0.2
+
+    def test_per_group_multiplier(self) -> None:
+        sq = self._sample_qc(
+            ["--ancestry", "--het", "sd", "2", "--het-ancestry", "AMR", "sd", "1.5"]
+        )
+        assert sq.het_config_for("AMR").auto_sd == 1.5
+        assert sq.het_config_for("EUR").auto_sd == 2.0
+
+    def test_mixed_adaptive_and_fixed_overrides(self) -> None:
+        sq = self._sample_qc([
+            "--ancestry",
+            "--het-ancestry", "AMR", "sd",
+            "--het-ancestry", "CAH", "-0.3", "0.3",
+        ])
+        assert sq.het_config_for("AMR").auto_detect is True
+        cah = sq.het_config_for("CAH")
+        assert (cah.f_lower, cah.f_upper) == (-0.3, 0.3)
+
+    def test_override_implies_the_step_runs(self) -> None:
+        """No --het, no --all-sample: the override still turns het on.
+
+        An override implies the system it overrides is on. --amr-het did not do
+        this, so --ancestry --amr-het alone was a second silent no-op.
+        """
+        sq = self._sample_qc(["--ancestry", "--het-ancestry", "AMR", "sd"])
+        assert sq.run_het is True
+        assert "het" in parse_args(
+            self.BASE + ["--ancestry", "--het-ancestry", "AMR", "sd"]
+        ).get_enabled_sample_steps()
+
+    def test_all_sample_with_sd_base(self) -> None:
+        """The production per-ancestry job."""
+        sq = self._sample_qc(["--all-sample", "--all-variant", "--het", "sd"])
+        assert sq.run_het is True
+        assert sq.het_auto is True
+
+    def test_het_ancestry_without_ancestry_errors(self) -> None:
+        """The whole point of the change: a per-label override in a run with no
+        labels is impossible to honour, so it must not be accepted silently."""
+        with pytest.raises(ValueError, match="requires --ancestry"):
+            parse_args(self.BASE + ["--het-ancestry", "AMR", "sd"])
+
+    def test_het_ancestry_error_names_the_label_and_the_fix(self) -> None:
+        with pytest.raises(ValueError, match="AMR") as excinfo:
+            parse_args(self.BASE + ["--het-ancestry", "AMR", "sd"])
+        assert "--het" in str(excinfo.value)
+
+    def test_no_underscore_alias(self) -> None:
+        """Underscore spellings are deprecated 1.x aliases only; a flag added
+        in 2.0.1 gets just the hyphen form, like every other 2.0 addition."""
+        with pytest.raises(SystemExit):
+            parse_args(self.BASE + ["--ancestry", "--het_ancestry", "AMR", "sd"])
+
+    def test_legacy_sentinel_still_parses_and_warns(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            sq = self._sample_qc(["--het", "-1", "-1"])
+        assert sq.het_auto is True
+        assert "deprecated" in caplog.text
+
+    def test_legacy_dict_carries_the_new_keys(self) -> None:
+        legacy = parse_args(
+            self.BASE + ["--ancestry", "--het", "sd", "2", "--het-ancestry", "AMR", "sd"]
+        ).to_legacy_dict()
+        assert legacy["het_auto"] is True
+        assert legacy["het_auto_sd"] == 2.0
+        assert set(legacy["het_by_ancestry"]) == {"AMR"}
+        assert "amr_het" not in legacy
+
+
+class TestAmrHetRemoved:
+    """--amr-het was removed, not aliased.
+
+    It was read in exactly one place, inside the --ancestry branch, so it did
+    nothing in a flat run - which is how the per-ancestry production workflow
+    runs QC. A command line still carrying it gets a targeted error naming the
+    replacement, rather than argparse's bare "unrecognized arguments".
+    """
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+
+    @pytest.mark.parametrize("flag", ["--amr-het", "--amr_het"])
+    def test_rejected_with_a_pointer_to_the_replacement(self, flag: str) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            parse_args(self.BASE + ["--all-sample", flag])
+        message = str(excinfo.value)
+        assert "removed" in message
+        assert "--het-ancestry AMR sd" in message
+
+    def test_rejected_even_with_a_trailing_value(self) -> None:
+        """--amr-het False must report the removal, not the presence-flag rule.
+
+        The removal check runs before _reject_boolean_values for this reason.
+        """
+        with pytest.raises(ValueError, match="removed"):
+            parse_args(self.BASE + ["--amr-het", "False"])
+
+    def test_not_in_the_spelling_rename_table(self) -> None:
+        """_DEPRECATED_SPELLINGS models renames only - a removed flag there
+        would claim the underscore form still works."""
+        from genotools.cli.parser import _DEPRECATED_SPELLINGS
+
+        assert "--amr_het" not in _DEPRECATED_SPELLINGS
+
+    def test_parser_does_not_define_it(self) -> None:
+        from genotools.cli.parser import create_parser
+
+        options = {
+            opt for action in create_parser()._actions for opt in action.option_strings
+        }
+        assert "--amr-het" not in options
+        assert "--amr_het" not in options
 
 
 class TestDeprecatedFlagSpellings:

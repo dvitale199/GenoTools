@@ -100,7 +100,7 @@ A requested step is **skipped automatically** when the input can't support it.
 | Step | Skipped when |
 |------|--------------|
 | `--sex` | No sample sex data (no males and no females recorded), or no X chromosome in the input |
-| `--het` | The input has fewer than 50 variants |
+| `--het` | The input has fewer than 50 samples (PLINK's LD floor) |
 | `--case-control` | Cases or controls are missing (both are required) |
 | `--filter-controls` | No controls present — the HWE filter runs on everyone instead |
 
@@ -124,18 +124,89 @@ consolidated run log.
     discordant with the recorded sex are pruned. Requires 0 or exactly 2 values.
     Subject to auto-skip (see above).
 
-- **`--het [LOWER UPPER]`**
-  - *Type*: `float` (zero or two values)
+- **`--het [LOWER UPPER | sd [N]]`**
+  - *Type*: `str` (see the spec grammar below)
   - *Default*: `-0.15 0.15` when the flag is passed bare; step skipped if omitted
-  - *Description*: Heterozygosity rate (F coefficient) bounds. Samples outside
-    the range are pruned. Requires 0 or exactly 2 values. Subject to auto-skip
+  - *Description*: Heterozygosity bounds on PLINK's F coefficient, applied to
+    every dataset. Samples outside the bounds are pruned. Subject to auto-skip
     (see above).
 
-- **`--amr-het`**
-  - *Type*: `flag`
-  - *Default*: `False`
-  - *Description*: Use auto-detected heterozygosity bounds for the AMR ancestry
-    group instead of the fixed `--het` values. Only meaningful with `--ancestry`.
+- **`--het-ancestry LABEL [LOWER UPPER | sd [N]]`**
+  - *Type*: `str`, repeatable (one ancestry group per use)
+  - *Default*: none; `--het`'s value applies to every group
+  - *Description*: Override `--het` for one ancestry group. Requires
+    `--ancestry` — a run without ancestry prediction has no labels to match, so
+    passing it in a flat run is an error. Using it implies the het step runs,
+    even without `--het` or `--all-sample`. A label that no group in the run
+    carries produces a warning naming the groups that were predicted.
+
+#### The heterozygosity spec grammar
+
+Both flags take the same four-row spec, so they cannot mean different things:
+
+| Tokens | Meaning |
+|---|---|
+| *(none)* | fixed `-0.15 0.15` (the defaults) |
+| `LOWER UPPER` | fixed bounds on PLINK's `F` |
+| `sd` | bounds at `mean ± 3σ` of this dataset's `F` |
+| `sd N` | bounds at `mean ± N·σ` |
+
+`sd` bounds `F`, the same statistic the fixed bounds do — only the location and
+scale come from the data. A per-group override always beats the base `--het`.
+
+| Command | Effect |
+|---|---|
+| `--het` | every group: fixed `-0.15 0.15` |
+| `--het -0.2 0.2` | every group: fixed `-0.2 0.2` |
+| `--het sd` | every group / the whole input: `mean ± 3σ` |
+| `--het sd 2.5` | every group: `mean ± 2.5σ` |
+| `--het -0.2 0.2 --het-ancestry AMR sd` | AMR adaptive, everything else `-0.2 0.2` |
+| `--het sd 2 --het-ancestry AMR sd 1.5` | 2σ everywhere, AMR tightened to 1.5σ |
+| `--het-ancestry AMR sd --het-ancestry CAH -0.3 0.3` | adaptive and custom ranges, mixed per group |
+
+#### When to reach for `sd`
+
+Fixed bounds are one absolute cut applied to groups whose dispersion differs by
+an order of magnitude. Measured on GP2 r12 (10k subset, 9,759 samples across 10
+groups), `sd(F)` is 0.0669 for AMR against 0.0088 for EUR, so `±0.15` is a 2.24σ
+cut for AMR and a 17σ cut for EUR. In practice `--het -0.15 0.15` is an AMR-only
+filter: 31 of the 35 samples it prunes cohort-wide are AMR.
+
+`sd` expresses the cut in multiples of a group's own spread instead. Three
+things follow that are worth knowing before using it:
+
+- **`sd` and fixed are not interchangeable defaults.** On the same data a global
+  `sd 3` prunes 137 samples where fixed prunes 35, and EUR alone goes from 2 to
+  85. That is why the per-group override exists — `sd` is not the global default.
+- **`sd N` is a dispersion multiplier, not an expected-flag-rate dial.** The
+  "3σ ≈ 0.3%" intuition assumes normality; heterozygosity within an admixed
+  group is often skewed and multimodal by admixture proportion, which is the
+  premise of the feature.
+- **`sd` is not robust, deliberately.** Mean and σ are computed over every
+  sample, outliers included, so a real subpopulation inflates σ, widens the
+  bounds and spares itself. For AMR at `sd 3` the bounds work out to
+  `-0.177 .. +0.225` — wider than the observed range on both sides, so het
+  pruning is effectively a no-op for that group. That is the intended outcome
+  (see below), but it means het pruning is **not** a contamination screen for a
+  widely-dispersed group. On small groups, σ estimated near the 50-sample floor
+  makes the boundary itself wobble in a way a fixed bound does not.
+
+#### Why AMR, and why `sd 3` prunes nothing there
+
+The long-standing rationale for special-casing AMR was that "heterozygosity is
+higher in admixed populations." On GP2 r12 that is not what the data shows: AMR
+has the *lowest* mean het rate and the *highest* mean F of all ten groups, and
+30 of the 31 samples fixed bounds prune are on the heterozygote-*deficit* side
+(`F >= +0.15`), 28 of them from a single contributing cohort.
+
+AMR is a pooled label spanning heterogeneous admixture proportions; pooling
+those allele frequencies produces an apparent heterozygote deficit (Wahlund),
+pushing a structured subgroup past the fixed **upper** bound. Those samples sit
+at only ~2.5σ of AMR's own spread. So `sd 3` pruning zero AMR samples is the
+correct outcome rather than under-pruning — `sd 2` would prune 21 of them, which
+is to say it would discard the very samples the feature exists to keep. The
+per-group multiplier exists so base and group *can* disagree, not because AMR
+should be tightened.
 
 - **`--related`**
   - *Type*: `flag`
@@ -176,6 +247,9 @@ consolidated run log.
   - *Description*: Run callrate, sex, het, and related with default thresholds.
     Note that the callrate threshold under this flag is **0.05**, not the 0.02
     used by a bare `--callrate`. Does not include `--kinship-check`.
+    Passing `--het` alongside it still applies — `--all-sample` turns the step
+    on, `--het` supplies the bounds — so `--all-sample --het sd` runs the full
+    sample battery with derived heterozygosity bounds.
 
 ---
 

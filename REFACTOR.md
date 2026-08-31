@@ -696,6 +696,164 @@ assertion.
 
 ---
 
+### Round 11 (per-ancestry heterozygosity bounds, 2.0.1)
+
+Generalizes `--amr-het` into a per-ancestry heterozygosity grammar, and fixes
+the bug that made it silently inert in the run shape production actually uses.
+
+**The bug.** `runner.py:496` — `if self.args.sample_qc.amr_het and label ==
+"AMR"` — was the *only* place the flag was read, and it lived inside
+`_run_with_ancestry`. `_run_qc_only` never passed het values at all, so
+`legacy_args["het"]` kept the base bounds. The per-ancestry production workflow
+runs ancestry once and then QCs each group as a separate **flat** job, which is
+exactly the path where the flag did nothing: no warning, no error, and a JSON
+that looks like a normal het run. The same structure exists on 1.x
+(`__main__.py:177`), so this is longstanding rather than a 2.0 regression.
+A second, narrower inert case: `--amr-het` did not enable the het step, so
+`--ancestry --amr-het` with no `--het`/`--all-sample` was also a no-op.
+
+**The second defect: one panel's label, hardcoded.** `label == "AMR"` was the
+only user-facing feature in the codebase assuming a particular reference
+panel's naming. The label vocabulary is entirely user-supplied — from the
+`--ref-labels` TSV via an unconstrained `LabelEncoder`, or from a pickled
+model's encoder in inference mode — so the flag was unusable on any panel not
+spelling the group "AMR", and could never reach `CAH`, the synthetic admixed
+label that admixture detection *invents* (`ancestry/model.py:411-414`) and the
+group most likely to want adaptive bounds.
+
+**The grammar.** Two flags sharing one spec resolver:
+
+```
+--het [LOWER UPPER | sd [N]]                  # base: applies to every group
+--het-ancestry LABEL [LOWER UPPER | sd [N]]   # repeatable; overrides one group
+```
+
+Override beats base — a precedence that needs no invented rule, which is why
+this shape beat independent flags. `sd` is a keyword, so the forms never
+collide: a two-token spec is fixed bounds when it starts with a number and a
+multiplier when it starts with `sd`. `_parse_het_spec` is the single resolver
+both flags call, so they cannot drift into different rules or error wording.
+
+**Named `sd`, not `auto`.** The existing mode was called "auto-detect", but only
+its *location and scale* were data-derived — the `3` at `heterozygosity.py:142`
+was hardcoded. Once the multiplier is user-visible, `auto 3` reads as
+"automatic… three?". `--het sd 2` says exactly what it does.
+
+**`sd` thresholds F, not the het rate — decided on data.** Both spellings of
+`--het` then bound the same statistic, which is the whole reason the single
+grammar is legible. The design estimated the cost at 18 of 9,759 samples
+(0.18%); measured after implementing, on a real `.het` table from the GP2 r12
+10k subset (9,771 post-callrate), it is **zero** — the two rules select
+identical 99-sample sets cohort-wide and identical sets within AMR's 340,
+despite bounds on different scales (`F: [-0.081, 0.160]` against
+`rate: [0.258, 0.332]`). F and rate are anti-correlated at r ≈ −0.99 within a
+group, so the ±3σ cut lands on the same samples. The `[-1, -1]` sentinel keeps
+the legacy rate-based path for Python-API callers; only the CLI moved, and
+`--het -1 -1` on the command line now resolves to the F rule.
+
+**`--amr-het` removed, not aliased.** Kept in a `_REMOVED_FLAGS` map purely so
+a 1.x command line gets a targeted error naming `--het-ancestry AMR sd`, the
+round-10 treatment of `--container`. It left `_DEPRECATED_SPELLINGS`, which
+models spelling renames only. The replacement is **not bit-for-bit identical**
+(F vs rate), which `MIGRATION_2.0.md` says plainly.
+
+**The linchpin.** `SampleQCArgs.het_config_for(label)` resolves base + override
+in one place, and both runner paths call it — the flat run with `None`, the
+ancestry loop with each label. The original bug existed precisely because two
+paths decided het config independently and only one knew about `amr_het`; this
+makes that class of divergence unrepresentable. `_run_qc_pipeline`'s
+`het_values: Optional[List[float]]` parameter, which existed solely to carry
+the `[-1,-1]` sentinel, is now a resolved `HetConfig`.
+
+**Resolved semantics.**
+
+| Case | Behavior |
+|---|---|
+| `--het-ancestry` without `--ancestry` | error — no labels exist to match |
+| `--het-ancestry` with no `--het`/`--all-sample` | implies the het step runs |
+| `--het-ancestry LABEL` where LABEL was not predicted | warn once, naming the predicted groups |
+| duplicate label across repeats | error at parse time |
+| `N <= 0` | error at parse time |
+| bare `--het-ancestry LABEL` (no spec) | error — a silent fixed-defaults no-op is the thing being removed |
+| `--het -1 -1` | still means `sd 3`, now with a deprecation warning |
+
+Erroring rather than warning on the first row is deliberate and differs from
+round 10's treatment of `--container`: those flags *could not* work; this one
+can, and being ignored was the defect.
+
+**Why the default multiplier stays 3.** Measured on GP2 r12 (10k subset),
+samples pruned on F:
+
+| group | n | sd 2 | sd 3 | fixed ±0.15 |
+|---|---|---|---|---|
+| **AMR** | 340 | 21 | **0** | **31** |
+| EUR | 6802 | 141 | 85 | 2 |
+| **all 10 groups** | 9759 | 287 | **137** | **35** |
+
+Two things follow. `sd` and fixed are **not** interchangeable defaults — a
+global `sd 3` prunes 137 where fixed prunes 35, and EUR alone goes 2 → 85; that
+is why the per-group override is required rather than a nicety, and it rules
+out retiring `--amr-het` by making `sd` the global default. And `3` is correct
+for AMR: at `sd 3` AMR prunes zero, which is the intended outcome, not
+under-pruning. The 31 samples fixed bounds catch sit at only ~2.5σ of AMR's own
+spread and are a structured subgroup (28 of 30 from one contributing cohort),
+not bad data. `sd 2` would prune 21 of them — discarding the very samples the
+feature exists to keep.
+
+**The documented rationale was wrong.** The feature was justified as
+"heterozygosity is higher in admixed populations." On this data AMR has the
+*lowest* mean het rate and the *highest* mean F of all ten groups, and **30 of
+the 31** samples fixed bounds prune are on the heterozygote-*deficit* side
+(`F >= +0.15`), 28 from a single contributing cohort. AMR is a pooled label
+spanning heterogeneous admixture proportions; pooling those allele frequencies
+produces an apparent heterozygote deficit (Wahlund), pushing a structured
+subgroup past the fixed **upper** bound. The feature is right; the explanation
+was not, and `docs/cli_args.md` now carries the corrected one.
+
+**Deliberately not fixed: `sd` is not robust.** Mean and σ are computed over
+every sample, outliers included, so a real subpopulation inflates σ and widens
+the bounds, sparing itself — which is the desired behavior here. A median/MAD
+sibling was considered and **rejected on data**: `MAD 3` on AMR gives bounds
+`-0.113 .. +0.102` and prunes **63**, clipping the structured subgroup twice as
+hard as the fixed bounds it replaces. MAD assumes a clean core plus sparse
+outliers; AMR is a clean core plus a real subpopulation. The cost is documented
+rather than papered over: at `sd 3` AMR's bounds exceed the observed range on
+both sides, so het pruning is effectively a no-op for that group and is not a
+contamination screen for it.
+
+**Gating.** 45 new tests across four layers: the spec grammar and its error
+cases (`_parse_het_spec`, `_parse_het_args`, `_parse_het_ancestry_args`),
+`het_config_for` resolution on the dataclass, every row of the semantics table
+end-to-end through `parse_args`, runner-level per-group resolution across an
+ancestry loop, and step-level bound arithmetic against a frame with a known
+mean and σ (`select_het_outliers` is split out of `filter_heterozygosity` so
+this needs no PLINK). **Revert-checked**, per item 17: dropping `het_config=`
+from `_run_qc_only`'s call fails 3 of the 4 `TestHetConfigReachesEveryRunShape`
+tests. The first draft of the headline test passed under that revert because it
+handed `_run_qc_pipeline` a config itself; it was rewritten to drive
+`_run_qc_only` — the entry point the bug lived in — before it gated anything.
+
+**Deviation from the plan: the mode is logged, not put in `metrics`.** The plan
+called for recording the mode and multiplier in the step's `metrics` dict, so
+that a per-group mix does not leave incomparable `outlier_count` values in one
+JSON. Implementing it revealed why that home is wrong: `output.py:335` renders
+every metric as a row in a long `(step, metric, pruned_count)` table, so
+`het_mode="sd"` landed under a column meaning "how many were pruned", and the
+numeric descriptors were no better. `metrics` stays counts-only; the mode,
+statistic, multiplier and derived bounds go to the run log, which names them on
+every het run. Recording them in the JSON properly needs a new section rather
+than an overloaded column — tracked as item 22.
+
+**Also folded in.** `docs/cli_args.md:103` said the het step is skipped when the
+input has fewer than 50 *variants*; it is samples (`MIN_HET_SAMPLES`).
+`TestParseHetArgs` was missing the wrong-arity test that `TestParseSexArgs` and
+`TestParseLdArgs` both have. `docs/genotools_function_guide.md` carried a 1.x
+`run_het_prune(het_filter=[-0.25,0.25])` signature with a default the shipped
+pipeline never used. `HetConfig.auto_detect` — written but never reachable from
+the CLI — is now live.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -791,4 +949,39 @@ Priority order for making the refactor mergeable to `main`:
     highest-risk behaviors, not an exhaustive sweep of every round-7 test.
 18. ✅ **`--container`, `--singularity` and `--cloud` were silently inert** —
     RESOLVED in **round 10**: they now fail loudly. See round 10 above.
+19. ✅ **`--amr-het` was silently inert without `--ancestry`, and hardcoded one
+    panel's label** — RESOLVED in **round 11**: replaced by the
+    `--het` / `--het-ancestry` spec grammar, which works in both run shapes and
+    on any label. See round 11 above.
+20. **`--het-ancestry` labels are not validated until the ancestry loop runs.**
+    An unmatched label warns rather than erroring, because the predicted label
+    set is not known until after prediction — by which point the run has done
+    its most expensive work. `--subset-ancestry` (`ancestry/cohort.py:26`) has
+    the same shape with no validation at all. Both could be checked eagerly
+    against `--ref-labels`, or against a loaded model's encoder classes under
+    `--model`, before prediction starts.
+21. **No separate sample floor for `sd` mode.** `MIN_HET_SAMPLES` (50) is
+    PLINK's LD floor, not a floor for estimating a dispersion. σ estimated near
+    50 samples makes the derived boundary itself wobble in a way a fixed bound
+    does not. Documented in `docs/cli_args.md`, not gated. A higher floor for
+    `sd` specifically is a possible follow-up.
+22. **The het mode is not in the JSON report.** `sd` and fixed bounds threshold
+    different cuts, so with a per-group mix the `outlier_count` values in one
+    report are not comparable without knowing which rule produced each. The
+    mode, statistic, multiplier and derived bounds are logged but not
+    serialized, because the QC report is a long `(step, metric, pruned_count)`
+    table with no room for a descriptive value (see round 11). Needs a
+    dedicated JSON section, which changes the report contract and the goldens.
+23. **`--model` without `--ref-panel`/`--ref-labels` fails inside PLINK.**
+    Inference mode still needs the reference panel — `get_raw_files(train=False)`
+    subsets it to the model's common SNPs and reads its `.raw`
+    (`ancestry/preprocessing.py:110`) — but nothing checks for it, so
+    `runner.py:893`'s `str(self.args.ancestry.ref_panel)` stringifies `None`
+    and PLINK is handed `--bfile None`, reporting
+    `Failed to open None.bed`. Reproduced on `afad04c` with the het work
+    absent, so it predates round 11; 1.3.6 caught the same mistake with
+    "Please make sure geno_path, ref_panel, ref_labels, and out_path are all
+    set", so this is a 2.0 regression in *diagnosis*, not in capability. Wants
+    the same up-front rejection round 10 gave `--container`: validate in
+    `AncestryArgs.__post_init__` that `--model` is accompanied by both.
 

@@ -18,7 +18,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='the_real_genotools', 
-    version='2.0.0', 
+    version='2.0.1', 
     packages=find_packages(exclude=["tests", "tests.*"]),
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',

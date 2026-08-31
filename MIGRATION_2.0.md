@@ -26,7 +26,6 @@ so existing scripts keep running. They will be removed in a future release.
 |---|---|
 | `--all_sample` | `--all-sample` |
 | `--all_variant` | `--all-variant` |
-| `--amr_het` | `--amr-het` |
 | `--case_control` | `--case-control` |
 | `--covar_names` | `--covar-names` |
 | `--duplicated_cutoff` | `--duplicated-cutoff` |
@@ -45,7 +44,7 @@ so existing scripts keep running. They will be removed in a future release.
 To find them in your own scripts:
 
 ```bash
-grep -rnE '\-\-(all|amr|case|covar|duplicated|filter|full|kinship|maf|min|prune|ref|related|skip|subset)_' .
+grep -rnE '\-\-(all|case|covar|duplicated|filter|full|kinship|maf|min|prune|ref|related|skip|subset)_' .
 ```
 
 ### Boolean flags no longer accept a value
@@ -64,7 +63,7 @@ enable it, or omit it to disable it.
 ```
 
 To migrate: **pass the flag alone to enable, omit it to disable.** Affects
-`--all_sample`, `--all_variant`, `--amr_het`, `--ancestry`,
+`--all_sample`, `--all_variant`, `--ancestry`,
 `--filter_controls`, `--full_output`, `--gwas`, `--kinship_check`,
 `--maf_lambdas`, `--prune_related`, `--related`, `--skip_fails`, `--warn`,
 `--prune_duplicated`. (`--container` and `--singularity` are also presence-only
@@ -81,9 +80,60 @@ rather than omission:
 `--warn` and `--prune_duplicated` are still accepted on their own as no-ops,
 since what they requested is now the default.
 
+### `--amr-het` was removed, replaced by `--het-ancestry`
+
+Not a rename — a different flag with different reach. Both spellings
+(`--amr-het`, `--amr_het`) are rejected with a message naming the replacement:
+
+```
+$ genotools ... --all-sample --amr-het
+ERROR: --amr-het was removed in GenoTools 2.0.1. Use '--het-ancestry AMR sd'
+instead, which also works in a flat run (--amr-het silently did nothing
+without --ancestry). See MIGRATION_2.0.md.
+```
+
+| 1.x / 2.0.0 | 2.0.1 |
+|---|---|
+| `--ancestry --all-sample --amr_het` | `--ancestry --all-sample --het-ancestry AMR sd` |
+
+Three reasons it changed rather than being carried forward:
+
+- **It was silently inert outside `--ancestry`.** The flag was read in exactly
+  one place, inside the ancestry branch; a flat run never consulted it. The
+  per-ancestry production workflow runs ancestry once and then QCs each group
+  as a separate flat job — precisely the path where it did nothing, with no
+  warning and a normal-looking JSON. `--het-ancestry` works in both run shapes,
+  and errors rather than being ignored when it cannot apply.
+- **It hardcoded one reference panel's label.** `label == "AMR"` was the only
+  user-facing feature in the codebase that assumed a particular panel's naming.
+  The label vocabulary is user-supplied — from `--ref-labels`, or from a
+  pickled model's encoder — so the flag was unusable on any panel spelling the
+  group differently, and could never reach `CAH`, the synthetic admixed label
+  that admixture detection invents.
+- **The multiplier was invisible.** `--amr-het` was described as "auto-detect",
+  but only the location and scale were derived from the data; the `3` was
+  hardcoded. `sd [N]` makes it a knob.
+
+**The replacement is not bit-for-bit identical in principle, though it was in
+practice here.** `--amr-het` thresholded the derived heterozygosity *rate*;
+`sd` thresholds `F`, so that both spellings of `--het` bound the same
+statistic. The two are near-perfectly anti-correlated within a group, so the
+`mean ± 3σ` rule picks the same samples either way: measured on the GP2 r12 10k
+subset (9,771 samples post-callrate) the two rules select **identical** sets —
+99 samples each, zero disagreements cohort-wide and zero within AMR's 340 —
+despite bounds on quite different scales (`F: [-0.081, 0.160]` against
+`rate: [0.258, 0.332]`). Nothing guarantees that on other data, so treat a
+borderline sample moving as possible rather than expected.
+
+`--het` itself gained the same spec grammar (`--het sd [N]` alongside
+`LOWER UPPER`), and the 1.x `--het -1 -1` sentinel still works while warning
+that `--het sd` is the spelling now. See
+[docs/cli_args.md](docs/cli_args.md) for the full grammar.
+
 ### New flags
 
-`--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`.
+`--het-ancestry`, `--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`.
+`--het` accepts a new `sd [N]` form.
 
 ---
 
