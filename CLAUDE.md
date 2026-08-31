@@ -109,8 +109,9 @@ model's encoder. Admixture detection also invents `CAH`, which appears in no
 panel. `label == "AMR"` was the second defect behind `--amr-het`.
 
 **`str(None)` is `"None"`,** which reaches PLINK as a filename and produces
-`Failed to open None.bed`. Validate optional paths up front — this is live in
-inference mode (`REFACTOR.md` item 23).
+`Failed to open None.bed`. Validate optional paths up front, at the CLI
+boundary — this is how `--ancestry` without `--ref-panel` used to fail
+(round 12).
 
 **Data preconditions are skips, not crashes.** A step the data rules out gets a
 `<step>_skip_reason()` in `core/validation.py`, wired into `_skip_reasons()`,

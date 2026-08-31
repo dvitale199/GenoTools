@@ -1369,6 +1369,37 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         use_cloud=ns.cloud,
     )
 
+    # Ancestry prediction needs the reference panel in *both* modes. Training
+    # builds the reference PCA from it; inference (--model) still re-derives
+    # that PCA, subsetting the panel to the model's common SNPs
+    # (ancestry/preprocessing.py) and reading the labels TSV. Without this
+    # check the missing path is stringified into a PLINK command and surfaces
+    # as "Failed to open None.bed" / "No such file or directory: 'None.bim'" -
+    # naming neither the flag nor the reason. See REFACTOR.md item 23.
+    #
+    # Deliberately after AncestryArgs is constructed: its __post_init__ rejects
+    # --container/--singularity/--cloud, and a flag that can never work is more
+    # useful to report than a panel the user could supply.
+    if ancestry_args.run_ancestry:
+        missing = [
+            flag
+            for flag, value in (
+                ("--ref-panel", ancestry_args.ref_panel),
+                ("--ref-labels", ancestry_args.ref_labels),
+            )
+            if value is None
+        ]
+        if missing:
+            detail = (
+                "--model still needs it: inference re-derives the reference "
+                "PCA from the panel."
+                if ancestry_args.model_path
+                else "Training builds the reference PCA from it."
+            )
+            raise ValueError(
+                f"--ancestry requires {' and '.join(missing)}. {detail}"
+            )
+
     gwas_args = GWASArgs(
         run_pca=ns.pca is not None,
         n_pcs=ns.pca if ns.pca is not None else 10,
