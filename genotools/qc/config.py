@@ -76,28 +76,48 @@ class SexConfig(ThresholdConfig):
 class HetConfig(ThresholdConfig):
     """Configuration for heterozygosity filtering.
 
-    Removes samples with extreme heterozygosity rates, either using
-    fixed F-statistic bounds or automatic detection based on standard
-    deviations from the mean.
+    Removes samples with extreme heterozygosity, either using fixed
+    F-statistic bounds or bounds derived from the group's own dispersion.
+
+    The CLI spells the derived mode ``sd`` (``--het sd [N]``); the config
+    fields keep the ``auto_*`` prefix that predates it. ``--het sd N`` maps to
+    ``auto_detect=True, auto_sd=N``.
+
+    Two statistics are in play, for back-compatibility reasons:
+
+    - ``auto_detect=True`` thresholds **F** at ``mean +/- auto_sd * sd``, so
+      both modes bound the same statistic the fixed bounds do. This is what
+      the CLI's ``sd`` mode uses.
+    - The legacy ``f_lower == f_upper == -1.0`` sentinel thresholds the derived
+      **heterozygosity rate** instead, at 3 standard deviations. Retained
+      unchanged for Python-API callers that already pass it; the CLI no longer
+      produces it.
 
     Attributes:
-        f_lower: Lower F-statistic bound. Samples with F < this are removed.
-            Set to -1.0 along with f_upper to enable auto_detect mode.
+        f_lower: Lower F-statistic bound. Samples with F <= this are removed.
+            Set to -1.0 along with f_upper for the legacy rate-based mode.
             Default is -0.15.
-        f_upper: Upper F-statistic bound. Samples with F > this are removed.
-            Set to -1.0 along with f_lower to enable auto_detect mode.
+        f_upper: Upper F-statistic bound. Samples with F >= this are removed.
+            Set to -1.0 along with f_lower for the legacy rate-based mode.
             Default is 0.15.
-        auto_detect: If True (or if both f_lower and f_upper are -1.0),
-            use 3 standard deviations from the mean heterozygosity rate
-            to determine outliers. Default is False.
+        auto_detect: If True, derive bounds from the data rather than using
+            f_lower/f_upper. Default is False.
+        auto_sd: Multiplier on the standard deviation when auto_detect is True.
+            Must be > 0. Default is 3.0. Ignored when auto_detect is False.
+            This is a dispersion multiplier, not an expected-flag-rate dial:
+            heterozygosity within an admixed group is often skewed or
+            multimodal, so the 3-sigma-is-0.3% intuition does not transfer.
     """
 
     f_lower: float = -0.15
     f_upper: float = 0.15
     auto_detect: bool = False
+    auto_sd: float = 3.0
 
     def __post_init__(self) -> None:
-        # Special case: [-1, -1] means auto-detect mode
+        if self.auto_sd <= 0:
+            raise ValueError(f"auto_sd ({self.auto_sd}) must be greater than 0")
+        # Special case: [-1, -1] means legacy rate-based auto-detect mode
         if self.f_lower == -1.0 and self.f_upper == -1.0:
             return
         if not self.auto_detect:

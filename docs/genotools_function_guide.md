@@ -111,7 +111,7 @@ Executes sex-based pruning on genotype data using PLINK.
 ## run_het_prune
 
 ```python
-run_het_prune(self, het_filter=[-0.25,0.25])
+filter_heterozygosity(data, config: HetConfig, out_path)
 ```
 
 ### Description
@@ -120,7 +120,15 @@ Executes heterozygosity-based pruning on genotype data using PLINK.
 
 ### Parameters
 
-- **het_filter**: Threshold for acceptable heterozygosity rate. Defaults to [-0.25,0.25].
+- **config**: A `HetConfig`. `f_lower`/`f_upper` are fixed bounds on PLINK's F
+  coefficient, defaulting to `-0.15`/`0.15`. Setting `auto_detect=True` derives
+  the bounds from the data instead, at `mean ± auto_sd · σ` of F (`auto_sd`
+  defaults to `3.0`); `f_lower`/`f_upper` are then unused. The legacy
+  `f_lower=f_upper=-1.0` sentinel also derives bounds, but from the
+  heterozygosity *rate* at 3σ — retained for existing callers.
+
+The 1.x `SampleQC.run_het_prune(het_filter=[-0.25, 0.25])` signature is gone,
+and its default was never `[-0.25, 0.25]` in the shipped pipeline.
 
 ### Returns
 

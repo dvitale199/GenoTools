@@ -28,7 +28,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -51,6 +51,9 @@ from ..core.validation import (
     sex_skip_reason,
 )
 from ..qc.results import unrun_result
+
+if TYPE_CHECKING:  # QC config is imported lazily in _initialize_modules
+    from ..qc.config import HetConfig
 
 logger = get_logger(__name__)
 
@@ -483,18 +486,15 @@ class PipelineRunner:
         if not steps:
             return self._build_output()
 
-        # Run QC for each ancestry group
-        het_value = [self.args.sample_qc.het_lower, self.args.sample_qc.het_upper]
+        # An override naming a group that was never predicted would otherwise
+        # do nothing at all, silently - --amr-het's failure mode on any panel
+        # that does not spell the group "AMR".
+        self._warn_unmatched_het_labels()
 
         for label in self.state.labels_list:
             # Set up paths for this ancestry
             geno_path = f"{self.args.out_path}_ancestry_{label}"
             out_path = f"{self.args.out_path}_{label}"
-
-            # Handle AMR heterozygosity
-            current_het = het_value
-            if self.args.sample_qc.amr_het and label == "AMR":
-                current_het = [-1.0, -1.0]
 
             # Decided per group: an ancestry group's sample count can differ
             # sharply from the cohort validate_input saw. Counting samples reads
@@ -514,12 +514,34 @@ class PipelineRunner:
                 steps=steps,
                 geno_path=geno_path,
                 out_path=out_path,
-                het_values=current_het,
+                het_config=self.args.sample_qc.het_config_for(label),
                 ancestry_label=label,
                 skip_reasons=group_skips,
             )
 
         return self._build_output()
+
+    def _warn_unmatched_het_labels(self) -> None:
+        """Warn once for each --het-ancestry label that was never predicted.
+
+        The label vocabulary is entirely user-supplied - from the --ref-labels
+        TSV, or from a pickled model's encoder - so a typo, or a panel that
+        spells the group differently, produces an override that matches
+        nothing. Naming the predicted labels turns that into a fixable
+        message rather than a silently ignored flag.
+        """
+        assert self.state is not None
+        predicted = set(self.state.labels_list or [])
+        unmatched = sorted(
+            set(self.args.sample_qc.het_by_ancestry) - predicted
+        )
+        if not unmatched:
+            return
+        logger.warning(
+            f"--het-ancestry {', '.join(unmatched)}: no such ancestry group in "
+            f"this run, so the override does nothing. Predicted groups: "
+            f"{', '.join(sorted(predicted))}."
+        )
 
     def _resolve_existing_geno(self, geno_path: str) -> str:
         """Resolve the prefix whose pfiles are actually on disk.
@@ -602,10 +624,14 @@ class PipelineRunner:
         """
         assert self.state is not None
 
+        # A flat run has no labels, so only the base spec can apply - but it
+        # must still be *passed*. Omitting it here is what made --amr-het inert
+        # in exactly the run shape the per-ancestry production workflow uses.
         self._run_qc_pipeline(
             steps=steps,
             geno_path=str(self.state.geno_path),
             out_path=str(self.state.out_path),
+            het_config=self.args.sample_qc.het_config_for(None),
             skip_reasons=self._skip_reasons(steps, str(self.state.geno_path)),
         )
 
@@ -909,7 +935,7 @@ class PipelineRunner:
         steps: List[str],
         geno_path: str,
         out_path: str,
-        het_values: Optional[List[float]] = None,
+        het_config: Optional["HetConfig"] = None,
         ancestry_label: str = "all",
         skip_reasons: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
@@ -919,7 +945,10 @@ class PipelineRunner:
             steps: List of QC steps to run.
             geno_path: Input genotype path.
             out_path: Output path.
-            het_values: Optional heterozygosity thresholds.
+            het_config: Resolved HetConfig for this dataset. Callers resolve it
+                through ``SampleQCArgs.het_config_for`` rather than passing raw
+                thresholds, so the base/override precedence is decided in one
+                place for every run shape.
             ancestry_label: Ancestry label for this run.
             skip_reasons: Steps the input data rules out, mapped to why. They
                 stay in ``steps`` and are reported as skipped rather than
@@ -948,8 +977,8 @@ class PipelineRunner:
 
         # Get legacy args for parameter passing
         legacy_args = self.args.to_legacy_dict()
-        if het_values is not None:
-            legacy_args["het"] = het_values
+        if het_config is None:
+            het_config = self.args.sample_qc.het_config_for(None)
         if self._validation_decisions.disable_filter_controls:
             legacy_args["filter_controls"] = False
 
@@ -1058,6 +1087,7 @@ class PipelineRunner:
                         step_input=step_input,
                         step_output=step_output,
                         legacy_args=legacy_args,
+                        het_config=het_config,
                     )
                 except GenoToolsError as e:
                     logger.error(f"Step {step} failed: {e}")
@@ -1219,6 +1249,7 @@ class PipelineRunner:
         step_input: str,
         step_output: str,
         legacy_args: Dict[str, Any],
+        het_config: Optional["HetConfig"] = None,
     ) -> Optional[Dict[str, Any]]:
         """Run a single QC step using pure function modules.
 
@@ -1227,6 +1258,9 @@ class PipelineRunner:
             step_input: Input path.
             step_output: Output path.
             legacy_args: Legacy argument dictionary.
+            het_config: Resolved HetConfig for the het step. Passed in already
+                resolved rather than rebuilt from legacy_args, which cannot
+                express the derived-bounds mode.
 
         Returns:
             Step result dictionary in legacy format, or None if step skipped.
@@ -1249,9 +1283,14 @@ class PipelineRunner:
             return result.to_dict()
 
         elif step == "het":
-            het_vals = legacy_args["het"]
-            config = self._config_classes["HetConfig"](f_lower=het_vals[0], f_upper=het_vals[1])
-            result = self._new_modules["filter_heterozygosity"](data, config, Path(step_output))
+            if het_config is None:
+                het_vals = legacy_args["het"]
+                het_config = self._config_classes["HetConfig"](
+                    f_lower=het_vals[0], f_upper=het_vals[1]
+                )
+            result = self._new_modules["filter_heterozygosity"](
+                data, het_config, Path(step_output)
+            )
             return result.to_dict()
 
         elif step == "related":

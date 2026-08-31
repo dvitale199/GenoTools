@@ -15,6 +15,7 @@
 
 """Regression tests for CLI runner bugs found in the refactor hardening audit."""
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List
@@ -24,9 +25,11 @@ import pytest
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.cli.parser import (
     AncestryArgs,
+    HetSpec,
     InputArgs,
     OutputArgs,
     PipelineArgs,
+    SampleQCArgs,
 )
 from genotools.cli.runner import PipelineRunner, PipelineState
 
@@ -69,7 +72,11 @@ def _fake_step_factory(failing_step: str):
     check succeeds; the failing step raises QCError like a real failed step.
     """
     def fake_single_step(
-        step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any]
+        step: str,
+        step_input: str,
+        step_output: str,
+        legacy_args: Dict[str, Any],
+        **_: Any,
     ) -> Dict[str, Any]:
         if step == failing_step:
             raise QCError(f"{step} failed")
@@ -92,7 +99,11 @@ def _write_traceable_pfiles(prefix: Path) -> None:
 def _traceable_step_factory(failing_step: str):
     """Like _fake_step_factory but passing steps write traceable pfiles."""
     def fake_single_step(
-        step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any]
+        step: str,
+        step_input: str,
+        step_output: str,
+        legacy_args: Dict[str, Any],
+        **_: Any,
     ) -> Dict[str, Any]:
         if step == failing_step:
             raise QCError(f"{step} failed")
@@ -371,7 +382,7 @@ class TestValidationDecisionsApplied:
         runner._validation_decisions = ValidationDecisions(disable_filter_controls=True)
         captured: Dict[str, Any] = {}
 
-        def fake_single_step(step, step_input, step_output, legacy_args):
+        def fake_single_step(step, step_input, step_output, legacy_args, **_):
             captured["filter_controls"] = legacy_args["filter_controls"]
             _touch_pfiles(Path(step_output))
             return {"pass": True, "step": step, "metrics": {}, "output": {}}
@@ -466,7 +477,7 @@ class TestRunSummary:
         cap = _Capture()
         _logging.getLogger("genotools").addHandler(cap)
 
-        def fake_single_step(step, step_input, step_output, legacy_args):
+        def fake_single_step(step, step_input, step_output, legacy_args, **_):
             _touch_pfiles(Path(step_output))
             return {
                 "pass": True, "step": step,
@@ -527,7 +538,7 @@ class TestRunSummary:
         cap = _ConsoleCapture()
         _logging.getLogger("genotools").addHandler(cap)
 
-        def fake_single_step(step, step_input, step_output, legacy_args):
+        def fake_single_step(step, step_input, step_output, legacy_args, **_):
             _touch_pfiles(Path(step_output))
             return {"pass": True, "step": step, "metrics": {}, "output": {}}
 
@@ -672,7 +683,7 @@ class TestStepOutcomesReachTheReport:
         runner, geno, out = _make_runner(tmp_path, warn_only=False)
         ran: list[str] = []
 
-        def recording_step(step, step_input, step_output, legacy_args):
+        def recording_step(step, step_input, step_output, legacy_args, **_):
             ran.append(step)
             _touch_pfiles(Path(step_output))
             return {"pass": True, "step": step, "metrics": {}, "output": {}}
@@ -693,7 +704,7 @@ class TestStepOutcomesReachTheReport:
         runner, geno, out = _make_runner(tmp_path, warn_only=False)
         inputs: dict[str, str] = {}
 
-        def recording_step(step, step_input, step_output, legacy_args):
+        def recording_step(step, step_input, step_output, legacy_args, **_):
             inputs[step] = step_input
             _touch_pfiles(Path(step_output))
             return {"pass": True, "step": step, "metrics": {}, "output": {}}
@@ -846,7 +857,7 @@ class TestSkipAtTheEndOfTheChain:
         runner, geno, out = _make_runner(tmp_path, warn_only=False)
         outputs: dict[str, str] = {}
 
-        def recording_step(step, step_input, step_output, legacy_args):
+        def recording_step(step, step_input, step_output, legacy_args, **_):
             outputs[step] = step_output
             _touch_pfiles(Path(step_output))
             return {"pass": True, "step": step, "metrics": {}, "output": {}}
@@ -1251,3 +1262,296 @@ class TestPerGroupSex:
         assert "12 samples" in reasons["het"]
         assert reasons["sex"] == "no sample sex data is available"
         assert "not both" in reasons["case_control"]
+
+
+class _StubResult:
+    """Minimal stand-in for FilterResult, enough for _run_qc_pipeline."""
+
+    def __init__(self, out_path: str) -> None:
+        self.out_path = out_path
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "pass": True,
+            "step": "het_prune",
+            "metrics": {},
+            "output": {"plink_out": self.out_path},
+        }
+
+
+class TestHetConfigReachesEveryRunShape:
+    """Regression: --amr-het was read in exactly one place, inside
+    ``_run_with_ancestry``. ``_run_qc_only`` never passed het values at all, so
+    the flag was silently inert in a flat run - and the per-ancestry production
+    workflow runs ancestry once, then QCs each group as a separate *flat* job.
+    That is precisely the path where it did nothing, with no warning.
+
+    The fix routes both paths through ``SampleQCArgs.het_config_for``, so these
+    tests assert the resolved config *arrives at the step*, not merely that the
+    parser built it.
+    """
+
+    def _flat_runner(self, tmp_path: Path, sample_qc: SampleQCArgs):
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        # het is auto-skipped below PLINK's 50-sample LD floor, and a skipped
+        # step never reaches the config at all.
+        _psam_with(geno, 200)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+            sample_qc=sample_qc,
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        return runner, geno, out
+
+    @staticmethod
+    def _capture_het(runner, monkeypatch) -> Dict[str, Any]:
+        """Record the HetConfig filter_heterozygosity is actually called with.
+
+        Stubs at the module boundary rather than at ``_run_single_step`` so the
+        assertion covers the real config-building branch, not the plumbing
+        around it.
+        """
+        runner._initialize_modules()
+        seen: Dict[str, Any] = {}
+
+        class _StubGenotypeData:
+            @staticmethod
+            def from_path(path):
+                return path
+
+        def fake_filter(data, config, out_path):
+            seen["config"] = config
+            _touch_pfiles(Path(out_path))
+            return _StubResult(str(out_path))
+
+        monkeypatch.setitem(
+            runner._new_modules, "GenotypeData", _StubGenotypeData
+        )
+        monkeypatch.setitem(
+            runner._new_modules, "filter_heterozygosity", fake_filter
+        )
+        return seen
+
+    def test_flat_run_reaches_the_step_with_derived_bounds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE regression. A flat ``--het sd`` run must reach
+        filter_heterozygosity with auto_detect set.
+
+        Drives ``_run_qc_only`` - the entry point the bug lived in - rather
+        than handing ``_run_qc_pipeline`` a config directly, which would pass
+        against the broken code and pin nothing.
+
+        Revert check: drop ``het_config=`` from ``_run_qc_only``'s call and
+        this fails with ``auto_detect=False`` and the base fixed bounds,
+        exactly as --amr-het did.
+        """
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_auto=True, het_auto_sd=2.0)
+        )
+        seen = self._capture_het(runner, monkeypatch)
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_qc_only(["het"])
+
+        assert seen["config"].auto_detect is True
+        assert seen["config"].auto_sd == 2.0
+
+    def test_run_qc_only_passes_a_resolved_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The bug was in _run_qc_only specifically: it called the pipeline
+        without any het argument. Pin the call itself."""
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_auto=True, het_auto_sd=2.5)
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        captured: Dict[str, Any] = {}
+
+        def fake_pipeline(**kwargs: Any) -> None:
+            captured.update(kwargs)
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_pipeline)
+        runner._run_qc_only(["het"])
+
+        assert "het_config" in captured, (
+            "_run_qc_only must pass a resolved HetConfig; omitting it is the "
+            "original bug"
+        )
+        assert captured["het_config"].auto_detect is True
+        assert captured["het_config"].auto_sd == 2.5
+
+    def test_fixed_base_still_reaches_the_step_unchanged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The default path must not have moved."""
+        runner, _, _ = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_lower=-0.2, het_upper=0.2)
+        )
+        seen = self._capture_het(runner, monkeypatch)
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        runner._run_qc_only(["het"])
+
+        assert seen["config"].auto_detect is False
+        assert (seen["config"].f_lower, seen["config"].f_upper) == (-0.2, 0.2)
+
+    def test_pipeline_without_het_config_falls_back_to_the_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Any caller that forgets the argument still gets the base spec, not
+        the defaults - the old failure mode was reverting to fixed bounds."""
+        runner, geno, out = self._flat_runner(
+            tmp_path, SampleQCArgs(run_het=True, het_auto=True, het_auto_sd=1.5)
+        )
+        seen = self._capture_het(runner, monkeypatch)
+
+        runner._run_qc_pipeline(
+            steps=["het"], geno_path=str(geno), out_path=str(out)
+        )
+
+        assert seen["config"].auto_detect is True
+        assert seen["config"].auto_sd == 1.5
+
+
+class TestPerGroupHetConfig:
+    """--het-ancestry resolves per group across the ancestry loop, on any
+    label. The retired --amr-het hardcoded ``label == "AMR"``, the only
+    user-facing feature that assumed one reference panel's naming - so it could
+    never reach CAH, the synthetic admixed label admixture detection invents.
+    """
+
+    def _run_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        sample_qc: SampleQCArgs, labels: List[str],
+    ) -> Dict[str, Any]:
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        work = tmp_path / "tmpwork"
+        work.mkdir(exist_ok=True)
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=False),
+            sample_qc=sample_qc,
+            ancestry=AncestryArgs(run_ancestry=True),
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(
+            geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
+        )
+        for label in labels:
+            _psam_with(work / f"out_ancestry_{label}", 200)
+
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": labels}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+
+        seen: Dict[str, Any] = {}
+
+        def fake_qc(**kwargs: Any) -> None:
+            seen[kwargs["ancestry_label"]] = kwargs["het_config"]
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_qc)
+        runner._run_with_ancestry(["het"])
+        return seen
+
+    def test_override_applies_only_to_its_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = self._run_loop(
+            tmp_path,
+            monkeypatch,
+            SampleQCArgs(
+                run_het=True,
+                het_lower=-0.2,
+                het_upper=0.2,
+                het_by_ancestry={"AMR": HetSpec(auto=True, sd=3.0)},
+            ),
+            ["AMR", "EUR"],
+        )
+        assert seen["AMR"].auto_detect is True
+        assert seen["EUR"].auto_detect is False
+        assert (seen["EUR"].f_lower, seen["EUR"].f_upper) == (-0.2, 0.2)
+
+    def test_mixed_overrides_on_an_adaptive_base(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen = self._run_loop(
+            tmp_path,
+            monkeypatch,
+            SampleQCArgs(
+                run_het=True,
+                het_auto=True,
+                het_auto_sd=2.0,
+                het_by_ancestry={
+                    "AMR": HetSpec(auto=True, sd=1.5),
+                    "CAH": HetSpec(lower=-0.3, upper=0.3),
+                },
+            ),
+            ["AMR", "CAH", "EUR"],
+        )
+        assert seen["AMR"].auto_sd == 1.5
+        assert seen["CAH"].auto_detect is False
+        assert (seen["CAH"].f_lower, seen["CAH"].f_upper) == (-0.3, 0.3)
+        assert seen["EUR"].auto_sd == 2.0, "non-overridden group keeps the base"
+
+    def test_non_amr_label_is_reachable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CAH is invented by admixture detection and appears in no reference
+        panel, so --amr-het could not name it."""
+        seen = self._run_loop(
+            tmp_path,
+            monkeypatch,
+            SampleQCArgs(
+                run_het=True, het_by_ancestry={"CAH": HetSpec(auto=True)}
+            ),
+            ["CAH", "EUR"],
+        )
+        assert seen["CAH"].auto_detect is True
+        assert seen["EUR"].auto_detect is False
+
+    def test_unknown_label_warns_and_names_the_predicted_groups(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        """An override matching no predicted group would otherwise do nothing
+        silently - --amr-het's failure on any panel not spelling it "AMR"."""
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            seen = self._run_loop(
+                tmp_path,
+                monkeypatch,
+                SampleQCArgs(
+                    run_het=True, het_by_ancestry={"AMRR": HetSpec(auto=True)}
+                ),
+                ["AMR", "EUR"],
+            )
+        assert "AMRR" in caplog.text
+        assert "AMR" in caplog.text and "EUR" in caplog.text
+        assert seen["AMR"].auto_detect is False, "the typo must not match AMR"
+
+    def test_matching_label_does_not_warn(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            self._run_loop(
+                tmp_path,
+                monkeypatch,
+                SampleQCArgs(
+                    run_het=True, het_by_ancestry={"AMR": HetSpec(auto=True)}
+                ),
+                ["AMR", "EUR"],
+            )
+        assert "no such ancestry group" not in caplog.text
+
