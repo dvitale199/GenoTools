@@ -257,3 +257,63 @@ class TestUnrunResult:
         )
         assert result.to_dict()["outcome"] == "pass"
         assert result.to_dict()["reason"] is None
+
+
+class TestParametersChannel:
+    """``parameters`` is the way a step reports something that is not a count.
+
+    ``metrics`` cannot carry one: the JSON report renders every metric as a row
+    in a long (step, metric, pruned_count) table, so a mode name or a derived
+    bound would land under a column meaning "how many were pruned". A step that
+    works its thresholds out from the data - ``--het sd`` - is the only thing
+    that knows what they came to, so it needs a way to say so.
+    """
+
+    @pytest.fixture
+    def data(self) -> MagicMock:
+        mock = MagicMock()
+        mock.path = Path("/output/test")
+        mock.sample_count = 90
+        return mock
+
+    def test_parameters_reach_the_result_dict(self, data: MagicMock) -> None:
+        """Revert check: drop "parameters" from ``to_dict`` and this fails -
+        the runner reads it from exactly here."""
+        result = FilterResult(
+            output=data,
+            samples_removed=8,
+            variants_removed=0,
+            metrics={"outlier_count": 8},
+            parameters={"het_mode": "sd", "het_lower": -0.0157},
+            step_name="het_prune",
+        )
+        assert result.to_dict()["parameters"] == {
+            "het_mode": "sd",
+            "het_lower": -0.0157,
+        }
+
+    def test_parameters_stay_out_of_metrics(self, data: MagicMock) -> None:
+        """The constraint the channel exists for."""
+        result = FilterResult(
+            output=data,
+            samples_removed=8,
+            variants_removed=0,
+            metrics={"outlier_count": 8},
+            parameters={"het_mode": "sd"},
+            step_name="het_prune",
+        )
+        metrics = result.to_dict()["metrics"]
+
+        assert "het_mode" not in metrics
+        assert all(isinstance(v, int) for v in metrics.values())
+
+    def test_default_is_empty_not_absent(self, data: MagicMock) -> None:
+        """Every step's dict has the key, so the runner reads it without a
+        branch and a step that derives nothing simply records nothing."""
+        result = FilterResult(
+            output=data,
+            samples_removed=0,
+            variants_removed=3,
+            step_name="geno_prune",
+        )
+        assert result.to_dict()["parameters"] == {}

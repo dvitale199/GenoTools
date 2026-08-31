@@ -897,6 +897,84 @@ flags in its `BASE` for the same reason.
 
 ---
 
+### Round 13 (a parameters section in the JSON report, 2.0.1)
+
+Resolves item 22. The het grammar surfaced it, but the finding is wider than
+het: **the JSON report had no options tracking at all.** All 25 top-level keys
+were outcomes — counts, labels, PCs, pass/fail. Not one threshold, not the
+invocation, not the version. The log gets closer, but only as prose: each
+step's opening line names its own parameters (`Filtering samples by callrate
+(mind=0.05)`), which is unparseable and per-run rather than per-group.
+
+**Why het made it urgent.** `sd` and fixed bounds threshold different cuts, so
+under `--het -0.2 0.2 --het-ancestry AMR sd` the `outlier_count` rows in one
+report are produced by two different rules with nothing in the file saying
+which. AMR's `0` and EUR's `85` read as the same measurement.
+
+**Not a het-shaped patch.** A `het_bounds` key would have to be deprecated the
+moment the general section exists, and every other step has the same gap — a
+report cannot say what `--callrate` was set to either. The section is general;
+het is simply the only step with anything *derived* to report today.
+
+**Requested and resolved, distinguished.** `--het sd 2` is the request;
+`[-0.0157, 0.0187]` is what it resolved to for EUR. Neither is recoverable
+from the other — the multiplier does not predict the bounds, and the bounds do
+not reveal the multiplier — so a `source` column carries both. `requested`
+rows are the config as constructed, inert defaults included (`f_lower` is
+present but unused in `sd` mode); the `resolved` row `het_mode` says which
+pair was live.
+
+**Long form, not wide.** Same shape as the QC table — `(step, parameter,
+value, ancestry, source)`. Steps take different settings, so a wide table
+would be mostly empty and a new setting on one step would add a column to
+every other step's row. `step` is the *reported* name (`het_prune`), so the
+two sections join without a lookup.
+
+**Cheap because the configs already exist.** Every step builds a frozen config
+dataclass in `_run_single_step`, so `dataclasses.asdict` is complete structured
+capture for free. The derived half needed a channel out of the step:
+`select_het_outliers` already returned a metrics dict with the mode, statistic,
+multiplier and bounds, and `filter_heterozygosity` was dropping it on the
+floor. `FilterResult` gains a `parameters` field for exactly that — separate
+from `metrics`, which stays counts-only for the reason round 11 recorded.
+
+**The recording point.** `_run_single_step` had eleven branches each ending in
+`return result.to_dict()`. They now assign `config`/`result` and fall through
+to one shared tail that records. Recording per branch would have been the
+smaller diff and the worse structure: a new step that follows the
+copy-the-nearest-step rule gets capture for free this way, and silently
+reports no settings the other way. `ancestry_label` is threaded in from
+`_run_qc_pipeline`, which already had it — without it every row in an ancestry
+run says `all`, which is the failure the section exists to prevent.
+
+**`run_info`.** `version` from a new `genotools.__version__` (setup.py now
+parses that rather than carrying a second copy), and `invocation`, captured in
+`parse_args` and `shlex`-quoted. Captured at the CLI boundary rather than read
+from `sys.argv` at write time: a Python-API caller has no command line, and
+argv would name whatever process happened to be running.
+
+**Found while regenerating the goldens: the generator had been broken for
+rounds.** `tests/scripts/generate_golden.py` invoked `python -m genotools.cli`
+— the package, not the entry point — which exits with "cannot be directly
+executed". It recorded that failure *as the golden* (`"pass": false`) instead
+of raising, so `all_sample` and `all_variant` had not been refreshed since
+before the round-7 logging redesign. The regenerated goldens therefore carry
+drift unrelated to this change: `outcome`/`reason` on every step result, the
+sectioned log format, the dead `{out}_cleaned_logs.log` gone (round 7 removed
+it, and `test_logging.py` asserts it stays gone), and haplotype temp files that
+the step now cleans up. The generator raises on a non-zero exit now.
+
+**Tests.** 24 across five layers: `FilterResult.parameters` reaching
+`to_dict`, `filter_heterozygosity` forwarding the derived bounds (with PLINK
+stubbed), both run shapes recording through `_run_qc_only` and
+`_run_with_ancestry`, config flattening, serialization, and `invocation` in
+the parser. Each revert-checked — dropping the `_record_parameters` call fails
+4, unthreading `ancestry_label` fails the per-group one, dropping
+`parameters=` from either `FilterResult.to_dict` or `filter_heterozygosity`
+fails 2 each.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1008,14 +1086,20 @@ Priority order for making the refactor mergeable to `main`:
     50 samples makes the derived boundary itself wobble in a way a fixed bound
     does not. Documented in `docs/cli_args.md`, not gated. A higher floor for
     `sd` specifically is a possible follow-up.
-22. **The het mode is not in the JSON report.** `sd` and fixed bounds threshold
-    different cuts, so with a per-group mix the `outlier_count` values in one
-    report are not comparable without knowing which rule produced each. The
-    mode, statistic, multiplier and derived bounds are logged but not
-    serialized, because the QC report is a long `(step, metric, pruned_count)`
-    table with no room for a descriptive value (see round 11). Needs a
-    dedicated JSON section, which changes the report contract and the goldens.
+22. ✅ **The het mode is not in the JSON report** — RESOLVED in **round 13**.
+    Found to be wider than recorded: the report had no options tracking at all,
+    for any step. Fixed with a general `parameters` section rather than a
+    het-specific key. See round 13 above.
 23. ✅ **`--ancestry` without `--ref-panel`/`--ref-labels` failed inside
     PLINK** — RESOLVED in **round 12**. Found to be wider than the `--model`
     case originally recorded: training fails the same way. See round 12 above.
-
+24. **`parameters` does not cover the non-QC settings.** The section is
+    populated from the step configs in `_run_single_step`, so ancestry
+    prediction's own settings (`--ref-panel`, `--model`, `--min-samples`) and
+    the cohort-split thresholds are absent — they are not step configs and
+    produce no `FilterResult`. Adding them means deciding what "step" a
+    non-QC setting belongs to.
+25. **Golden logs churn on every regeneration.** `output_all_logs.log` embeds
+    timestamps and the random temp-directory name, so regenerating the goldens
+    always diffs them even when nothing changed. Nothing reads them; either
+    normalize them at generation time or stop tracking them.

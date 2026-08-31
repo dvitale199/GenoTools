@@ -21,13 +21,18 @@ without PLINK in the loop. These pin the ``sd`` multiplier to real behaviour
 rather than to config plumbing.
 """
 
-from typing import List
+from pathlib import Path
+from typing import Any, List
 
 import pandas as pd
 import pytest
 
+from genotools.qc import steps
 from genotools.qc.config import HetConfig
-from genotools.qc.steps.heterozygosity import select_het_outliers
+from genotools.qc.steps.heterozygosity import (
+    filter_heterozygosity,
+    select_het_outliers,
+)
 
 
 def _het_frame(f_values: List[float], obs_hom: List[int] = None) -> pd.DataFrame:
@@ -209,3 +214,104 @@ class TestAutoSdValidation:
     def test_validated_even_under_the_sentinel(self) -> None:
         with pytest.raises(ValueError, match="auto_sd"):
             HetConfig(f_lower=-1.0, f_upper=-1.0, auto_sd=0.0)
+
+
+class _FakeGenotypeData:
+    """Enough of GenotypeData for filter_heterozygosity."""
+
+    format = "pfile"
+
+    def __init__(self, path: Path, sample_count: int) -> None:
+        self.path = path
+        self.sample_count = sample_count
+
+    @classmethod
+    def from_path(cls, path: Path) -> "_FakeGenotypeData":
+        return cls(Path(path), 92)
+
+
+class TestDerivedBoundsAreReported:
+    """The derived bounds have to leave the step, not just the log.
+
+    ``select_het_outliers`` works them out and hands them back; before this the
+    step logged them and dropped them, so a report could say 8 samples were
+    pruned and nothing about the rule that pruned them. With per-group bounds
+    that makes two rows of the same report incomparable.
+    """
+
+    @staticmethod
+    def _stub_plink(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, f_values: List[float]) -> None:
+        """Stand in for the three PLINK calls, writing what each produces."""
+        het_mod = steps.heterozygosity
+
+        def fake_run_plink2(
+            input_path: Any, output_path: Any, extra_args: List[str] = None, **kwargs: Any
+        ) -> None:
+            extra_args = extra_args or []
+            out = Path(output_path)
+            if "--indep-pairwise" in extra_args:
+                out.with_suffix(".prune.in").write_text("rs1\nrs2\n")
+            elif "--het" in extra_args:
+                _het_frame(f_values).to_csv(
+                    out.with_suffix(".het"), sep="\t", index=False
+                )
+            else:
+                for ext in (".pgen", ".pvar", ".psam"):
+                    out.with_suffix(ext).write_text("")
+
+        monkeypatch.setattr(het_mod, "run_plink2", fake_run_plink2)
+        monkeypatch.setattr(het_mod, "GenotypeData", _FakeGenotypeData)
+
+    def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: HetConfig):
+        geno = tmp_path / "geno"
+        for ext in (".pgen", ".pvar", ".psam"):
+            geno.with_suffix(ext).write_text("")
+        # 100 samples: two at +/-1.0 sit far outside any of these bounds.
+        f_values = [0.0] * 98 + [-1.0, 1.0]
+        self._stub_plink(monkeypatch, tmp_path, f_values)
+        data = _FakeGenotypeData(geno, 100)
+        return filter_heterozygosity(data, config, tmp_path / "out")
+
+    def test_sd_mode_reports_the_bounds_it_derived(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Revert check: drop ``parameters=het_metrics`` from the FilterResult
+        and this fails with an empty dict."""
+        result = self._run(
+            tmp_path, monkeypatch, HetConfig(auto_detect=True, auto_sd=2.0)
+        )
+
+        assert result.parameters["het_mode"] == "sd"
+        assert result.parameters["het_statistic"] == "F"
+        assert result.parameters["het_sd"] == 2.0
+        # Derived from the frame, so not predictable from the config alone -
+        # which is exactly why the step has to report them.
+        assert result.parameters["het_lower"] < 0 < result.parameters["het_upper"]
+
+    def test_fixed_mode_reports_the_bounds_it_was_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fixed bounds are reported too: without them a mixed run cannot say
+        which groups were cut by which rule."""
+        result = self._run(
+            tmp_path, monkeypatch, HetConfig(f_lower=-0.2, f_upper=0.2)
+        )
+
+        assert result.parameters["het_mode"] == "fixed"
+        assert result.parameters["het_sd"] is None
+        assert (result.parameters["het_lower"], result.parameters["het_upper"]) == (
+            -0.2,
+            0.2,
+        )
+
+    def test_metrics_stay_counts_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The reason parameters is a separate channel: every metric becomes a
+        row under a column meaning "how many were pruned"."""
+        result = self._run(
+            tmp_path, monkeypatch, HetConfig(auto_detect=True, auto_sd=2.0)
+        )
+
+        assert set(result.metrics) == {"outlier_count"}
+        assert isinstance(result.metrics["outlier_count"], int)

@@ -202,16 +202,31 @@ def generate_all_sample_golden(geno_path: Path, out_dir: Path):
     # Clean up any existing output files (pipeline refuses to overwrite)
     for pattern in ["output*", "*.log", "*.json"]:
         for f in step_out.glob(pattern):
-            f.unlink()
+            # A pipeline run can leave a directory behind (--all-variant writes
+            # an output_bfile/), and unlink() raises IsADirectoryError on one -
+            # after having already deleted the goldens ahead of it in the glob.
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
 
     cmd = [
-        sys.executable, "-m", "genotools.cli",
+        sys.executable, "-m", "genotools",
         "--pfile", str(geno_path),
         "--out", str(output_prefix),
         "--all-sample"
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        # Recording the failure as a golden is worse than not regenerating:
+        # the pipeline goldens went stale that way, when the command here was
+        # "-m genotools.cli" (the package, not the entry point) and every run
+        # since exited with "cannot be directly executed".
+        raise SystemExit(
+            f"Pipeline run failed (exit {result.returncode}); refusing to "
+            f"write a golden from it:\n{result.stderr}"
+        )
 
     metrics = {
         "pass": result.returncode == 0,
@@ -236,16 +251,31 @@ def generate_all_variant_golden(geno_path: Path, out_dir: Path):
     # Clean up any existing output files (pipeline refuses to overwrite)
     for pattern in ["output*", "*.log", "*.json"]:
         for f in step_out.glob(pattern):
-            f.unlink()
+            # A pipeline run can leave a directory behind (--all-variant writes
+            # an output_bfile/), and unlink() raises IsADirectoryError on one -
+            # after having already deleted the goldens ahead of it in the glob.
+            if f.is_dir():
+                shutil.rmtree(f)
+            else:
+                f.unlink()
 
     cmd = [
-        sys.executable, "-m", "genotools.cli",
+        sys.executable, "-m", "genotools",
         "--pfile", str(geno_path),
         "--out", str(output_prefix),
         "--all-variant"
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        # Recording the failure as a golden is worse than not regenerating:
+        # the pipeline goldens went stale that way, when the command here was
+        # "-m genotools.cli" (the package, not the entry point) and every run
+        # since exited with "cannot be directly executed".
+        raise SystemExit(
+            f"Pipeline run failed (exit {result.returncode}); refusing to "
+            f"write a golden from it:\n{result.stderr}"
+        )
 
     metrics = {
         "pass": result.returncode == 0,

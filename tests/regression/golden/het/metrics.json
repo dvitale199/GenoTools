@@ -1,8 +1,17 @@
 {
   "pass": true,
+  "outcome": "pass",
+  "reason": null,
   "step": "het_prune",
   "metrics": {
     "outlier_count": 3
+  },
+  "parameters": {
+    "het_mode": "fixed",
+    "het_statistic": "F",
+    "het_sd": null,
+    "het_lower": -0.15,
+    "het_upper": 0.15
   },
   "output": {
     "pruned_samples": "tests/regression/golden/het/output.outliers",

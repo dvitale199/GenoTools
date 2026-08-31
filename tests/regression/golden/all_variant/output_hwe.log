@@ -1,0 +1,56 @@
+$ /home/vitaled2/.genotools/misc/executables/plink --bfile tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile --hwe 0.0001 --write-snplist --out tests/regression/golden/all_variant/output_hwe_tmp
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile
+  --hwe 0.0001
+  --out tests/regression/golden/all_variant/output_hwe_tmp
+  --write-snplist
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Mon Aug 31 22:48:48 2026
+
+Random number seed: 1788216528
+56331 MB RAM detected; reserving 28165 MB for main workspace.
+40260 variants loaded from .bim file.
+231 people (0 males, 231 females) loaded from .fam.
+231 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 231 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.990044.
+--hwe: 635 variants removed due to Hardy-Weinberg exact test.
+39625 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+List of variant IDs written to
+tests/regression/golden/all_variant/output_hwe_tmp.snplist .
+
+End time: Mon Aug 31 22:48:48 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --bfile tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile --extract tests/regression/golden/all_variant/output_hwe_tmp.snplist --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_variant/output
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --bfile tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile
+  --extract tests/regression/golden/all_variant/output_hwe_tmp.snplist
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/output
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Mon Aug 31 22:48:48 2026
+
+Random number seed: 1788216528
+56331 MiB RAM detected, ~52687 available; reserving 28165 MiB for main
+workspace.
+Using up to 56 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile.fam.
+40260 variants loaded from
+tests/regression/golden/all_variant/output_bfile/output_geno_case_control_haplotype_bfile.bim.
+1 binary phenotype loaded (113 cases, 118 controls).
+--extract: 39625 variants remaining.
+39625 variants remaining after main filters.
+Writing tests/regression/golden/all_variant/output.psam ... done.
+Writing tests/regression/golden/all_variant/output.pvar ... done.
+Writing tests/regression/golden/all_variant/output.pgen ... done.
+
+End time: Mon Aug 31 22:48:48 2026

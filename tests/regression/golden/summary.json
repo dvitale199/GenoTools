@@ -1,10 +1,13 @@
 {
   "callrate": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "callrate_prune",
     "metrics": {
       "outlier_count": 12
     },
+    "parameters": {},
     "output": {
       "pruned_samples": "tests/regression/golden/callrate/output.outliers",
       "plink_out": "tests/regression/golden/callrate/output"
@@ -12,10 +15,13 @@
   },
   "sex": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "sex_prune",
     "metrics": {
       "outlier_count": 253
     },
+    "parameters": {},
     "output": {
       "pruned_samples": "tests/regression/golden/sex/output.outliers",
       "plink_out": "tests/regression/golden/sex/output"
@@ -23,9 +29,18 @@
   },
   "het": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "het_prune",
     "metrics": {
       "outlier_count": 3
+    },
+    "parameters": {
+      "het_mode": "fixed",
+      "het_statistic": "F",
+      "het_sd": null,
+      "het_lower": -0.15,
+      "het_upper": 0.15
     },
     "output": {
       "pruned_samples": "tests/regression/golden/het/output.outliers",
@@ -34,64 +49,92 @@
   },
   "related": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "related_prune",
     "metrics": {
       "related_count": 0,
       "duplicated_count": 1
     },
+    "parameters": {},
     "output": {
       "pruned_samples": "tests/regression/golden/related/output.pruned",
-      "related_samples": "tests/regression/golden/related/output_pairs.related",
-      "plink_out": "tests/regression/golden/related/output"
+      "plink_out": "tests/regression/golden/related/output",
+      "related_samples": "tests/regression/golden/related/output_pairs.related"
     }
   },
   "geno": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "geno_prune",
     "metrics": {
+      "outlier_count": 225,
       "geno_removed_count": 225
     },
+    "parameters": {},
     "output": {
+      "pruned_samples": null,
       "plink_out": "tests/regression/golden/geno/output"
     }
   },
   "hwe": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "hwe_prune",
     "metrics": {
+      "outlier_count": 636,
       "hwe_removed_count": 636
     },
+    "parameters": {},
     "output": {
+      "pruned_samples": null,
       "plink_out": "tests/regression/golden/hwe/output"
     }
   },
   "case_control": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "case_control_missingness_prune",
     "metrics": {
+      "outlier_count": 0,
       "mis_removed_count": 0
     },
+    "parameters": {},
     "output": {
+      "pruned_samples": null,
       "plink_out": "tests/regression/golden/case_control/output"
     }
   },
   "haplotype": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "haplotype_prune",
     "metrics": {
+      "outlier_count": 12,
       "haplotype_removed_count": 12
     },
+    "parameters": {},
     "output": {
+      "pruned_samples": null,
       "plink_out": "tests/regression/golden/haplotype/output"
     }
   },
   "ld": {
     "pass": true,
+    "outcome": "pass",
+    "reason": null,
     "step": "ld_prune",
     "metrics": {
+      "outlier_count": 17690,
       "ld_removed_count": 17690
     },
+    "parameters": {},
     "output": {
+      "pruned_samples": null,
       "plink_out": "tests/regression/golden/ld/output"
     }
   },

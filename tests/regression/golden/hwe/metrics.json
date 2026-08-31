@@ -1,10 +1,15 @@
 {
   "pass": true,
+  "outcome": "pass",
+  "reason": null,
   "step": "hwe_prune",
   "metrics": {
+    "outlier_count": 636,
     "hwe_removed_count": 636
   },
+  "parameters": {},
   "output": {
+    "pruned_samples": null,
     "plink_out": "tests/regression/golden/hwe/output"
   }
 }

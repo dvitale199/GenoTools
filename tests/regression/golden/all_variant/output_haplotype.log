@@ -1,0 +1,65 @@
+$ /home/vitaled2/.genotools/misc/executables/plink --bfile tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile --maf 0.05 --test-mishap --out tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_hap_tmp
+PLINK v1.9.0-b.8 64-bit (19 Aug 2025)
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile
+  --maf 0.05
+  --out tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_hap_tmp
+  --test-mishap
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Mon Aug 31 22:48:48 2026
+
+Random number seed: 1788216528
+56331 MB RAM detected; reserving 28165 MB for main workspace.
+40275 variants loaded from .bim file.
+231 people (0 males, 231 females) loaded from .fam.
+231 phenotype values loaded from .fam.
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 231 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+Total genotyping rate is 0.990042.
+3673 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+36602 variants and 231 people pass filters and QC.
+Among remaining phenotypes, 113 are cases and 118 are controls.
+--test-mishap: 2922 loci checked (33680 skipped).
+Report written to
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_hap_tmp.missing.hap
+.
+
+End time: Mon Aug 31 22:48:48 2026
+$ /home/vitaled2/.genotools/misc/executables/plink2 --bfile tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile --exclude tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_hap_tmp.exclude --make-pgen psam-cols=fid,parents,sex,pheno1,phenos --out tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype
+PLINK v2.00a5.10LM 64-bit Intel (5 Jan 2024)
+Options in effect:
+  --bfile tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile
+  --exclude tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_hap_tmp.exclude
+  --make-pgen psam-cols=fid,parents,sex,pheno1,phenos
+  --out tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype
+
+Hostname: dan-dev
+Working directory: /home/vitaled2/GenoTools
+Start time: Mon Aug 31 22:48:48 2026
+
+Random number seed: 1788216528
+56331 MiB RAM detected, ~52691 available; reserving 28165 MiB for main
+workspace.
+Using up to 56 threads (change this with --threads).
+231 samples (231 females, 0 males; 231 founders) loaded from
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile.fam.
+40275 variants loaded from
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype_bfile/output_geno_case_control_bfile.bim.
+1 binary phenotype loaded (113 cases, 118 controls).
+--exclude: 40260 variants remaining.
+40260 variants remaining after main filters.
+Writing
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype.psam
+... done.
+Writing
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype.pvar
+... done.
+Writing
+tests/regression/golden/all_variant/.i92q6uph_tmp/output_geno_case_control_haplotype.pgen
+... done.
+
+End time: Mon Aug 31 22:48:48 2026

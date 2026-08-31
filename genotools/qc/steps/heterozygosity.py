@@ -261,12 +261,16 @@ def filter_heterozygosity(
                 # Counts only. The JSON report renders every metric as a row
                 # in a long (step, metric, pruned_count) table, so a
                 # descriptive value like het_mode="sd" would land under a
-                # column meaning "how many were pruned". The mode, statistic,
-                # multiplier and derived bounds go to the log instead - see
-                # the "Derived bounds from the data" line above.
+                # column meaning "how many were pruned". Those go in
+                # ``parameters`` below.
                 metrics={
                     "outlier_count": outlier_count,
                 },
+                # The mode, statistic, multiplier and derived bounds. Without
+                # these the outlier_count of an `sd` group and a fixed group
+                # sit in the same table with nothing to say they were cut by
+                # different rules. They are parameters, not counts.
+                parameters=het_metrics,
                 log="",
                 pruned_samples_file=outliers_out if outlier_count > 0 else None,
                 step_name=step_name,

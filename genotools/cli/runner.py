@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import pathlib
 import platform
+import dataclasses
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -33,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import pandas as pd
 
 from .parser import PipelineArgs
-from .output import PipelineOutput, write_results
+from .output import ParameterRecord, PipelineOutput, write_results
 from ..core.exceptions import GenoToolsError, ValidationError
 from ..core.logging import (
     RunLog,
@@ -50,12 +51,57 @@ from ..core.validation import (
     het_skip_reason,
     sex_skip_reason,
 )
-from ..qc.results import unrun_result
+from ..qc.results import STEP_REPORT, unrun_result
 
 if TYPE_CHECKING:  # QC config is imported lazily in _initialize_modules
     from ..qc.config import HetConfig
 
 logger = get_logger(__name__)
+
+
+def _flatten_config(config: Any) -> Dict[str, Any]:
+    """Flatten a frozen config dataclass into JSON-safe scalar leaves.
+
+    Most step configs are already flat. ``AssocConfig`` nests PCA, GWAS and
+    covariate configs inside itself, and the parameters table is long form -
+    one scalar per row - so nested members become dotted keys ("pca.n_pcs")
+    rather than being dropped or dumped as a dict.
+
+    Args:
+        config: A dataclass instance, or None for a step that takes no config.
+
+    Returns:
+        Mapping of parameter name to a JSON-serializable value.
+    """
+    if config is None:
+        return {}
+    # asdict() has already recursed into nested dataclasses; this flattens the
+    # nested dicts it produced.
+    return _flatten_mapping(dataclasses.asdict(config), "")
+
+
+def _flatten_mapping(mapping: Dict[str, Any], prefix: str) -> Dict[str, Any]:
+    """Flatten nested dicts to dotted keys, coercing leaves to JSON-safe values."""
+    flat: Dict[str, Any] = {}
+    for name, value in mapping.items():
+        key = f"{prefix}{name}"
+        if isinstance(value, dict):
+            flat.update(_flatten_mapping(value, f"{key}."))
+        else:
+            flat[key] = _json_safe(value)
+    return flat
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a config value to something ``json.dump`` accepts.
+
+    Paths are the only non-scalar that reaches here (``covar_path``), and a
+    Path is not JSON-serializable - the report would fail to write at the very
+    end of a long run.
+    """
+    if isinstance(value, Path):
+        return str(value)
+    return value
 
 
 @dataclass
@@ -119,6 +165,7 @@ class PipelineState:
     step_results: Dict[str, StepResult] = field(default_factory=dict)
     ancestry_result: Optional[Dict[str, Any]] = None
     labels_list: List[str] = field(default_factory=list)
+    parameters: List[ParameterRecord] = field(default_factory=list)
 
     def get_last_passed_output(self) -> Optional[str]:
         """Get the output path of the last passed step."""
@@ -1088,6 +1135,7 @@ class PipelineRunner:
                         step_output=step_output,
                         legacy_args=legacy_args,
                         het_config=het_config,
+                        ancestry_label=ancestry_label,
                     )
                 except GenoToolsError as e:
                     logger.error(f"Step {step} failed: {e}")
@@ -1250,6 +1298,7 @@ class PipelineRunner:
         step_output: str,
         legacy_args: Dict[str, Any],
         het_config: Optional["HetConfig"] = None,
+        ancestry_label: str = "all",
     ) -> Optional[Dict[str, Any]]:
         """Run a single QC step using pure function modules.
 
@@ -1261,26 +1310,34 @@ class PipelineRunner:
             het_config: Resolved HetConfig for the het step. Passed in already
                 resolved rather than rebuilt from legacy_args, which cannot
                 express the derived-bounds mode.
+            ancestry_label: Group this step is running for, recorded alongside
+                the step's parameters. A per-group setting is only legible in
+                the report if the report says which group it applied to.
 
         Returns:
             Step result dictionary in legacy format, or None if step skipped.
+
+        Every branch assigns ``config`` and ``result`` and falls through to the
+        shared tail, which records the parameters. Returning from inside a
+        branch would mean a new step silently reports no settings.
         """
         GenotypeData = self._new_modules["GenotypeData"]
 
         # Load input data
         data = GenotypeData.from_path(Path(step_input))
 
+        config: Any = None
+        result: Any = None
+
         # Map step names to functions and config creation
         if step == "callrate":
             config = self._config_classes["CallrateConfig"](mind=legacy_args["callrate"])
             result = self._new_modules["filter_callrate"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "sex":
             sex_vals = legacy_args["sex"]
             config = self._config_classes["SexConfig"](female_max_f=sex_vals[0], male_min_f=sex_vals[1])
             result = self._new_modules["filter_sex"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "het":
             if het_config is None:
@@ -1288,10 +1345,10 @@ class PipelineRunner:
                 het_config = self._config_classes["HetConfig"](
                     f_lower=het_vals[0], f_upper=het_vals[1]
                 )
+            config = het_config
             result = self._new_modules["filter_heterozygosity"](
                 data, het_config, Path(step_output)
             )
-            return result.to_dict()
 
         elif step == "related":
             config = self._config_classes["RelatedConfig"](
@@ -1301,24 +1358,20 @@ class PipelineRunner:
                 prune_duplicated=legacy_args["prune_duplicated"],
             )
             result = self._new_modules["filter_relatedness"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "kinship_check":
             if platform.system() != "Linux":
                 logger.warning("Relatedness Assessment can only run on a Linux OS!")
                 return None
             result = self._new_modules["verify_kinship"](data, Path(step_output))
-            return result.to_dict()
 
         elif step == "case_control":
             config = self._config_classes["CaseControlConfig"](p_threshold=legacy_args["case_control"])
             result = self._new_modules["filter_case_control"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "haplotype":
             config = self._config_classes["HaplotypeConfig"](p_threshold=legacy_args["haplotype"])
             result = self._new_modules["filter_haplotype"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "hwe":
             config = self._config_classes["HWEConfig"](
@@ -1326,12 +1379,10 @@ class PipelineRunner:
                 filter_controls=legacy_args["filter_controls"],
             )
             result = self._new_modules["filter_hwe"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "geno":
             config = self._config_classes["GenoConfig"](geno=legacy_args["geno"])
             result = self._new_modules["filter_variant_missingness"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "ld":
             ld_vals = legacy_args["ld"]
@@ -1341,7 +1392,6 @@ class PipelineRunner:
                 r2_threshold=ld_vals[2],
             )
             result = self._new_modules["prune_ld"](data, config, Path(step_output))
-            return result.to_dict()
 
         elif step == "assoc":
             # legacy_args["pca"] is the requested PC count (or None); it doubles as
@@ -1370,9 +1420,73 @@ class PipelineRunner:
                 run_gwas=bool(legacy_args.get("gwas", False)),
             )
             result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
-            return result.to_dict()
 
-        return None
+        if result is None:
+            return None
+
+        out = result.to_dict()
+        self._record_parameters(
+            step=step,
+            config=config,
+            resolved=out.get("parameters", {}),
+            ancestry_label=ancestry_label,
+        )
+        return out
+
+    def _record_parameters(
+        self,
+        step: str,
+        config: Any,
+        resolved: Dict[str, Any],
+        ancestry_label: str,
+    ) -> None:
+        """Record what this step was configured with, and what it worked out.
+
+        The QC report is a long (step, metric, pruned_count) table, so it can
+        say how many samples a step pruned and nothing about the threshold that
+        did the pruning. With a per-group setting - ``--het sd 2`` resolving to
+        different bounds in every ancestry group - two rows of that table are
+        not comparable, and nothing in the file says why. This is where the
+        settings go instead.
+
+        Both halves are recorded because neither is recoverable from the other:
+        the config is the request, and a step that derives its bounds from the
+        data is the only thing that knows what the request became.
+
+        Args:
+            step: Pipeline step key ("het"). Recorded under the name the step
+                reports as ("het_prune"), matching the QC table so the two
+                sections join.
+            config: The frozen config dataclass the step was handed, or None
+                for a step that takes no config.
+            resolved: Values the step worked out at runtime, from
+                ``FilterResult.parameters``. Empty for steps that derive
+                nothing.
+            ancestry_label: Group this step ran for, or "all" in a flat run.
+        """
+        assert self.state is not None
+
+        reported = STEP_REPORT.get(step, (step, ()))[0]
+        for name, value in _flatten_config(config).items():
+            self.state.parameters.append(
+                ParameterRecord(
+                    step=reported,
+                    parameter=name,
+                    value=value,
+                    ancestry=ancestry_label,
+                    source="requested",
+                )
+            )
+        for name, value in resolved.items():
+            self.state.parameters.append(
+                ParameterRecord(
+                    step=reported,
+                    parameter=name,
+                    value=_json_safe(value),
+                    ancestry=ancestry_label,
+                    source="resolved",
+                )
+            )
 
     def _cleanup_intermediate_files(
         self,

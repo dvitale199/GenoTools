@@ -1,10 +1,15 @@
 {
   "pass": true,
+  "outcome": "pass",
+  "reason": null,
   "step": "case_control_missingness_prune",
   "metrics": {
+    "outlier_count": 0,
     "mis_removed_count": 0
   },
+  "parameters": {},
   "output": {
+    "pruned_samples": null,
     "plink_out": "tests/regression/golden/case_control/output"
   }
 }
