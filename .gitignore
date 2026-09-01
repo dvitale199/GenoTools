@@ -12,3 +12,10 @@ the_real_genotools.egg-info/*
 geno_tools.egg-info/*
 .venv/
 .venv*
+
+# Golden run logs. Regenerating the goldens rewrites them every time -
+# timestamps, the random temp-directory name, hostname, home directory, PLINK's
+# RNG seed and detected RAM/threads all change - so tracking them buried every
+# real golden diff in churn. No test reads them: tests/regression/test_logging.py
+# owns the log contract and asserts it against a fresh run in tmp_path.
+tests/regression/golden/**/*.log

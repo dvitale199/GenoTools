@@ -17,6 +17,7 @@ Requirements:
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,24 @@ from genotools.qc import (
     filter_haplotype, HaplotypeConfig,
     prune_ld, LDConfig,
 )
+
+
+# tempfile picks an 8-character random name, and the pipeline threads that
+# working directory into pass_fail's input/output paths in the JSON report. It
+# is different on every run, so without this every regeneration diffs
+# output.json whether or not anything actually changed - the churn that made
+# real golden diffs unreviewable.
+_TMP_DIR_RE = re.compile(r"\.[A-Za-z0-9_]{8}_tmp")
+
+
+def _normalize_run_paths(report_path: Path) -> None:
+    """Replace the run's random temp-directory name with a stable placeholder."""
+    if not report_path.exists():
+        return
+    text = report_path.read_text()
+    normalized = _TMP_DIR_RE.sub(".GOLDEN_tmp", text)
+    if normalized != text:
+        report_path.write_text(normalized)
 
 
 def generate_callrate_golden(geno_path: Path, out_dir: Path, mind: float = 0.05):
@@ -239,6 +258,8 @@ def generate_all_sample_golden(geno_path: Path, out_dir: Path):
     with open(step_out / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2, default=str)
 
+    _normalize_run_paths(output_prefix.with_suffix(".json"))
+
     return {"pass": result.returncode == 0, "output": {"plink_out": str(output_prefix)}}
 
 
@@ -287,6 +308,8 @@ def generate_all_variant_golden(geno_path: Path, out_dir: Path):
 
     with open(step_out / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2, default=str)
+
+    _normalize_run_paths(output_prefix.with_suffix(".json"))
 
     return {"pass": result.returncode == 0, "output": {"plink_out": str(output_prefix)}}
 
