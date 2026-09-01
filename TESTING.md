@@ -84,6 +84,21 @@ Regenerate golden files if you *intentionally* change QC behavior:
     --out tests/regression/golden
 ```
 
+**A regeneration that changed nothing produces no diff.** Two consecutive runs
+are byte-identical, so any diff you see is a real behaviour change and should
+be reviewed as one. Two things make that true, and both have to hold:
+
+- Run logs (`{out}_all_logs.log`, `{out}_{step}.log`) are **not tracked** —
+  they rewrite themselves every run (timestamps, the random temp-directory
+  name, hostname, home directory, PLINK's RNG seed and detected RAM/threads).
+  Nothing reads them; `tests/regression/test_logging.py` owns the log contract
+  and asserts it against a fresh run.
+- The generator normalizes the random temp-directory name out of the JSON
+  report, which otherwise leaks into `pass_fail`'s input/output paths.
+
+`tests/unit/test_golden_hygiene.py` guards both. If you find yourself
+committing golden churn, that is the bug, not a chore.
+
 ### 3b. Old-vs-new parity (the real regression gate)
 
 `tests/regression/test_parity.py` runs the **pre-refactor CLI** and the **new

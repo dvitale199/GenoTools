@@ -975,6 +975,49 @@ fails 2 each.
 
 ---
 
+### Round 14 (golden regeneration is idempotent again)
+
+Resolves item 25. Regenerating the goldens always produced a diff, whether or
+not anything had changed, so nobody read the diff — which is how round 13
+found the generator had been silently recording its own failure as a golden
+for several rounds.
+
+**Two independent sources of churn, both fixed.**
+
+*Run logs, untracked.* 37 tracked `.log` files under `golden/` rewrote
+themselves on every run: timestamps, the random temp-directory name, hostname,
+`/home/vitaled2`, PLINK's RNG seed, and detected RAM and thread count. Nine
+kinds of volatile content. Normalizing all of them would have been real work
+buying nothing, because **no test reads these files** —
+`tests/regression/test_logging.py` runs the real CLI into `tmp_path` and
+asserts the round-7 log contract there. So they are untracked and gitignored
+rather than normalized. This also stops leaking a hostname and a home
+directory into a public repo.
+
+*Temp-directory name in the report.* `tempfile` picks an 8-character random
+name, and the pipeline threads that working directory into `pass_fail`'s
+`input`/`output` paths in the JSON report — so `output.json` diffed on every
+regeneration too, after the logs were dealt with. The generator now normalizes
+it to `.GOLDEN_tmp`. Deliberately fixed in the generator rather than in the
+report: those paths are honest output for a real run, and only a *committed*
+golden needs them stable.
+
+**Verified by regenerating twice** — the second run is byte-identical to the
+first.
+
+**Gating.** 5 tests in `tests/unit/test_golden_hygiene.py`, both revert-checked:
+neutering the normalization fails the substitution test, and `git add -f` on
+one golden log fails the tracked-logs test. The second is the one that matters,
+because re-adding them is exactly what a `git add -A` after a regeneration
+does — which is how they got committed in round 13.
+
+**Not fixed:** the JSON report contains temp paths that do not exist once the
+run finishes. Arguably `pass_fail.input`/`output` should record the stable
+prefixes instead, but that is a report contract change, not golden hygiene.
+Tracked as item 26.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1099,7 +1142,13 @@ Priority order for making the refactor mergeable to `main`:
     the cohort-split thresholds are absent — they are not step configs and
     produce no `FilterResult`. Adding them means deciding what "step" a
     non-QC setting belongs to.
-25. **Golden logs churn on every regeneration.** `output_all_logs.log` embeds
-    timestamps and the random temp-directory name, so regenerating the goldens
-    always diffs them even when nothing changed. Nothing reads them; either
-    normalize them at generation time or stop tracking them.
+25. ✅ **Golden logs churn on every regeneration** — RESOLVED in **round 14**.
+    Found to have a second source beyond the logs: the random temp-directory
+    name also leaks into the JSON report's `pass_fail` paths. Logs untracked,
+    report paths normalized. See round 14 above.
+26. **The JSON report records temp paths that no longer exist.**
+    `pass_fail.input`/`output` point into the run's working directory, which is
+    deleted unless `--full-output`. A reader cannot follow them, and they are
+    the reason golden reports needed normalizing at all (round 14). Recording
+    the stable `{out}_{step}` prefixes instead would be more useful, but it is
+    a report contract change.
