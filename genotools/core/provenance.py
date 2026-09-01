@@ -52,6 +52,7 @@ __all__ = [
     "ToolInfo",
     "describe_tool",
     "package_versions",
+    "requirements_lines",
     "tool_lines",
     "version_drift",
 ]
@@ -138,6 +139,69 @@ def version_drift(
         for name, was in recorded.items()
         if name in current and current[name] != was
     ]
+
+
+def requirements_lines(recorded: Dict[str, str]) -> List[str]:
+    """Render recorded versions as installable ``pip`` requirement specifiers.
+
+    Detecting drift is not the same as being able to undo it. A warning that
+    says "you are on umap-learn 0.5.12, this model was fitted on 0.5.3" leaves
+    the reader to reconstruct an environment by hand; this turns the same
+    record into something they can feed to ``pip install -r``.
+
+    ``python`` is emitted as a comment rather than a requirement — pip cannot
+    install an interpreter, and silently dropping it would hide a version
+    difference that does affect unpickling.
+
+    Args:
+        recorded: A model's ``versions`` mapping.
+
+    Returns:
+        Lines suitable for a requirements file, interpreter first as a comment.
+        Packages recorded as :data:`NOT_INSTALLED` are emitted as comments too,
+        since "absent" is not a version pip can resolve.
+    """
+    lines: List[str] = []
+    if "python" in recorded:
+        lines.append(f"# python {recorded['python']}")
+    for name, version in recorded.items():
+        if name == "python":
+            continue
+        if version == NOT_INSTALLED:
+            lines.append(f"# {name} was not installed when this model was fitted")
+            continue
+        lines.append(f"{name}=={version}")
+
+    # umap-learn below 0.5.5 does `import pkg_resources` at import time, and
+    # setuptools deleted pkg_resources in 82.0.0. Reinstalling the recorded
+    # umap into a current environment therefore produces a model that cannot
+    # be imported at all -- a reproducibility file that does not reproduce.
+    # Pin the one thing that makes the old pin work again.
+    if _older_than(recorded.get("umap-learn"), (0, 5, 5)):
+        lines.append("setuptools<82  # umap-learn<0.5.5 needs pkg_resources")
+    return lines
+
+
+def _older_than(version: Optional[str], floor: Tuple[int, ...]) -> bool:
+    """Whether ``version`` parses to something below ``floor``.
+
+    Deliberately forgiving: an unparseable or absent version is not treated as
+    old, because guessing wrong here would add a bogus pin to a requirements
+    file rather than merely omit a helpful one.
+    """
+    if not version or version == NOT_INSTALLED:
+        return False
+    parts: List[int] = []
+    for chunk in version.split(".")[: len(floor)]:
+        digits = ""
+        for char in chunk:
+            if not char.isdigit():
+                break
+            digits += char
+        if not digits:
+            return False
+        parts.append(int(digits))
+    return tuple(parts) < floor
 
 
 # ---------------------------------------------------------------------------
