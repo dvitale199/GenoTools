@@ -259,6 +259,29 @@ Retrain once against your reference panel and reuse the resulting directory.
 (1.x's `--model` also required a sibling `.common_snps` file; 2.0 keeps
 `common_snps.txt` inside the model directory instead.)
 
+### A model records the libraries it was fitted under
+
+`metadata.json` now carries a `versions` block — umap-learn, scikit-learn,
+xgboost, numpy, pandas, scipy, GenoTools and Python — captured at fit time.
+Loading a model compares them against the environment and warns on any
+difference:
+
+```
+Model version drift: umap-learn 0.5.3 -> 0.5.7. This model was fitted under the
+recorded versions, and the embedding can differ under different ones, so
+ancestry calls may not match what this model was validated on. Reinstall the
+recorded versions, or retrain, to reproduce them.
+```
+
+This is a **warning, never an error** — the load always succeeds. It exists
+because the failure it describes is otherwise silent: a model fitted under one
+umap and loaded under another unpickles cleanly and embeds differently, so the
+run finishes with no error and different ancestry calls.
+
+A model trained before this block existed loads with a *provenance unknown*
+warning instead, since "cannot tell" and "no drift" are different answers.
+Retrain to record it.
+
 ### GWAS p-values shift slightly
 
 PCA now prunes high-LD and MHC regions that 1.x left in, so association

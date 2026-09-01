@@ -44,6 +44,7 @@ from ..core.logging import (
     summary_tag,
     summary_tally,
 )
+from ..core.provenance import package_versions, tool_lines
 from ..core.validation import (
     ValidationDecisions,
     case_control_skip_reason,
@@ -230,6 +231,9 @@ class PipelineRunner:
         # Set up logging (builds the RunLog, installs handlers, writes banner).
         self._setup_logging()
 
+        # Record what software is about to produce the results, before it does.
+        self._log_software_provenance()
+
         # Pre-flight: convert input + validate (logged into the consolidated log),
         # then confirm there is work to do. A failure here happens *before* any
         # output is produced, so tear down and REMOVE the freshly-created log so
@@ -411,6 +415,40 @@ class PipelineRunner:
                 except OSError:
                     pass
             runlog.restore_rotated()
+
+    def _log_software_provenance(self) -> None:
+        """Record the interpreter, GenoTools, and the external tools resolved.
+
+        GenoTools resolves plink/plink2/KING from its own executable folder and
+        never consults ``PATH``, which is good for reproducibility and bad for
+        working out after the fact *which* build produced a result — especially
+        on a box that has a different, newer plink2 on ``PATH`` that the
+        pipeline quietly ignores. Recording it costs one ``--version`` call per
+        tool that is already on disk; a tool that has not been fetched yet is
+        named as such rather than downloaded here, so a callrate-only run does
+        not pull PLINK 1.9 just to describe it.
+
+        File-only: the console stream is the curated progress view, and this
+        belongs in the durable log. Best-effort throughout — provenance must
+        never be the reason a run fails.
+        """
+        self._begin_section("software")
+        try:
+            with step_context("software"):
+                versions = package_versions(())
+                logger.info(
+                    f"GenoTools {versions['genotools']} "
+                    f"(python {versions['python']}, {platform.platform()})",
+                    extra={"file_only": True},
+                )
+                for line in tool_lines():
+                    logger.info(line, extra={"file_only": True})
+        except Exception as e:
+            # Best-effort by design: a run that cannot describe its own tools
+            # is still a run worth finishing.
+            logger.debug(f"Could not record software provenance: {e}")
+        finally:
+            self._end_section()
 
     def _begin_section(self, title: str) -> None:
         """Open a consolidated-log section (no-op when logging isn't installed)."""

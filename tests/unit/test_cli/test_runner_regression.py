@@ -1818,3 +1818,142 @@ class TestFlattenConfig:
         from genotools.cli.runner import _flatten_config
 
         assert _flatten_config(None) == {}
+
+
+class TestSoftwareProvenance:
+    """Round 15: which software produced this result.
+
+    GenoTools resolves plink/plink2/KING from its own executable folder and
+    never consults PATH. That is good for reproducibility and bad for working
+    out after the fact which build ran - especially on a box carrying a newer
+    plink2 on PATH that the pipeline quietly ignores.
+    """
+
+    def _provenance_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> str:
+        from genotools.core.logging import raw_sink
+
+        runner, _geno, out = _make_runner(tmp_path, warn_only=False)
+        runner._setup_logging()
+        try:
+            runner._log_software_provenance()
+        finally:
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+        return Path(f"{out}_all_logs.log").read_text()
+
+    def test_run_log_records_the_tools_and_the_interpreter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from genotools import __version__
+
+        content = self._provenance_log(tmp_path, monkeypatch)
+
+        assert "===== software =====" in content
+        assert f"GenoTools {__version__}" in content
+        assert "plink2:" in content, "the tool behind every run is unrecorded"
+
+    def test_a_shadowing_path_binary_is_named(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """"I upgraded plink2 and nothing changed" is otherwise very hard to
+        work out from a run log."""
+        import stat
+
+        owned = tmp_path / "deps"
+        owned.mkdir()
+        for name in ("plink2", "plink", "king"):
+            binary = owned / name
+            binary.write_text('#!/bin/sh\necho "fake 1.0"\n')
+            binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+        other = tmp_path / "elsewhere" / "plink2"
+        other.parent.mkdir()
+        other.write_text('#!/bin/sh\necho "fake 2.0"\n')
+        other.chmod(other.stat().st_mode | stat.S_IXUSR)
+
+        monkeypatch.setenv("GENOTOOLS_DEP_DIR", str(owned))
+        monkeypatch.setattr(
+            "shutil.which", lambda name: str(other) if name == "plink2" else None
+        )
+
+        content = self._provenance_log(tmp_path, monkeypatch)
+
+        assert str(other) in content
+        assert "does not use it" in content
+        assert "fake 1.0" in content, "must report the build GenoTools runs"
+
+    def test_provenance_is_never_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run must not die because it could not describe its own tools."""
+        monkeypatch.setattr(
+            "genotools.cli.runner.tool_lines",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        content = self._provenance_log(tmp_path, monkeypatch)
+        assert "===== software =====" in content
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_a_real_run_records_provenance(self, tmp_path: Path) -> None:
+        """Through run(), not through the helper.
+
+        Every test above drives _log_software_provenance directly, so all of
+        them still pass if run() stops calling it - the item-17 trap. This one
+        goes through the entry point the wiring actually lives in.
+        """
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+
+        local = tmp_path / "cohort"
+        for ext in (".pgen", ".pvar", ".psam"):
+            shutil.copy2(SYNTHETIC.with_suffix(ext), local.with_suffix(ext))
+
+        out = tmp_path / "out"
+        args = PipelineArgs(
+            input=InputArgs(pfile=local),
+            output=OutputArgs(out_path=out, full_output=True),
+            sample_qc=SampleQCArgs(run_callrate=True, callrate_threshold=0.05),
+        )
+        PipelineRunner(args).run()
+
+        content = Path(f"{out}_all_logs.log").read_text()
+        assert "===== software =====" in content, (
+            "run() did not record what software produced this result"
+        )
+        assert "plink2:" in content
+
+    def test_provenance_stays_out_of_the_console(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The console is the curated progress stream; provenance belongs in
+        the durable log."""
+        import logging as _logging
+
+        from genotools.core.logging import raw_sink
+
+        runner, _geno, out = _make_runner(tmp_path, warn_only=False)
+        runner._setup_logging()
+
+        captured: List[_logging.LogRecord] = []
+
+        class _Capture(_logging.Handler):
+            def emit(self, record: _logging.LogRecord) -> None:
+                if not getattr(record, "file_only", False):
+                    captured.append(record)
+
+        cap = _Capture()
+        _logging.getLogger("genotools").addHandler(cap)
+        try:
+            runner._log_software_provenance()
+        finally:
+            _logging.getLogger("genotools").removeHandler(cap)
+            if runner._runlog is not None:
+                runner._runlog.close()
+            raw_sink.set(None)
+
+        assert not [r for r in captured if "plink2:" in r.getMessage()], (
+            "provenance leaked into the console stream"
+        )
+        assert "plink2:" in Path(f"{out}_all_logs.log").read_text()

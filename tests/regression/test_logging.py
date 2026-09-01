@@ -72,6 +72,10 @@ def test_consolidated_log_is_sectioned_with_raw(test_geno_path: Path, tmp_path: 
     # Materially longer than a bare banner.
     assert len(content) > 400, f"consolidated log looks header-only:\n{content!r}"
 
+    # Round 15: what software produced this result, recorded before it does.
+    assert "===== software =====" in content, "missing software provenance section"
+    assert "plink2:" in content, "the tool behind every run is unrecorded"
+
     # Per-step section headers.
     assert "===== callrate =====" in content, "missing callrate section header"
     assert "===== geno =====" in content, "missing geno section header"
@@ -85,9 +89,16 @@ def test_consolidated_log_is_sectioned_with_raw(test_geno_path: Path, tmp_path: 
     assert "PLINK v" in content, "raw PLINK output not inlined in consolidated log"
 
     # For each step, its structured summary precedes its raw PLINK block.
-    i_marker = content.index("[callrate_prune]")
-    i_raw = content.index("PLINK v")
-    assert i_marker < i_raw, "raw PLINK block should follow the structured summary"
+    # Scoped to the step's own section rather than the whole file: the log now
+    # opens with a `software` section that reports plink's own version string,
+    # so a file-wide search for "PLINK v" finds that header, not a raw block.
+    callrate_section = content[
+        content.index("===== callrate ====="): content.index("===== geno =====")
+    ]
+    assert "PLINK v" in callrate_section, "callrate section has no raw PLINK block"
+    assert callrate_section.index("[callrate_prune]") < callrate_section.index(
+        "PLINK v"
+    ), "raw PLINK block should follow the structured summary"
 
     # End-of-run summary table.
     assert "run summary" in content.lower(), "missing run summary block"

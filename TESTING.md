@@ -349,12 +349,17 @@ external download hosts are hit at most once per cache key.
   default (`--warn` behavior); pass `--no-warn` to fail fast. The old CLI's
   equivalent is `--warn True`/absent.
 - **Where are the run logs?** — `{out}_all_logs.log` is the consolidated,
-  step-tagged log; `{out}.json` has the structured metrics.
+  step-tagged log; `{out}.json` has the structured metrics. The log opens with a
+  `software` section recording the interpreter and each external tool's resolved
+  path and version.
 - **A new test passes — does it actually test the fix?** Revert the fix and
   re-run it. A test written against a helper rather than its call site will
   happily pass with the bug restored; this has caught several. Keep deliberate
   negative controls (which pass either way) but know which ones they are.
-- **Which plink2 ran?** GenoTools resolves **only** from `$GENOTOOLS_DEP_DIR` or
+- **Which plink2 ran?** Read the `===== software =====` section at the top of
+  `{out}_all_logs.log`: every run records the resolved path and `--version` of
+  each tool it can see, and names a *different* binary of the same name sitting
+  on `PATH`. GenoTools resolves **only** from `$GENOTOOLS_DEP_DIR` or
   `~/.genotools/misc/executables/`, downloading a pinned build if absent — it
   never consults `PATH`. The comparators' `_resolve_plink2` prefers `PATH`, so a
   box with both can have your shell and the pipeline on different versions

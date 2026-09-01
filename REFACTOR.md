@@ -1018,6 +1018,81 @@ Tracked as item 26.
 
 ---
 
+### Round 15 (what software produced this result)
+
+Resolves items 12 and 14. Round 13 recorded *what settings* a run used; this
+records *what software*. Both halves were the same gap on two different paths,
+and both fail silently rather than loudly.
+
+**A trained model records the libraries behind the fit (item 14).**
+`metadata.json` held `config`, `best_params`, `training_metrics` and
+`n_common_snps` — hyperparameters, but nothing about the environment. That
+matters because `umap_learn` is the one pinned dependency in `setup.py`: a
+model fitted under `umap-learn==0.5.3` and loaded under a newer umap unpickles
+*successfully* and produces a different embedding, so the run finishes clean
+and makes different ancestry calls. No error, no warning, no way to tell
+afterwards.
+
+`fit()` now captures umap-learn, scikit-learn, xgboost, numpy, pandas, scipy,
+GenoTools and Python into `model.versions`. Captured at **fit**, not at save:
+these are the versions that produced *this* fit, and living on the model means
+the single-file `.pkl` format carries provenance too, not just the directory
+format's `metadata.json`. `AncestryModel.load` compares them and warns on any
+difference, naming each package and both versions.
+
+*Warn, never block* — decided deliberately. Drift is usually harmless, deps
+float by design (item 16), and a hard failure would strand every existing model
+the moment a dependency moved. A model with no `versions` block gets its own
+"provenance unknown" warning rather than silence: "cannot tell" and "no drift"
+are different answers, and every model trained before this round is in the
+first category.
+
+**Every run records the executables it resolved (item 12).** GenoTools resolves
+plink/plink2/KING only from `$GENOTOOLS_DEP_DIR` or
+`~/.genotools/misc/executables/`, downloading a pinned build if absent, and
+never consults `PATH`. Reproducible, but nothing recorded which build ran. The
+consolidated log now opens with a `===== software =====` section listing the
+interpreter and each tool's resolved path and `--version` — and, when `PATH`
+holds a *different* binary of the same name, says so explicitly. That last line
+is the point: the dev box this was written on has a newer plink2 and plink on
+`PATH` that the pipeline ignores, which makes "I upgraded plink2 and nothing
+changed" very hard to work out from a log.
+
+Describing a tool never fetches one. A tool not yet downloaded is named as
+such, so a callrate-only run does not pull PLINK 1.9 just to describe it. The
+whole section is file-only (the console stays the curated progress stream) and
+wrapped so that provenance can never be the reason a run fails.
+
+**Shared module.** Both halves live in `core/provenance.py` — `package_versions`
+/ `version_drift` for libraries, `describe_tool` / `tool_lines` for
+executables. `executable_folder()` deliberately mirrors
+`dependencies.__get_executable_folder` so it can probe without triggering a
+download; a test pins the two together on both branches, because a divergence
+would have every run log confidently naming a plink2 that is not the one that
+ran.
+
+**Deliberately not in the JSON report.** Tool paths are machine-specific
+(`$GENOTOOLS_DEP_DIR`, `$HOME`), so putting them in `run_info` would reintroduce
+exactly the golden churn round 14 removed. The run log is the right home for
+them; the goldens are unchanged by this round.
+
+**Gating.** 31 tests — 20 in `tests/unit/test_provenance.py`, 6 in
+`test_ancestry/test_model_loading.py`, 5 in
+`test_cli/test_runner_regression.py`. All revert-checked. The first draft of
+the runner tests hit the item-17 trap exactly: all four drove
+`_log_software_provenance` directly, so deleting the call from `run()` left
+them all green. `test_a_real_run_records_provenance` goes through `run()` and
+is the one that catches it.
+
+`AncestryModel.fit` is not unit-tested for this — a minimal fit is a 1080-fit
+grid search taking ~150s. It was verified by hand instead, and a source-level
+check gates the recording call so it cannot be dropped silently.
+
+**Unblocks item 15** (unpinning `umap_learn==0.5.3`): a model can now say what
+it was trained under, which is the prerequisite for changing that.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1077,12 +1152,11 @@ Priority order for making the refactor mergeable to `main`:
     Applies to all three per-dataset checks. Not a regression — 1.x's guard never
     fired at all — and the step's own error is the backstop. Fixing it properly
     means re-deciding between steps.
-12. **No plink2 provenance in the run log** — `dependencies.__check_package`
-    resolves only from `$GENOTOOLS_DEP_DIR`/`~/.genotools/misc/executables/`,
-    downloading a pinned build if absent, and never consults `PATH`. Good for
-    reproducibility, but nothing records *which* plink2 produced a result, and a
-    dev box commonly has a newer one on `PATH` that the pipeline ignores. Log the
-    resolved path + `--version` into the run log.
+12. ✅ **No plink2 provenance in the run log** — RESOLVED in **round 15**.
+    Every run now opens its consolidated log with a `software` section giving
+    each tool's resolved path and `--version`, and naming a different binary of
+    the same name on `PATH`. Widened past plink2 to plink and KING, since all
+    three resolve the same way. See round 15 above.
 13. **Palindromic SNPs not excluded in ancestry matching** — a faithful 1.x port
     and a real issue, not a 2.0.0 blocker. Related:
     `ancestry/preprocessing.py:53`'s `drop_duplicates(subset=["chr","pos"])`
@@ -1090,14 +1164,11 @@ Priority order for making the refactor mergeable to `main`:
     positions. `test_get_common_snps_matches_legacy` asserts byte-identical
     output against the legacy function but passes the same bfile as both inputs,
     so the ambiguous-ordering path is barely exercised.
-14. **No provenance on a trained model** — `metadata.json` records
-    hyperparameters but not the library versions that produced the fit. A model
-    trained under `umap_learn==0.5.3` and loaded under a newer umap will
-    unpickle *successfully* and yield subtly different embeddings: wrong
-    ancestry calls, no error. Add a `versions` block (umap, sklearn, xgboost,
-    numpy, pandas, genotools) and check it in `AncestryModel.load`. This is the
-    prerequisite for unpinning umap (see below) — same "record what produced
-    this result" gap as item 12.
+14. ✅ **No provenance on a trained model** — RESOLVED in **round 15**.
+    `fit()` records a `versions` block onto the model itself (so the
+    single-file format carries it too, not just `metadata.json`), and
+    `AncestryModel.load` warns on drift, naming each package. Warn, never
+    block — see round 15 for why. Unblocks item 15.
 15. **Unpin `umap_learn==0.5.3`** — it works under pandas 3 today, but needs
     `pkg_resources` (which setuptools is removing) and its numba floor caps
     numpy. UMAP output feeds the classifier, so this can shift ancestry labels:
