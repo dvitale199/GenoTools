@@ -74,9 +74,46 @@ from genotools.ancestry.results import (
 from genotools.core.exceptions import AncestryError
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger
+from genotools.core.provenance import package_versions, version_drift
 
 
 logger = get_logger(__name__)
+
+
+def _warn_on_version_drift(model: "AncestryModel") -> None:
+    """Say so when a model was fitted under different libraries than are loaded.
+
+    This is the whole point of recording versions. A model fitted under
+    ``umap-learn==0.5.3`` and loaded under a newer umap unpickles *successfully*
+    and produces a different embedding, so the run finishes clean while making
+    different ancestry calls. Nothing here blocks the load — the drift is often
+    harmless, and a hard failure would strand every model the moment a floating
+    dependency moved — but it stops being invisible.
+
+    A model with no recorded versions gets its own warning rather than silence:
+    "cannot tell" and "no drift" are different answers.
+    """
+    recorded = getattr(model, "versions", None)
+    if not recorded:
+        logger.warning(
+            "Model provenance unknown: this model records no library versions, "
+            "so GenoTools cannot tell whether it was fitted under different "
+            "ones than are installed here. Ancestry calls can differ silently "
+            "across library versions; retrain to record provenance."
+        )
+        return
+
+    drift = version_drift(recorded)
+    if not drift:
+        return
+
+    changes = "; ".join(f"{name} {was} -> {now}" for name, was, now in drift)
+    logger.warning(
+        f"Model version drift: {changes}. This model was fitted under the "
+        f"recorded versions, and the embedding can differ under different "
+        f"ones, so ancestry calls may not match what this model was validated "
+        f"on. Reinstall the recorded versions, or retrain, to reproduce them."
+    )
 
 
 @dataclass
@@ -99,6 +136,8 @@ class AncestryModel:
         label_encoder: Fitted LabelEncoder (set after fit).
         best_params: Best hyperparameters from grid search (set after fit).
         training_metrics: Metrics from training (set after fit).
+        versions: Library versions present when the model was fitted (set
+            after fit); None for a model saved before they were recorded.
     """
 
     config: AncestryConfig = field(default_factory=AncestryConfig)
@@ -112,6 +151,10 @@ class AncestryModel:
     _is_fitted: bool = field(default=False, repr=False)
     _train_pca: Optional[pd.DataFrame] = field(default=None, repr=False)
     common_snps: Optional[List[str]] = field(default=None, repr=False)
+    # Library versions behind the fit, captured by fit() and checked by load().
+    # None on a model written before they were recorded, which is why load()
+    # distinguishes "no drift" from "cannot tell".
+    versions: Optional[Dict[str, str]] = field(default=None, repr=False)
 
     @property
     def is_fitted(self) -> bool:
@@ -471,6 +514,11 @@ class AncestryModel:
             y_test=split_data["y_test"],
         )
 
+        # Captured at fit rather than at save: these are the versions that
+        # produced *this* fit, and they travel with the pickle so the
+        # single-file format carries provenance too.
+        self.versions = package_versions()
+
         self._is_fitted = True
         logger.info("Ancestry model fitted successfully")
 
@@ -559,7 +607,8 @@ class AncestryModel:
         Creates a directory at ``path`` containing:
         - ``pipeline.pkl``: Full pickled AncestryModel.
         - ``common_snps.txt``: Plain text rsIDs, one per line.
-        - ``metadata.json``: Config, best_params, training_metrics.
+        - ``metadata.json``: Config, best_params, training_metrics, and the
+          library versions the fit ran under.
 
         Args:
             path: Output directory path.
@@ -611,6 +660,9 @@ class AncestryModel:
 
         if self.common_snps is not None:
             metadata["n_common_snps"] = len(self.common_snps)
+
+        if self.versions is not None:
+            metadata["versions"] = dict(self.versions)
 
         return metadata
 
@@ -680,6 +732,8 @@ class AncestryModel:
                 f"Invalid model file: expected AncestryModel, got "
                 f"{type(model)}.{hint}"
             )
+
+        _warn_on_version_drift(model)
 
         logger.info(f"Model loaded from: {path}")
         return model

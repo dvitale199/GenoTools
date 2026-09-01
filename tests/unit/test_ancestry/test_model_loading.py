@@ -81,3 +81,119 @@ def test_directory_without_pipeline_pkl_says_which_file_is_missing(
 
     with pytest.raises(FileNotFoundError, match="pipeline.pkl"):
         AncestryModel.load(empty)
+
+
+# ---------------------------------------------------------------------------
+# Version provenance
+#
+# A model fitted under umap-learn 0.5.3 and loaded under a newer umap unpickles
+# *successfully* and produces a different embedding: wrong ancestry calls, no
+# error, no warning. Recording the versions at fit time is what makes that
+# visible, so these tests assert on the warning, not on the stored dict.
+# ---------------------------------------------------------------------------
+
+
+def _model_with_versions(
+    tmp_path: Path, versions: object, name: str = "model.pkl"
+) -> Path:
+    """Pickle a bare AncestryModel carrying ``versions`` (no fit required)."""
+    model = AncestryModel()
+    model.versions = versions  # type: ignore[assignment]
+    return _pickle(model, tmp_path / name)
+
+
+def _warnings(caplog: "pytest.LogCaptureFixture") -> str:
+    return "\n".join(
+        r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+    )
+
+
+def test_drifted_versions_warn_and_name_the_package(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The warning has to say which package moved and to what - "versions
+    differ" leaves the user with nothing to act on."""
+    path = _model_with_versions(tmp_path, {"umap-learn": "0.0.1-ancient"})
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        AncestryModel.load(path)
+
+    message = _warnings(caplog)
+    assert "umap-learn" in message
+    assert "0.0.1-ancient" in message, "must name the version the fit ran under"
+    assert "ancestry calls" in message.lower(), "say what is actually at risk"
+
+
+def test_matching_versions_load_quietly(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A false drift warning on every load would train users to ignore it."""
+    from genotools.core.provenance import package_versions
+
+    path = _model_with_versions(tmp_path, package_versions())
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        AncestryModel.load(path)
+
+    assert _warnings(caplog) == ""
+
+
+def test_a_model_without_versions_says_it_cannot_tell(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Models predating version recording must not read as "no drift":
+    "cannot tell" and "no drift" are different answers."""
+    path = _model_with_versions(tmp_path, None)
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        AncestryModel.load(path)
+
+    message = _warnings(caplog)
+    assert "provenance unknown" in message.lower()
+    assert "retrain" in message.lower(), "name the way out"
+
+
+def test_drift_never_blocks_the_load(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Drift is often harmless, and hard-failing would strand every existing
+    model the moment a floating dependency moved."""
+    path = _model_with_versions(
+        tmp_path, {"umap-learn": "0.0.1", "numpy": "0.0.1", "scipy": "0.0.1"}
+    )
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        model = AncestryModel.load(path)
+
+    assert isinstance(model, AncestryModel)
+
+
+def test_saved_metadata_carries_the_versions(tmp_path: Path) -> None:
+    """metadata.json is the human-readable half; provenance has to reach it or
+    nobody reads it without unpickling."""
+    import json
+
+    model = AncestryModel()
+    model.versions = {"umap-learn": "0.5.3"}
+    model._is_fitted = True
+
+    out = model.save(tmp_path / "saved")
+    metadata = json.loads((out / "metadata.json").read_text())
+
+    assert metadata["versions"] == {"umap-learn": "0.5.3"}
+
+
+def test_fit_is_what_records_the_versions() -> None:
+    """Captured at fit, not at save: these are the versions that produced
+    *this* fit, and they must travel with the pickle for the single-file
+    format to carry provenance too.
+    """
+    import inspect
+
+    from genotools.ancestry import model as model_module
+
+    source = inspect.getsource(model_module.AncestryModel.fit)
+    assert "package_versions()" in source, (
+        "fit() no longer records versions; every model trained from here on "
+        "would load with unknown provenance"
+    )
