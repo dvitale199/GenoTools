@@ -133,8 +133,25 @@ def run_pipeline(
     # cwd=REPO_ROOT so both environments import the same working tree: the
     # libraries are the variable, the GenoTools source is not.
     result = subprocess.run(command, cwd=REPO_ROOT)
+
+    # A non-zero exit is not a reason to abandon the comparison. GenoTools
+    # exits 1 when any step failed, and a step failing is itself something the
+    # two environments can legitimately differ on: on AMR_split the candidate
+    # put 2 samples in EUR, one survived callrate, and KING then refused a
+    # one-sample group. Aborting there would have thrown away the very
+    # difference the run exists to measure. The report is what matters, so
+    # that is what decides.
+    if not report.exists():
+        raise SystemExit(
+            f"pipeline under {python} produced no report at {report} "
+            f"(exit {result.returncode}) - nothing to compare"
+        )
     if result.returncode != 0:
-        raise SystemExit(f"pipeline failed under {python} (exit {result.returncode})")
+        print(
+            f"  [note]  exit {result.returncode} under {python}: at least one "
+            f"step failed. The report exists, so the comparison continues - "
+            f"check the pass_fail section for what differed."
+        )
 
 
 def main() -> int:
