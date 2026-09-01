@@ -282,6 +282,56 @@ A model trained before this block existed loads with a *provenance unknown*
 warning instead, since "cannot tell" and "no drift" are different answers.
 Retrain to record it.
 
+### umap_learn is no longer pinned — ancestry calls shift by ~1.2%
+
+**This changes ancestry calls. Retrain your models and revalidate.**
+
+1.x and early 2.0 pinned `umap_learn==0.5.3`. That pin is now removed
+(`umap_learn>=0.5.5`), and the `setuptools` runtime dependency with it.
+
+**Why it had to go.** umap-learn below 0.5.5 runs `import pkg_resources` at
+import time, and setuptools deleted `pkg_resources` in 82.0.0. A fresh install
+that resolves a current setuptools therefore cannot import umap at all, so
+`--ancestry` fails before any of your data is touched. The pin had stopped
+protecting reproducibility and started preventing installation.
+
+**What it costs.** Measured on a 10,000-sample GP2 subset across 11 ancestry
+groups, comparing umap-learn 0.5.3 / numpy 2.3.5 / pandas 2.3.3 against
+umap-learn 0.5.12 / numpy 2.4.6 / pandas 3.0.5:
+
+| Comparison | Calls changed |
+|---|---|
+| Same model, both environments (inference drift only) | 129 / 10,000 — 1.29% |
+| Each environment trains its own model (the upgrade path) | 122 / 10,000 — 1.22% |
+
+Model quality is unchanged: test balanced accuracy 0.9850 before, 0.9838 after.
+
+**Retraining does not avoid this.** 113 of the moved samples are the same in
+both comparisons, and the largest single shift — 33 samples from AFR to AAC —
+is the *identical 33 samples* either way. The drift is a systematic property of
+the newer library stack at population boundaries, not an artifact of a stale
+fit, so retraining under the new stack reproduces most of it.
+
+Where the calls move (retrain comparison, groups of 5+):
+
+```
+AFR -> AAC  33      MDE -> AFR  11      EUR -> AMR   7
+EUR -> AFR  17      AJ  -> EUR   9      AJ  -> MDE   6
+EUR -> MDE  13      CAS -> SAS   9
+```
+
+These are adjacent and admixed groups, which is where a slightly different
+embedding would be expected to tip samples across a boundary — but 1.2% is a
+real change to your results, not rounding.
+
+**Reproducing prior results.** Nothing already produced is altered by
+upgrading. A model trained by 2.0.2 or later ships a `requirements.txt` beside
+`pipeline.pkl` recording the exact environment it was fitted under; recreate it
+with `pip install -r <model_dir>/requirements.txt` to get the original calls
+back. For models predating that, `requirements-lock.txt` in the repo root
+pins a validated environment. Development installs stay unpinned so CI keeps
+catching upstream breakage early.
+
 ### GWAS p-values shift slightly
 
 PCA now prunes high-LD and MHC regions that 1.x left in, so association

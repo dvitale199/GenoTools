@@ -102,6 +102,7 @@ def run_pipeline(
     ref_labels: Optional[Path],
     model: Optional[Path],
     force: bool,
+    keep_intermediates: bool,
 ) -> None:
     """Run one ancestry pipeline, reusing a completed run unless forced.
 
@@ -120,8 +121,13 @@ def run_pipeline(
         "--out", str(out_prefix),
         "--ancestry",
         "--all-sample",
-        "--full-output",
     ]
+    # --full-output keeps every intermediate pfile, which for this cohort is
+    # ~10 GB per run and filled the disk on the first attempt. Only the
+    # genotype comparison needs them, so it is the genotype comparison that
+    # asks for them.
+    if keep_intermediates:
+        command.append("--full-output")
     # --ref-panel/--ref-labels are required even with --model: inference
     # re-derives the reference PCA from the panel (round 12). --model is
     # additive, not an alternative.
@@ -203,12 +209,13 @@ def main() -> int:
     candidate_out = args.work / "candidate" / "out"
 
     model = args.model if args.mode == "reuse-model" else None
+    keep = not args.skip_genotypes
     print("Baseline run:")
     run_pipeline(args.baseline_python, baseline_out, args.geno,
-                 args.ref_panel, args.ref_labels, model, args.force)
+                 args.ref_panel, args.ref_labels, model, args.force, keep)
     print("Candidate run:")
     run_pipeline(args.candidate_python, candidate_out, args.geno,
-                 args.ref_panel, args.ref_labels, model, args.force)
+                 args.ref_panel, args.ref_labels, model, args.force, keep)
 
     # Reuse the existing report comparator rather than reimplementing it: both
     # runs emit the same JSON schema, so "old vs new CLI" and "old vs new umap"

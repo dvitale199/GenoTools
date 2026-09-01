@@ -1093,6 +1093,63 @@ it was trained under, which is the prerequisite for changing that.
 
 ---
 
+### Round 16 (unpinning umap, and measuring what it costs)
+
+Resolves item 15. Round 15 gave a model the ability to say what it was trained
+under; this spends that, by removing the one pin the codebase had.
+
+**The pin was already failing at its own job.** `umap_learn==0.5.3` was there
+for reproducibility. But umap-learn below 0.5.5 runs `import pkg_resources` at
+import time, and setuptools deleted `pkg_resources` in 82.0.0 — verified by
+inspecting the wheels (81.0.0 ships it, 82.0.0 does not). A fresh install that
+resolves a current setuptools cannot import umap at all, so `--ancestry` dies
+before touching any data. Plain QC is unaffected; umap is reached only through
+the ancestry path.
+
+CI never caught it, and would not have: the runner image ships a setuptools old
+enough to satisfy `setuptools>=65.6.3`, so pip never upgrades it and never sees
+the break. The canary was caged by the very floor that looked like it was
+protecting us.
+
+**What replaced it.** `umap_learn>=0.5.5` (the floor is the fix, not a
+preference), the vestigial `setuptools` runtime dependency dropped — nothing in
+`genotools` imports it, confirmed by running the suite with the module blocked —
+and a validated `requirements-lock.txt` for runs that must reproduce. setup.py
+stays floating so CI resumes being the canary. A saved model additionally
+writes its own `requirements.txt`, pinning `setuptools<82` when the recorded
+umap predates 0.5.5, or the file would faithfully recreate an environment that
+cannot import umap.
+
+**What it costs, measured rather than assumed.**
+`tests/scripts/compare_umap_versions.py` runs one cohort through two
+environments differing only in installed libraries, in two modes: `reuse-model`
+(inference drift alone) and `retrain` (the real upgrade path). On the 10k GP2
+subset, 1.29% and 1.22% of calls move respectively; test balanced accuracy is
+0.9850 vs 0.9838.
+
+**The hypothesis going in was wrong and the data says so.** The expectation was
+that retraining would largely absorb the drift, since model and libraries would
+then agree. It does not: 113 of the moved samples are common to both modes, and
+the largest single shift — 33 samples AFR→AAC — is the *identical 33 samples*
+either way. The drift is a systematic property of the newer stack at population
+boundaries, not a stale-fit artifact. Recorded here because the wrong version of
+this story ("retrain and it goes away") is an easy thing to repeat.
+
+Ratified as a documented breaking change rather than blocked: staying pinned is
+not an option when the pin prevents installation. See `MIGRATION_2.0.md`.
+
+**Two harness bugs, both found by running it.** The driver aborted on a
+non-zero pipeline exit — but GenoTools exits 1 when any step failed, and a step
+failing is itself something the environments can differ on. On AMR_split the
+candidate put 2 samples in EUR, one survived callrate, and KING refused the
+one-sample group; the driver died on exactly the difference it existed to
+measure. The report now decides: absent is fatal, present-but-non-zero is a
+note. Separately, `--full-output` was passed unconditionally, hoarding ~10 GB
+of intermediates per run and filling a 197 GB filesystem; it is now passed only
+when the genotype comparison actually needs it.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1169,11 +1226,11 @@ Priority order for making the refactor mergeable to `main`:
     single-file format carries it too, not just `metadata.json`), and
     `AncestryModel.load` warns on drift, naming each package. Warn, never
     block — see round 15 for why. Unblocks item 15.
-15. **Unpin `umap_learn==0.5.3`** — it works under pandas 3 today, but needs
-    `pkg_resources` (which setuptools is removing) and its numba floor caps
-    numpy. UMAP output feeds the classifier, so this can shift ancestry labels:
-    do it after item 14, retrain, re-run the `ancestry` parity scenario, and
-    document the retrain requirement in `MIGRATION_2.0.md`.
+15. ✅ **Unpin `umap_learn==0.5.3`** — RESOLVED in **round 16**. Found to be
+    more urgent than recorded: setuptools had already *removed* `pkg_resources`
+    (in 82.0.0), so the pin blocked installation rather than merely threatening
+    to. Measured cost: ~1.2% of ancestry calls move, and retraining does not
+    avoid it. Documented as a breaking change. See round 16 above.
 16. **Dev/CI dependency drift** — deps float, so CI resolves newest and is the
     de-facto canary (it caught round 9's break). The gap was reproduction, now
     documented in `TESTING.md` §2. Open question: keep floating and keep the
