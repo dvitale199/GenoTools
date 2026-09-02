@@ -37,12 +37,20 @@ def _drop_palindromic(bim: pd.DataFrame) -> pd.DataFrame:
 
 
 def _variant_missingness(geno_path: str) -> pd.Series:
-    """Per-variant missing-call rate for `geno_path`, keyed by variant ID."""
+    """Per-variant missing-call rate for `geno_path`, keyed by variant ID.
+
+    Reports to a `_missing` prefix rather than `geno_path` itself: plink2 writes
+    a `.log` beside whatever `--out` names, and `geno_path` already has one
+    belonging to the step that produced it (the variant prune, or the user's own
+    reference panel directory). Overwriting that would destroy the audit trail
+    for a different command.
+    """
+    out_prefix = f"{geno_path}_missing"
     run_command(
-        f"{get_plink2()} --bfile {geno_path} --missing variant-only --out {geno_path}",
+        f"{get_plink2()} --bfile {geno_path} --missing variant-only --out {out_prefix}",
         tool_name="plink2",
     )
-    vmiss = pd.read_csv(f"{geno_path}.vmiss", sep="\t", usecols=["ID", "F_MISS"])
+    vmiss = pd.read_csv(f"{out_prefix}.vmiss", sep="\t", usecols=["ID", "F_MISS"])
     return vmiss.set_index("ID")["F_MISS"]
 
 
@@ -277,7 +285,8 @@ def get_raw_files(
     raw_geno["label"] = "new"
 
     # remove intermediate files (concat_logs dropped: structured logging replaces raw .log aggregation)
-    files = [geno_prune_path, f"{geno_prune_path}_flip", f"{out_path}_common_snps_switch"]
+    files = [geno_prune_path, f"{geno_prune_path}_flip", f"{geno_prune_path}_missing",
+             f"{out_path}_common_snps_switch"]
     clean_up_files(files)
 
     return {
