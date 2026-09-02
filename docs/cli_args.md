@@ -353,6 +353,81 @@ should be tightened.
     are recorded in the pruned-samples output with the step
     `insufficient_ancestry_sample_n`.
 
+#### Prediction-path diagnostics
+
+Training accuracy is measured on reference samples that went through the
+*training* preprocessing branch. A cohort goes through the *inference* branch,
+which aligns it to the model's SNP list — and can fail there in ways training
+never sees. The classic symptom is a model with high test accuracy predicting a
+single label (often `CAH`) for an entire cohort, because the cohort matched
+almost none of the model's SNPs and the rest were invented.
+
+Every ancestry run now measures that path and reports it in the log and in the
+JSON report's `ancestry_diagnostics` section: how much of the model's SNP list
+the cohort carried, whether matched sites agree with the panel on allele
+frequency, where the cohort landed in reference PC space, and what the `CAH`
+override did to the classifier's labels. The flags below tune or extend it.
+Each one requires `--ancestry`; passing one without it is an error rather than a
+silent no-op.
+
+- **`--ancestry-missing-fill`**
+  - *Type*: `str` (`ref-mean` or `constant`)
+  - *Default*: `ref-mean`
+  - *Description*: How to fill a model SNP the cohort does not carry.
+    `ref-mean` writes a missing value, which the reference-fitted imputer fills
+    with the panel's own mean for that SNP, so the filled SNP contributes
+    nothing to the projection. `constant` writes dosage 2 — one end of the
+    range, applied identically to every sample — which is what 1.x and 2.0
+    before this did, and is the mechanism behind whole cohorts collapsing onto
+    one label. Kept only for reproducing an older run.
+
+- **`--ancestry-max-missing-snps`**
+  - *Type*: `float` (fraction in `[0, 1]`)
+  - *Default*: `0.5`
+  - *Description*: Refuse to predict when more than this share of the model's
+    SNPs is absent from the cohort. Above roughly half, a predicted label
+    describes the fill rather than the sample. The error names the counts and
+    the usual causes (chromosome naming, genome build); raise the limit to
+    predict anyway. Below the limit, exceeding 5% logs a warning.
+
+- **`--no-admixture-detection`**
+  - *Type*: `flag`
+  - *Default*: `False` (detection on)
+  - *Description*: Report the classifier's own labels instead of relabeling as
+    `CAH` the samples that sit nearer the global centroid than any ancestry
+    centroid. The first thing to try on an all-`CAH` result: it separates a
+    broken classifier from a broken override. The per-sample
+    `{out}_decisions.txt` file records both labels either way.
+
+- **`--ancestry-plots`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Write two diagnostic PNGs: `{out}_pca_diagnostic.png`, the
+    reference panel coloured by label with the cohort overlaid across the three
+    leading PC pairs, and `{out}_centroid_distance.png`, the margin behind each
+    `CAH` decision against the line where the decision flips.
+
+- **`--ancestry-self-test`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Predict the reference panel's *own* ancestries through the
+    prediction path, as a positive control. Accuracy is optimistic by
+    construction (most of these samples were fitted on), so the load-bearing
+    number is the panel's `CAH` rate: the panel defines the ancestry centroids,
+    so a panel that comes back largely `CAH` indicts the override or the
+    projection, not the cohort. A panel that predicts itself correctly here
+    leaves only the cohort's own preprocessing to blame.
+
+**Files an ancestry run writes for debugging** (alongside the report, at the
+final output prefix — they survive a run without `--full-output`):
+
+| File | Contents |
+|---|---|
+| `{out}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
+| `{out}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
+| `{out}_pca_diagnostic.png` | With `--ancestry-plots` |
+| `{out}_centroid_distance.png` | With `--ancestry-plots` |
+
 ---
 
 ### GWAS and PCA Arguments
@@ -412,4 +487,10 @@ genotools --pfile data/mydata --out results/output --ancestry \
 genotools --pfile data/mydata --out results/output \
           --callrate 0.05 --geno 0.01 --hwe 1e-6 \
           --pca 20 --gwas --quiet
+
+# Debugging a prediction that came back one label for every sample
+genotools --pfile data/mydata --out results/debug --ancestry \
+          --model models/my_model --ref-panel refs/panel \
+          --ref-labels refs/labels.txt \
+          --ancestry-self-test --ancestry-plots --no-admixture-detection
 ```

@@ -1291,6 +1291,162 @@ goldens would not have caught the bug, and still would not.
 
 ---
 
+### Round 18 (instruments for the prediction path, and the fill behind an all-CAH run)
+
+Prompted by a report from outside this repo: a team training an ancestry model
+on long-read sequencing got high test accuracy and then `CAH` for **every**
+sample in their cohort. No file in the run said why, so the round is mostly
+about making the prediction path answer questions about itself.
+
+**Where the asymmetry is.** Training accuracy is measured on reference samples
+built by the *training* branch of `get_raw_files`; a cohort goes through the
+*inference* branch, which has to align itself to a saved model's SNP list. Only
+the inference branch can fail at alignment, and nothing downstream of it could
+see that it had:
+
+```
+absent model SNP -> filled with dosage 2 for every sample
+                 -> identical large offset for every sample after ref-fitted scaling
+                 -> cohort collapses to one point off the reference manifold
+                 -> nearest centroid is the global one
+                 -> CAH, for everybody, from a model with 0.98 test accuracy
+```
+
+`missing_cols += [pd.Series(np.repeat(2, ...))]` (1.x, carried into 2.0) was
+the first link and it was **silent** — no count, no warning, no report field.
+Dosage 2 is not a neutral filler: it is one end of the range, applied
+identically to every sample, which is precisely what produces a shared offset
+rather than noise.
+
+**The fill is now `NaN`,** which `PCAReducer.transform`'s imputer — fitted on
+the reference panel — replaces with that SNP's panel mean. This is not a new
+convention: `plink2 --recode A` already writes `NA` for a genuinely missing
+call at a SNP the cohort *does* carry, and those NaNs already reached the same
+imputer. The old code was inconsistent with the matrix it was filling in.
+`--ancestry-missing-fill constant` restores dosage 2 exactly, int dtypes
+included, and is pinned by the legacy golden.
+
+**Eight instruments, in the order a failing run should be read.** Each answers
+one question, all are on by default, and all land in the log and in the JSON
+report's new `ancestry_diagnostics` section:
+
+| Instrument | Question it settles |
+|---|---|
+| `SnpOverlapReport` | How much of the model's SNP list did the cohort actually carry? More than 5% filled warns; more than 50% **refuses** rather than predicting from fill (`--ancestry-max-missing-snps`), and the filled IDs go to `{out}_filled_snps.txt` |
+| `bim_compatibility` | When a match comes back near-empty, do the two files even share a coordinate space? Names `chr1`-vs-`1` and hg19-vs-hg38 outright; zero overlap now raises instead of failing inside `plink2 --extract` |
+| `allele_frequency_concordance` | Do matched sites agree with the panel on frequency, or is a swap-signature population sitting near `1 - ref_freq`? |
+| `pc_drift` | Where did the cohort land, in reference SD? A centroid 40 SD out, or a spread ratio near zero, is a feature-matrix problem, not ancestry |
+| `admixture_summary` | What did the classifier say *before* the `CAH` override replaced it? |
+| `--no-admixture-detection` | The same question by experiment |
+| `self_test` | Can the model still recover the reference panel's own labels through the prediction path? |
+| `--ancestry-plots` | The two pictures worth having once the numbers have narrowed it |
+
+The override was the other silent step: `_predict_admixed` overwrote the
+classifier's label and discarded it, so an all-`CAH` run was indistinguishable
+from a broken classifier. It now also returns a per-sample decision frame —
+both labels, every centroid distance, and `margin_to_all`, which restates the
+rule as one signed number (negative is `CAH`) — written to `{out}_decisions.txt`.
+A spread of pre-override labels under a uniform `CAH` result localizes the
+fault to the override or the projection in one line of the log.
+
+`self_test` is the measurement that splits the two hypotheses the reporting
+team could not split. Its accuracy is optimistic by construction — most of
+those samples were fitted on — so the load-bearing number is the panel's own
+`CAH` rate: the panel *defines* the ancestry centroids, so a panel that comes
+back largely `CAH` indicts the override or the projection no matter what the
+cohort looks like, and a panel that predicts itself correctly leaves only the
+cohort's preprocessing to blame.
+
+**A trap found on the way in.** `run_umap` selected its features by *dropping*
+`FID`/`IID`/`label`, so anything else in `_projected_new_pca.txt` became a UMAP
+feature — silently, since UMAP accepts any width. Writing per-sample distances
+into that file, the obvious first design, would have moved every point in the
+embedding. Diagnostics went to their own file instead, and `run_umap` now
+selects `PC*` by name with a fallback for frames that name their components
+otherwise.
+
+**Both prediction modes, or neither.** `_run_training_mode` and
+`_run_inference_mode` each call `get_raw_files` and `predict` with their own
+argument lists — the `--amr-het` shape, where a setting honoured on one path and
+forgotten on the other works right up until the run that matters. Every wiring
+test is parameterized over both modes, and the revert-check confirms the
+parameterization is what catches it: dropping the fill settings from the
+inference branch fails only `[inference]`, hardcoding `detect_admixed=True` in
+the training branch fails only `[training]`.
+
+Diagnostic artifacts are written to the **final** output prefix rather than
+beside the intermediates, because a run without `--full-output` deletes the
+directory the intermediates live in — and the evidence is worth more than the
+matrix it came from.
+
+**What the fill change costs, measured.** `tests/scripts/compare_missing_fill.py`
+is the third single-variable comparator after rounds 16 and 17, and the first
+that needs neither a second venv nor a second checkout: both strategies are
+reachable from one tree, so it holds the model, the reference PCA and the
+libraries constant in a single process and varies only the value written into
+the columns the cohort could not supply.
+
+On the 10k GP2 subset with the saved parity model:
+
+```
+  cohort matched 43173/43173 model SNPs (100.00%); 0 filled
+  fill: constant -> ref-mean   0 of 10,000 calls moved (0.000%)
+```
+
+The exposure is **zero** — this cohort carries the model's entire SNP list — so
+the change is provably a no-op here and cannot move a call. That is the same
+shape of argument as round 17's palindrome exclusion: it lands without
+revalidation because the data in use is not exposed to it, and the cohort that
+*is* exposed is exactly the one whose old labels were describing fill.
+
+**The same run calibrates the thresholds, which is worth more than the parity
+result.** A healthy real cohort against this panel looks like:
+
+| Instrument | Healthy value here | Warns at |
+|---|---|---|
+| SNP overlap | 43,173 / 43,173 (100.00%) | < 95% filled-in, refuses > 50% |
+| Allele-frequency concordance | r = 0.9516, 2 of 43,173 discordant, **0** swap signatures | r < 0.7, > 1% swap |
+| PC drift (PC1-PC10) | shift 0.01-0.92 SD, spread ratio 0.25-0.93 | > 5 SD, ratio outside 0.1-10 |
+| CAH rate | 135 of 10,000 (**1.35%**) | > 50% |
+| Self-test (`--ancestry-self-test`) | 4,008 panel samples, balanced accuracy **0.9471** (0.9565 before the override), **0.92%** CAH | accuracy < 0.5, or CAH > 50% |
+
+Every instrument sits an order of magnitude inside its threshold on real data,
+which is the evidence that none of them will cry wolf on an ordinary run. It is
+one cohort against one panel, so it is a calibration point rather than a
+calibration — recorded as remaining-work item 28.
+
+**The whole path was then run through the CLI once**, on the same cohort and
+model, without `--full-output`:
+
+```
+genotools --pfile GP2_r12_subset10k --ancestry --model <parity model> \
+          --ref-panel <panel> --ref-labels <labels> \
+          --ancestry-plots --ancestry-self-test
+```
+
+Everything landed: the overlap, drift table, self-test and override summary in
+the log; `ancestry_diagnostics` in the report; `{out}_decisions.txt` (10,000
+rows, 20 columns) and both PNGs at the **final** prefix, outliving the temp
+directory. No diagnostic fired a warning, which is the correct result for this
+cohort.
+
+The override summary is the line worth showing, because it is the one that was
+previously impossible to obtain:
+
+```
+Admixture detection: 135/10000 labeled CAH; classifier labels before the
+override: {'EUR': 6932, 'EAS': 769, 'AFR': 608, 'AJ': 399, 'AMR': 380,
+'CAS': 313, 'MDE': 303, 'AAC': 161, 'SAS': 122, 'FIN': 13}
+```
+
+On a healthy run it is unremarkable — `AMR` 380 → 344, `CAS` 313 → 271,
+`AAC` 161 → 113. On the run that prompted the round it would have read
+`{'EUR': ..., 'AFR': ..., 'EAS': ...}` under an all-`CAH` result, which
+localizes the fault in one line.
+
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1425,3 +1581,33 @@ Priority order for making the refactor mergeable to `main`:
     the reason golden reports needed normalizing at all (round 14). Recording
     the stable `{out}_{step}` prefixes instead would be more useful, but it is
     a report contract change.
+27. **Training mode has no overlap report, and a width mismatch crashes it.**
+    Round 18 instrumented the inference branch of `get_raw_files`, where the
+    cohort is aligned to a saved model's SNP list. The training branch does not
+    reindex the cohort matrix to the reference's columns at all — it assumes the
+    two `get_common_snps` calls produced the same width and does
+    `raw_geno.columns = col_names`, which raises pandas' bare "Length mismatch"
+    if they did not. Not observed on real data, and the second call can only
+    lose variants relative to the first, so it is reachable in principle rather
+    than in practice. Reporting the shortfall the way the inference branch now
+    does would be strictly better than the traceback.
+28. **The diagnostic thresholds are reasoned, not calibrated.** 5 reference SD
+    of PC shift, a 0.1-10x spread ratio, 50% CAH, r < 0.7 on allele frequency,
+    1% swap signature (`ancestry/diagnostics.py`) were each derived from the
+    mechanism they detect, not from a distribution of real runs. They are only
+    warnings — except the 50%-filled refusal, which is the one with teeth — but
+    a false positive on a legitimately unusual cohort costs trust in all of
+    them. Worth recalibrating once a handful of real cohorts have been through
+    the instrumented path.
+29. **The self-test measures a floor, not accuracy.** `--ancestry-self-test`
+    predicts the whole reference panel, most of which the model was fitted on,
+    so its balanced accuracy is optimistic by construction and only its
+    *failure* is informative. The honest version would push the model's own
+    held-out test split through `predict`, which means recording those sample
+    IDs onto the model at `fit` time — a model-format change, so deferred.
+30. **`ancestry_diagnostics` has no golden.** The regression goldens cover no
+    ancestry run at all (`tests/scripts/generate_golden.py` has no ancestry
+    generator), so the new report section's shape is pinned only by unit tests
+    against a hand-built result dict. The same gap is why round 18 needed no
+    golden regeneration; it is also why a change to that section's shape would
+    not be caught.

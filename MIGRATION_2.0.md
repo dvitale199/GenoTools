@@ -135,6 +135,12 @@ that `--het sd` is the spelling now. See
 `--het-ancestry`, `--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`.
 `--het` accepts a new `sd [N]` form.
 
+Ancestry prediction adds `--no-admixture-detection`,
+`--ancestry-missing-fill`, `--ancestry-max-missing-snps`, `--ancestry-plots`
+and `--ancestry-self-test`. See
+[Absent model SNPs are no longer filled with dosage 2](#absent-model-snps-are-no-longer-filled-with-dosage-2)
+and `docs/cli_args.md`.
+
 ---
 
 ## Behavior changes
@@ -360,6 +366,46 @@ common-SNP list, its fitted classifier and its accuracy are all unaffected. You
 do not need to retrain, and predictions from an existing model shift only by
 the amount above.
 
+### Absent model SNPs are no longer filled with dosage 2
+
+**This can change ancestry calls a lot, but only for a cohort that was already
+being predicted badly.**
+
+When predicting with a saved model, the cohort's feature matrix has to have
+exactly the model's SNPs in the model's order, so any SNP the cohort does not
+carry has to be invented. 1.x — and 2.0 up to this point — filled every such
+SNP with dosage **2** for every sample. Dosage 2 is not a neutral value: it is
+one end of the range, applied identically to everybody, so a cohort missing a
+large share of the model's SNP list acquires a large *shared* offset in PC
+space, lands somewhere no reference sample sits, and can end up nearer the
+global centroid than to any ancestry centroid — which is the rule that labels a
+sample `CAH`. A high-accuracy model predicting `CAH` for an entire cohort is
+this, not a model failure.
+
+The fill is now a missing value, which `PCAReducer`'s reference-fitted imputer
+replaces with the panel's own mean for that SNP. That is already how a
+genuinely missing call at a SNP the cohort *does* carry is treated, so the
+change also makes the matrix internally consistent. A filled SNP now
+contributes nothing to the projection instead of pulling it.
+
+Three things follow:
+
+- **A cohort that matched the model's SNPs well barely moves.** The filled
+  columns were a small part of the matrix, and they now sit at the panel mean
+  instead of at 2.
+- **A cohort that matched badly may move a great deal** — that is the fix, not
+  a regression. The old labels for such a cohort were describing the fill.
+- **Above 50% filled, prediction is refused** rather than reported, naming the
+  counts and the likely cause. Raise `--ancestry-max-missing-snps` to predict
+  anyway; every run logs the overlap and writes the filled IDs to
+  `{out}_filled_snps.txt` either way.
+
+`--ancestry-missing-fill constant` restores the old behaviour exactly, int
+dosages included, for reproducing an older run.
+
+**Existing models are not invalidated** — the model is untouched; this is
+entirely about the matrix handed to it at prediction time.
+
 ### GWAS p-values shift slightly
 
 PCA now prunes high-LD and MHC regions that 1.x left in, so association
@@ -383,6 +429,7 @@ Most of the report is unchanged. The differences:
 | `pruned_samples[].label` | unchanged — still carries the sample's ancestry group |
 | `total_umap`, `ref_umap`, `new_samples_umap` | **columns renamed** `"0".."24"` → `"UMAP1".."UMAP25"` |
 | `common_snps` | **new** — count of variants shared between input and reference panel |
+| `ancestry_diagnostics` | **new** — what the prediction path measured about itself: `snp_overlap` (how much of the model's SNP list the cohort carried, and how much was filled), `allele_frequency` (panel/cohort concordance over matched sites, with a swap-signature count), `pc_drift` (per-PC cohort displacement in reference SDs), `admixture` (the `CAH` count with the classifier's labels from before the override), `self_test` (with `--ancestry-self-test`), `plots`, and `warnings` |
 | `projected_pcs` | same columns and values; column *order* differs (`label` moved earlier) |
 
 The UMAP rename is the one breaking change here. If you read those columns by
