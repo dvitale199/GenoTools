@@ -1150,6 +1150,147 @@ when the genotype comparison actually needs it.
 
 ---
 
+### Round 17 (palindromic SNPs, and the tie-break hiding behind them)
+
+Resolves item 13. The headline defect turned out to be unreachable and the
+aside next to it turned out to be the live one, so the measurement is what
+decided which half mattered.
+
+**The palindrome bug is real and currently unreachable.** `get_common_snps`
+kept strand-ambiguous A/T and C/G sites. Complementing such a pair returns the
+same pair, so the four-route match (two allele orderings × unflipped/flipped
+reference) cannot tell which strand the site came from. Worse, the
+allele-switch test in `get_raw_files` — "differs from the reference allele
+*and* from its complement" — can never fire for a palindrome, because one of
+those two comparisons always matches. A palindromic site is therefore accepted
+at whatever orientation it arrived in, and its dosages are silently inverted
+wherever the strands disagree.
+
+It cannot bite on the panel in use. Reference panels built per
+`docs/prep_reference_panel.md` exclude palindromes when the panel is built, and
+the GP2 panel holds up: **0 palindromic variants of 209,517**. Since
+complementing a non-palindromic pair yields another non-palindromic pair
+(`A/G → T/C`), no reference variant can ever *present* as `{A,T}` or `{C,G}`,
+so the cohort's 219,056 palindromic variants (11.26% of it) have nothing to
+match against. Verified three ways rather than argued: zero palindromes among
+the saved parity model's 43,173 common SNPs; zero among the survivors of a real
+`get_common_snps` run on the real inputs; and the replicated intermediate frame
+reproduces that run's output in order, so the replication can be trusted.
+
+Fixed anyway, as a guard for a panel whose prep skipped the step. The exclusion
+is provably a no-op here, which is what makes it safe to land without
+revalidation.
+
+**The live half was the row-order tie-break.** Item 13 recorded
+`drop_duplicates(subset=["chr","pos"])` keeping the first row as a *related*
+concern. It is the one with consequences, for a reason the item did not record:
+`get_common_snps` is called **twice, with its arguments reversed**. The first
+call extracts from the reference panel and decides the model's common-SNP list;
+the second (`preprocessing.py:156`) extracts from the *cohort*, so the written
+ID is a cohort variant — and a cohort carries the same site under several probe
+IDs (`rs301801`, `IlmnSeq_rs301801`, `seq_rs301801`; 98,509 duplicate positions
+in the 10k subset).
+
+On that cohort, **1,078 of 43,173 common SNPs (2.50%)** had their probe decided
+by row order, and the candidates are not redundant copies:
+
+| | |
+|---|---|
+| Contested positions | 1,078 of 43,173 (2.50%) |
+| Whose candidates were bit-identical | **4** (0.4%) |
+| Showing genotype discordance | 1,015 |
+| Differing in missingness | 1,037 |
+| Worst discordance | **49.85%** (`4:115883489`, `exm2269825` vs `rs1430934`) |
+| Worst missingness gap | 6.88% |
+| Feature-matrix cells affected | 105,318 of 431,730,000 (0.0244%) |
+
+Deterministic for a given input file — pandas merge order is stable — so this
+was never run-to-run flakiness. It was *arbitrary*: nobody chose `rs301801`
+over `exm2269825`, row order did, and re-exporting the same cohort with its
+variants in a different order could change the answer.
+
+**Now the best-called probe wins**, with exact ties keeping the earlier row so
+behaviour is unchanged wherever missingness cannot separate the candidates. The
+missingness pass is skipped unless some position's candidates actually name
+different variants, which makes the reference-panel-side call a no-op: its
+output stays **byte-identical**, so a saved model's common-SNP list does not
+move and existing models are not invalidated.
+
+**What it costs, measured.** `tests/scripts/compare_snp_matching.py` is a
+sibling of round 16's comparator asking the same question of the other
+variable: that script holds the source constant and varies the libraries, this
+one holds the libraries constant and varies the source (via `cwd`, since
+`python -m genotools` imports the working directory first). `run_pipeline` grew
+a `cwd` parameter so the two share round 16's fix that decides on the report
+rather than the exit code, instead of duplicating it.
+
+It defaults to `--mode reuse-model`, which here is exact rather than merely
+cheaper: only the cohort-side call changes, so the fitted model and the
+reference PCA are identical in both arms and every moved call is attributable
+to the probe selection. `--mode retrain` would fold in UMAP's own fit
+stochasticity, which round 16 measured at 1.2% — larger than this signal, and
+therefore noise for this question.
+
+On the 10k GP2 subset, reusing the saved parity model, **1 of 10,000 calls
+moved (0.010%)** — one sample from `FIN` to `EUR`. Everything else is
+identical:
+
+```
+[FAIL] ancestry labels: 1/10,000 samples labeled differently
+       old FIN -> new EUR                            1
+[FAIL] ancestry counts: EUR 6927->6928, FIN 12->11
+[PASS] test accuracy: identical (0.985037)
+[PASS] confusion matrix: identical (10x10)
+[PASS] QC metrics: all 55 pruned_counts identical
+[PASS] pruned samples: identical IDs across 3 step(s), 412 total
+[PASS] related samples: identical 52 pairs
+[PASS] step pass/fail: identical across 11 ancestry group(s)
+```
+
+The identical test accuracy and confusion matrix are the useful part: they
+confirm by measurement what the byte-identical first call predicted, that the
+model itself is untouched and the whole effect is on prediction.
+
+So 456 probes changed (of the 1,078 contested positions, the rest already had
+the best-called probe first), 105,318 feature-matrix cells moved, and one call
+changed. The pipeline is far more robust to this than the raw cell count
+suggests — which is the argument for having measured it instead of either
+waving it through or blocking on it. For calibration, round 16's library
+upgrade moved 129 calls; this moves 1.
+
+Worth noting without over-reading: the single moved sample is
+`SYNAPS-KZ_000677`, from a Kazakhstan cohort, and it moved *off* `FIN`, a label
+no Kazakh sample should plausibly carry. That is one sample and there is no
+ground truth here, so it is not evidence the fix is correct — but it is not
+evidence against it either, and it is the direction one would hope for.
+
+**The test that was supposed to cover this asserted the wrong thing.**
+`test_get_common_snps_matches_legacy` compared the port byte-for-byte against
+the legacy function — but passed the same bfile as both inputs, so it never
+exercised ambiguous ordering at all, and it *pinned the bug*: any fix would
+fail it by construction. Replaced by three:
+
+- **legacy parity on unambiguous input** — keeps what the old test was really
+  worth, on a fixture with its palindromes removed, where both must agree
+- **palindrome exclusion** — asserts legacy *kept* them and that only
+  palindromic sites differ, so it cannot pass vacuously
+- **tie-breaking by call rate** — on a hand-built fixture whose 50%-missing
+  probe is deliberately ordered *ahead* of its 5%-missing one, so first-row-wins
+  would take the bad probe
+
+Both production changes were revert-checked (item 17's discipline): neutering
+`_drop_palindromic` fails the second, restoring the old `drop_duplicates` fails
+the third, and the reverted code demonstrably selects `probe_hi`.
+
+The `get_raw_files` goldens are untouched, and structurally so: both golden
+fixtures — the `ref21_22` panel and the `geno21_22` cohort — have zero
+palindromic sites and zero duplicate positions, so neither half of the fix can
+reach either side of the match. That is a property of the fixtures rather than
+luck, which is why this landed without a golden regeneration. It also means the
+goldens would not have caught the bug, and still would not.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1214,13 +1355,17 @@ Priority order for making the refactor mergeable to `main`:
     each tool's resolved path and `--version`, and naming a different binary of
     the same name on `PATH`. Widened past plink2 to plink and KING, since all
     three resolve the same way. See round 15 above.
-13. **Palindromic SNPs not excluded in ancestry matching** — a faithful 1.x port
-    and a real issue, not a 2.0.0 blocker. Related:
-    `ancestry/preprocessing.py:53`'s `drop_duplicates(subset=["chr","pos"])`
-    keeps the first row, so row order decides at multi-allelic and palindromic
-    positions. `test_get_common_snps_matches_legacy` asserts byte-identical
-    output against the legacy function but passes the same bfile as both inputs,
-    so the ambiguous-ordering path is barely exercised.
+13. ✅ **Palindromic SNPs not excluded in ancestry matching** — RESOLVED in
+    **round 17**. The recorded headline was unreachable and the aside beside it
+    was the live defect. Reference panels built per the documented recipe are
+    already palindrome-free (0 of 209,517 in the GP2 panel), so no palindromic
+    site can survive the intersection; the palindrome exclusion is therefore a
+    provable no-op here and a guard for panels built differently. The
+    `drop_duplicates` row-order tie-break was the real one, on the *cohort*
+    side — the second `get_common_snps` call passes its arguments reversed — and
+    decided 1,078 of 43,173 common SNPs. Both fixed, and the test that claimed
+    to cover this was found to pin the bug. Measured cost: 1 call in 10,000.
+    See round 17 above.
 14. ✅ **No provenance on a trained model** — RESOLVED in **round 15**.
     `fit()` records a `versions` block onto the model itself (so the
     single-file format carries it too, not just `metadata.json`), and
