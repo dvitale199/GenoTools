@@ -183,6 +183,51 @@ def test_saved_metadata_carries_the_versions(tmp_path: Path) -> None:
     assert metadata["versions"] == {"umap-learn": "0.5.3"}
 
 
+def test_save_writes_an_installable_requirements_file(tmp_path: Path) -> None:
+    """Knowing a model drifted is only half of it. The point of this file is
+    that reproducing the original calls is one command, not a reconstruction
+    job."""
+    model = AncestryModel()
+    model.versions = {"umap-learn": "0.5.3", "numpy": "1.23.5", "python": "3.11.2"}
+    model._is_fitted = True
+
+    out = model.save(tmp_path / "saved")
+    reqs = (out / "requirements.txt").read_text()
+
+    assert "umap-learn==0.5.3" in reqs
+    assert "numpy==1.23.5" in reqs
+    assert "pip install -r" in reqs, "say how to use the file, in the file"
+    # umap<0.5.5 cannot import without pkg_resources, so the file has to pin
+    # setuptools too or it recreates an environment that does not work.
+    assert "setuptools<82" in reqs
+
+
+def test_a_version_less_model_writes_no_requirements(tmp_path: Path) -> None:
+    """An empty or invented requirements file would be worse than none."""
+    model = AncestryModel()
+    model._is_fitted = True
+
+    out = model.save(tmp_path / "saved")
+    assert not (out / "requirements.txt").exists()
+
+
+def test_drift_warning_points_at_the_requirements_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The warning is where someone finds out; it should carry the fix."""
+    model = AncestryModel()
+    model.versions = {"numpy": "0.0.1-ancient"}
+    model._is_fitted = True
+    out = model.save(tmp_path / "saved")
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        AncestryModel.load(out)
+
+    message = _warnings(caplog)
+    assert "pip install -r" in message
+    assert str(out / "requirements.txt") in message
+
+
 def test_fit_is_what_records_the_versions() -> None:
     """Captured at fit, not at save: these are the versions that produced
     *this* fit, and they must travel with the pickle for the single-file

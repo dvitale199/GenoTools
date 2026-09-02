@@ -70,10 +70,16 @@ setup(
         'scikit_learn>=1.3.0',
         'scipy>=1.9.3',
         'seaborn>=0.12.1',
-        'setuptools>=65.6.3',
         'statsmodels>=0.13.5',
         'streamlit>=1.15.2',
-        'umap_learn==0.5.3',
+        # 0.5.5 is the floor, not a preference: 0.5.4 and earlier do
+        # `import pkg_resources` at import time, and setuptools deleted
+        # pkg_resources in 82.0.0 -- so older umap cannot be imported at all in
+        # a current environment. Floating from there rather than pinned: an
+        # exact pin never covered numpy/scipy/sklearn/xgboost, which move the
+        # embedding just as much, and a trained model now records the versions
+        # it was fitted under (see requirements-lock.txt and MIGRATION_2.0.md).
+        'umap_learn>=0.5.5',
         'xgboost>=1.7.6'
     ],
     # container/ is a Docker build context kept as a historical reference, not

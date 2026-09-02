@@ -74,13 +74,19 @@ from genotools.ancestry.results import (
 from genotools.core.exceptions import AncestryError
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger
-from genotools.core.provenance import package_versions, version_drift
+from genotools.core.provenance import (
+    package_versions,
+    requirements_lines,
+    version_drift,
+)
 
 
 logger = get_logger(__name__)
 
 
-def _warn_on_version_drift(model: "AncestryModel") -> None:
+def _warn_on_version_drift(
+    model: "AncestryModel", path: Optional[Path] = None
+) -> None:
     """Say so when a model was fitted under different libraries than are loaded.
 
     This is the whole point of recording versions. A model fitted under
@@ -108,11 +114,17 @@ def _warn_on_version_drift(model: "AncestryModel") -> None:
         return
 
     changes = "; ".join(f"{name} {was} -> {now}" for name, was, now in drift)
+    how = "Reinstall the recorded versions, or retrain, to reproduce them."
+    if path is not None and (Path(path) / "requirements.txt").exists():
+        how = (
+            f"To reproduce the original calls: "
+            f"pip install -r {Path(path) / 'requirements.txt'} -- or retrain."
+        )
     logger.warning(
         f"Model version drift: {changes}. This model was fitted under the "
         f"recorded versions, and the embedding can differ under different "
         f"ones, so ancestry calls may not match what this model was validated "
-        f"on. Reinstall the recorded versions, or retrain, to reproduce them."
+        f"on. {how}"
     )
 
 
@@ -609,6 +621,8 @@ class AncestryModel:
         - ``common_snps.txt``: Plain text rsIDs, one per line.
         - ``metadata.json``: Config, best_params, training_metrics, and the
           library versions the fit ran under.
+        - ``requirements.txt``: those same versions as pip requirements, so the
+          fitting environment can be recreated rather than merely identified.
 
         Args:
             path: Output directory path.
@@ -636,6 +650,18 @@ class AncestryModel:
             with open(snps_path, "w") as f:
                 for snp in self.common_snps:
                     f.write(f"{snp}\n")
+
+        # The environment this fit needs, as something pip can consume.
+        # Knowing a model drifted is only half of it; this is the other half.
+        if self.versions is not None:
+            reqs_path = path / "requirements.txt"
+            with open(reqs_path, "w") as f:
+                f.write(
+                    "# Environment this ancestry model was fitted under.\n"
+                    "# Recreate it with: pip install -r requirements.txt\n"
+                )
+                for line in requirements_lines(self.versions):
+                    f.write(f"{line}\n")
 
         # Human-readable metadata
         metadata = self._build_metadata()
@@ -733,7 +759,7 @@ class AncestryModel:
                 f"{type(model)}.{hint}"
             )
 
-        _warn_on_version_drift(model)
+        _warn_on_version_drift(model, path)
 
         logger.info(f"Model loaded from: {path}")
         return model

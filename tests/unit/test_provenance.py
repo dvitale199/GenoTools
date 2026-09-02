@@ -33,6 +33,7 @@ from genotools.core.provenance import (
     describe_tool,
     executable_folder,
     package_versions,
+    requirements_lines,
     tool_lines,
     tool_version,
     version_drift,
@@ -97,6 +98,61 @@ class TestVersionDrift:
         assert [name for name, _, _ in version_drift(recorded, current)] == [
             "a", "b", "c"
         ]
+
+
+class TestRequirementsLines:
+    """Detecting drift is half of it; being able to undo it is the other half."""
+
+    def test_versions_become_installable_pins(self) -> None:
+        lines = requirements_lines({"umap-learn": "0.5.12", "numpy": "2.3.5"})
+        assert "umap-learn==0.5.12" in lines
+        assert "numpy==2.3.5" in lines
+
+    def test_python_is_a_comment_not_a_requirement(self) -> None:
+        """pip cannot install an interpreter, but dropping it silently would
+        hide a difference that does affect unpickling."""
+        lines = requirements_lines({"python": "3.11.2", "numpy": "2.3.5"})
+        assert lines[0] == "# python 3.11.2"
+        assert not any(line.startswith("python==") for line in lines)
+
+    def test_an_absent_package_is_a_comment(self) -> None:
+        """"not installed" is not a version pip can resolve."""
+        lines = requirements_lines({"scipy": NOT_INSTALLED})
+        assert not any(line.startswith("scipy==") for line in lines)
+        assert any("scipy" in line and line.startswith("#") for line in lines)
+
+    def test_old_umap_drags_in_the_setuptools_pin(self) -> None:
+        """Otherwise the file recreates an environment that cannot import umap
+        at all: umap<0.5.5 needs pkg_resources, which setuptools 82 deleted.
+        A reproducibility file that does not reproduce is worse than none."""
+        lines = requirements_lines({"umap-learn": "0.5.3"})
+        assert any(line.startswith("setuptools<82") for line in lines)
+
+    def test_new_umap_does_not(self) -> None:
+        assert not any(
+            line.startswith("setuptools")
+            for line in requirements_lines({"umap-learn": "0.5.5"})
+        )
+
+    def test_version_compare_is_numeric_not_lexicographic(self) -> None:
+        """"0.5.12" < "0.5.5" as strings. Getting this wrong would pin
+        setuptools for every modern umap."""
+        assert not any(
+            line.startswith("setuptools")
+            for line in requirements_lines({"umap-learn": "0.5.12"})
+        )
+
+    def test_an_unparseable_version_adds_no_bogus_pin(self) -> None:
+        """Guessing wrong here corrupts a requirements file; omitting a helpful
+        pin merely leaves it as it was."""
+        for odd in ("weird-build", "", NOT_INSTALLED):
+            assert not any(
+                line.startswith("setuptools")
+                for line in requirements_lines({"umap-learn": odd})
+            )
+
+    def test_a_model_with_no_umap_recorded_is_left_alone(self) -> None:
+        assert requirements_lines({"numpy": "2.3.5"}) == ["numpy==2.3.5"]
 
 
 class TestExecutableFolder:
