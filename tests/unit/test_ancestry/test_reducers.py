@@ -333,3 +333,76 @@ class TestUMAPReducer:
         reducer = UMAPReducer()
         with pytest.raises(AncestryError, match="requires at least"):
             reducer.fit(data)
+
+
+class _RecordingReducer:
+    """Stands in for UMAPReducer, recording the feature width it is handed."""
+
+    widths: list = []
+
+    def fit(self, X: np.ndarray) -> "_RecordingReducer":
+        self.widths.append(("fit", X.shape[1]))
+        return self
+
+    def transform(self, X: np.ndarray, return_dataframe: bool = False):
+        self.widths.append(("transform", X.shape[1]))
+        frame = pd.DataFrame(np.asarray(X)[:, :2], columns=["UMAP1", "UMAP2"])
+        return frame if return_dataframe else frame.values
+
+    @classmethod
+    def from_params(cls, params: Any) -> "_RecordingReducer":
+        return cls()
+
+
+def _pca_frame(n: int = 6, label: str = "EUR") -> pd.DataFrame:
+    frame = pd.DataFrame({
+        "FID": [f"S{i}" for i in range(n)],
+        "IID": [f"S{i}" for i in range(n)],
+        "PC1": np.linspace(0, 1, n),
+        "PC2": np.linspace(1, 0, n),
+        "PC3": np.linspace(0, 2, n),
+        "label": [label] * n,
+    })
+    return frame
+
+
+def test_run_umap_embeds_the_pcs_and_nothing_else(monkeypatch):
+    """An extra column in the projected frame must not enter the embedding.
+
+    `run_umap` used to select features by dropping FID/IID/label, so anything
+    else written into `_projected_new_pca.txt` became a feature and moved every
+    point -- silently, since UMAP accepts any width. Diagnostics write per-sample
+    distances now, which is exactly the column that would have leaked in.
+    """
+    from genotools.ancestry.reducers import umap_reducer
+
+    _RecordingReducer.widths = []
+    monkeypatch.setattr(umap_reducer, "UMAPReducer", _RecordingReducer)
+
+    new_pca = _pca_frame()
+    new_pca["dist_to_all"] = 42.0
+    new_pca["label_pre_admixture"] = "AFR"
+
+    result = umap_reducer.run_umap(
+        ref_pca=_pca_frame(),
+        new_pca=new_pca,
+        new_labels=new_pca["label"],
+    )
+
+    assert {width for _, width in _RecordingReducer.widths} == {3}
+    assert list(result["new_umap"].columns) == ["UMAP1", "UMAP2", "label", "dataset"]
+
+
+def test_run_umap_falls_back_when_components_are_not_named_pc(monkeypatch):
+    """A frame naming its components something else still embeds them all."""
+    from genotools.ancestry.reducers import umap_reducer
+
+    _RecordingReducer.widths = []
+    monkeypatch.setattr(umap_reducer, "UMAPReducer", _RecordingReducer)
+
+    frame = pd.DataFrame({
+        "FID": ["a", "b", "c"], "IID": ["a", "b", "c"],
+        "C1": [0.0, 1.0, 2.0], "C2": [2.0, 1.0, 0.0], "label": ["EUR"] * 3,
+    })
+    umap_reducer.run_umap(ref_pca=frame, new_pca=frame.copy(), new_labels=frame["label"])
+    assert {width for _, width in _RecordingReducer.widths} == {2}
