@@ -36,6 +36,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from genotools.ancestry.diagnostics import AncestryDiagnostics
+
 
 @dataclass
 class AncestryPredictions:
@@ -56,11 +58,19 @@ class AncestryPredictions:
         probabilities: Optional DataFrame with per-class prediction
             probabilities. Columns are ancestry labels, rows are samples.
         output_path: Path where predictions were saved, if any.
+        decisions: Optional per-sample admixture-detection working: the label
+            the classifier assigned, the label after the CAH override, and the
+            centroid distances the override turned on. None when detection did
+            not run. See `AncestryModel._predict_admixed`.
+        diagnostics: Optional `AncestryDiagnostics` for the run. Kept off the
+            predictions frame because it is per-run, not per-sample.
     """
 
     predictions: pd.DataFrame
     probabilities: Optional[pd.DataFrame] = None
     output_path: Optional[Path] = None
+    decisions: Optional[pd.DataFrame] = None
+    diagnostics: Optional["AncestryDiagnostics"] = None
 
     def __post_init__(self) -> None:
         """Validate predictions DataFrame."""
