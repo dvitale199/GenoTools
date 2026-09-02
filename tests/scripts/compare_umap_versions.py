@@ -103,11 +103,17 @@ def run_pipeline(
     model: Optional[Path],
     force: bool,
     keep_intermediates: bool,
+    cwd: Path = REPO_ROOT,
 ) -> None:
     """Run one ancestry pipeline, reusing a completed run unless forced.
 
     Reuse is keyed on the JSON report, which the runner writes last — a partial
     run leaves no report and is redone rather than silently compared.
+
+    `cwd` selects which source tree runs, since `python -m genotools` puts the
+    working directory first on `sys.path`. This script holds it at REPO_ROOT so
+    the libraries are the only variable; `compare_snp_matching.py` varies it
+    instead, to compare two source trees under one interpreter.
     """
     report = out_prefix.with_suffix(".json")
     if report.exists() and not force:
@@ -136,9 +142,9 @@ def run_pipeline(
         command += ["--model", str(model)]
 
     print(f"  [run]   {' '.join(command)}")
-    # cwd=REPO_ROOT so both environments import the same working tree: the
-    # libraries are the variable, the GenoTools source is not.
-    result = subprocess.run(command, cwd=REPO_ROOT)
+    # `python -m genotools` imports whatever tree `cwd` names; callers decide
+    # whether the source or the libraries are the variable.
+    result = subprocess.run(command, cwd=cwd)
 
     # A non-zero exit is not a reason to abandon the comparison. GenoTools
     # exits 1 when any step failed, and a step failing is itself something the

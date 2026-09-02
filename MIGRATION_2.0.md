@@ -332,6 +332,34 @@ back. For models predating that, `requirements-lock.txt` in the repo root
 pins a validated environment. Development installs stay unpinned so CI keeps
 catching upstream breakage early.
 
+### Ancestry SNP matching excludes palindromes and prefers better-called probes
+
+**This can change ancestry calls, by very little.** Measured at 1 call in
+10,000 on a 10,000-sample GP2 subset; model accuracy and every QC count were
+unchanged.
+
+Two corrections to how a cohort is matched against the reference panel:
+
+- **Palindromic (A/T, C/G) sites are excluded.** Their alleles survive strand
+  complement unchanged, so nothing downstream can tell which strand they came
+  from, and such a site was previously accepted at whatever orientation it
+  arrived in. If you build panels with the recipe in
+  `docs/prep_reference_panel.md` they were already excluded and nothing changes
+  for you — the GP2 panel has 0 of 209,517. If you use a panel that kept them,
+  this is a correctness fix and your calls may move more than the figure above.
+
+- **A position offering several probes now resolves to the best-called one.**
+  Cohorts routinely carry the same site under multiple probe IDs
+  (`rs301801`, `IlmnSeq_rs301801`, `seq_rs301801`). Previously whichever the
+  merge emitted first won, which was arbitrary and sensitive to the order of
+  variants in your input file; now the one with the lowest missingness wins.
+
+**Existing models are not invalidated.** Only the cohort side of the match
+changed; the reference-panel side is byte-identical, so a saved model's
+common-SNP list, its fitted classifier and its accuracy are all unaffected. You
+do not need to retrain, and predictions from an existing model shift only by
+the amount above.
+
 ### GWAS p-values shift slightly
 
 PCA now prunes high-LD and MHC regions that 1.x left in, so association

@@ -77,6 +77,12 @@ if __name__ == '__main__':
 2. Prune reference genotypes for ```--maf```, ```--geno```, ```--hwe```, and linkage disequilibrium, as well as removing the previously identified palindrome SNPs.
 3. Exclude high-LD regions from reference genotypes.
 
+Step 1 is still worth doing, but it is no longer the only thing standing
+between you and a strand-ambiguous site: `get_common_snps` also excludes
+palindromes when matching a cohort against the panel, so a panel that kept them
+no longer silently mis-orients them. Removing them here keeps the panel smaller
+and its SNP count honest.
+
 ---
 
 ### LD Exclusion Region File Format (hg38)
