@@ -304,14 +304,26 @@ def main() -> int:
             )
 
             if E_cohort is not None:
-                labels = np.asarray(classes)[rows[-1]["model"].predict(E_cohort)]
-                counts = pd.Series(labels).value_counts()
+                # Every repeat labels the cohort, not just one: how many
+                # *different* answers an arm gives for the same data is the
+                # finding, and reporting a single arbitrary draw would hide it.
+                distributions = {}
+                for row in rows:
+                    labels = np.asarray(classes)[row["model"].predict(E_cohort)]
+                    counts = pd.Series(labels).value_counts()
+                    key = tuple(sorted(counts.items()))
+                    distributions.setdefault(key, 0)
+                    distributions[key] += 1
                 say(
-                    f"{'':16} cohort ({len(labels)} samples): "
-                    + " ".join(
-                        f"{label} {count}" for label, count in counts.items()
-                    )
+                    f"{'':16} cohort ({len(E_cohort)} samples): "
+                    f"{len(distributions)} distinct labelling(s) across "
+                    f"{len(rows)} fits"
                 )
+                for key, seen in sorted(
+                    distributions.items(), key=lambda kv: -kv[1]
+                ):
+                    shown = " ".join(f"{label} {count}" for label, count in key)
+                    say(f"{'':18} {seen:>3}x  {shown}")
         say()
 
     # The claim the whole round rests on: the defect is reproducible and the

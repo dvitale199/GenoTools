@@ -61,10 +61,44 @@ class _FakeGridSearch:
 
 @pytest.fixture
 def fake_grid_search(monkeypatch):
-    """Swap GridSearchCV in the model module's namespace."""
+    """Swap GridSearchCV, and stub the fit that follows it.
+
+    These tests inspect the estimator handed *to* the search. Letting
+    `_fit_and_validate_candidate` run afterwards would fit a real UMAP on
+    every one of them for nothing; `TestRealFit` covers that path.
+    """
     _FakeGridSearch.captured = []
     monkeypatch.setattr(model_module, "GridSearchCV", _FakeGridSearch)
+
+    def stub(self, pipeline, best_params, X_train, y_train, cv_score):
+        validation = model_module.validate_fit(
+            _Fitted(y_train), y_train, y_train, n_classes=len(np.unique(y_train))
+        )
+        return {
+            "pipeline": _Fitted(y_train),
+            "params": best_params,
+            "validation": validation,
+            "attempts": [{"learning_rate": 0.1, "accepted": True}],
+        }
+
+    monkeypatch.setattr(model_module.AncestryModel, "_fit_and_validate_candidate", stub)
     return _FakeGridSearch
+
+
+class _Fitted:
+    """A model-shaped stand-in for the fit that follows the search."""
+
+    coef_ = np.array([[1.0]])
+    intercept_ = np.array([1.0])
+
+    def __init__(self, y):
+        self._y = np.asarray(y)
+
+    def predict(self, X):
+        return self._y[: len(X)]
+
+    def score(self, X, y):
+        return 0.98
 
 
 def _tiny_training_arrays(n_classes: int = 3, per_class: int = 8):
@@ -350,3 +384,159 @@ class TestSearchDoesNotRefit:
         model._train_classifier(X, X, y, y)
         assert isinstance(model._cv_results, pd.DataFrame)
         assert len(model._cv_results) == 1
+
+
+def _synthetic_reference(
+    n_per: int = 16,
+    n_snps: int = 120,
+    n_labels: int = 4,
+    structured: bool = True,
+):
+    """Genotype-shaped reference data, with or without ancestry structure.
+
+    When `structured`, allele frequencies are shifted per label over the first
+    half of the SNPs, so PCA finds the labels and the classifier has something
+    to learn. When not, every label draws from the same frequencies -- there is
+    no signal, so a fit cannot beat chance and the floor must refuse it. That
+    is the only way to provoke an unusable model on demand now that the
+    training race is gone. `PCAReducer` needs 50 samples, so keep n_per *
+    n_labels above that.
+    """
+    rng = np.random.default_rng(7)
+    names = [f"L{index}" for index in range(n_labels)]
+    rows, labels = [], []
+    for index, name in enumerate(names):
+        freqs = rng.uniform(0.05, 0.95, n_snps)
+        if structured:
+            freqs[: n_snps // 2] *= 0.3 + 0.25 * index
+        for _ in range(n_per):
+            rows.append(rng.binomial(2, np.clip(freqs, 0.01, 0.99)))
+            labels.append(name)
+    frame = pd.DataFrame(
+        np.asarray(rows, dtype=float), columns=[f"snp{k}" for k in range(n_snps)]
+    )
+    frame.insert(0, "IID", [f"S{k:04d}" for k in range(len(frame))])
+    frame.insert(0, "FID", frame["IID"])
+    return frame, pd.Series(labels, index=frame["IID"], name="label")
+
+
+def _diverging_config(**training):
+    """The same tiny grid, with a learning rate high enough to blow the fit up.
+
+    10 is far outside anything the CLI offers; it is the only way to provoke
+    the real failure on demand now that `n_jobs=1` has removed the thread race
+    that used to do it at random.
+    """
+    import dataclasses
+
+    from genotools.ancestry.config import ClassifierConfig
+
+    return dataclasses.replace(
+        _tiny_config(**training), classifier=ClassifierConfig(learning_rate=10.0)
+    )
+
+
+@pytest.fixture(scope="module")
+def fitted_model():
+    """One real fit, shared: each UMAP fit here costs seconds."""
+    reference, labels = _synthetic_reference()
+    return AncestryModel(config=_tiny_config()).fit(reference, labels)
+
+
+
+def _tiny_config(**training):
+    """The full grid collapsed to one candidate: 1080 fits become 2."""
+    from genotools.ancestry.config import AncestryConfig
+
+    return AncestryConfig(
+        pca=PCAConfig(n_components=6),
+        grid_search=GridSearchConfig(
+            umap_n_neighbors=(5,),
+            umap_n_components=(2,),
+            umap_a=(1.0,),
+            umap_b=(0.5,),
+            xgb_lambda=(1.0,),
+            cv_folds=2,
+        ),
+        training=TrainingConfig(n_jobs=1, **training),
+    )
+
+
+class TestRealFit:
+    """One real `fit()` end to end, on a grid shrunk to a single candidate.
+
+    Everything above stubs the search. This is the only test that runs the
+    actual path a production training run takes, which is where the pieces
+    could disagree about their interfaces without any of them being wrong.
+    """
+
+    def test_a_healthy_fit_records_every_measurement(self, fitted_model) -> None:
+        metrics = fitted_model.training_metrics
+        assert metrics is not None
+        assert metrics.test_balanced_accuracy is not None
+        assert metrics.train_balanced_accuracy is not None
+        assert metrics.cv_balanced_accuracy == metrics.train_accuracy
+        assert set(metrics.baseline_scores) == {"15-NN", "nearest-centroid"}
+        assert metrics.n_grid_candidates == 1
+        assert metrics.n_failed_candidates == 0
+        assert metrics.fit_validation["collapsed"] is False
+        assert metrics.fit_validation["diverged"] is False
+        assert len(metrics.fit_attempts) == 1
+
+    def test_the_learning_rate_used_is_recorded_in_best_params(
+        self, fitted_model
+    ) -> None:
+        """The grid does not tune it, so nothing else would say what it was."""
+        assert fitted_model.best_params["xgb__learning_rate"] == 0.1
+
+    def test_the_fitted_pipeline_predicts(self, fitted_model) -> None:
+        """`refit=False` means this pipeline was fitted by our code, not the
+        search -- so it has to actually work."""
+        assert fitted_model.is_fitted
+        assert len(fitted_model.pipeline.predict(np.zeros((3, 6)))) == 3
+
+    def test_a_real_divergence_fails_the_run(self, tmp_path) -> None:
+        """The whole point: an unusable model is refused, not saved.
+
+        The race that produced the original collapse is gone, so the failure
+        is provoked the other way -- by raising the learning rate until the
+        same optimizer diverges. The signature it produces is the PPMI one:
+        |intercept| ~1e17, one label for every sample, balanced accuracy
+        exactly 1/n_labels.
+        """
+        reference, labels = _synthetic_reference()
+        model = AncestryModel(config=_diverging_config(fit_fallbacks=0))
+
+        with pytest.raises(AncestryError) as excinfo:
+            model.fit(reference, labels)
+
+        message = str(excinfo.value)
+        assert "no model was saved" in message
+        assert "predicts 1/4 labels" in message
+        assert not model.is_fitted
+        with pytest.raises(AncestryError, match="Cannot save unfitted model"):
+            model.save(tmp_path / "model")
+
+    def test_the_fallback_rescues_a_diverged_fit(self, caplog) -> None:
+        """Stepping the learning rate down is what recovery actually is."""
+        import logging
+
+        reference, labels = _synthetic_reference()
+        model = AncestryModel(config=_diverging_config(fit_fallbacks=1))
+        with caplog.at_level(logging.WARNING):
+            model.fit(reference, labels)
+
+        attempts = model.training_metrics.fit_attempts
+        assert [a["learning_rate"] for a in attempts] == [10.0, 0.1]
+        assert attempts[0]["diverged"] is True
+        assert attempts[0]["n_classes_predicted"] == 1
+        assert attempts[-1]["accepted"] is True
+        assert model.best_params["xgb__learning_rate"] == 0.1
+        assert "unusable fit" in caplog.text
+
+    def test_a_zero_floor_still_refuses_a_diverged_fit(self) -> None:
+        """No threshold makes shipping a constant classifier the right answer."""
+        reference, labels = _synthetic_reference()
+        config = _diverging_config(fit_fallbacks=0, min_fit_balanced_accuracy=0.0)
+        with pytest.raises(AncestryError):
+            AncestryModel(config=config).fit(reference, labels)

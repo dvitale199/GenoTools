@@ -40,6 +40,16 @@ Three checks, cheapest and most direct first:
 All of it is measured on the **training** set, never the held-out split, so the
 test score stays an honest estimate and a retry leaks nothing.
 
+That makes the accuracy check *stricter* than it looks, not weaker. The
+Pipeline passes `y` to `UMAP.fit_transform`, so the training embedding is
+supervised -- it already encodes the labels it is about to be scored against.
+A working model therefore scores near 1.0 here whatever the genotypes say, and
+`train_balanced_accuracy` is not a measure of whether ancestry is learnable
+from the data. What it does measure is whether the fit converged at all: a
+diverged model scores exactly `1 / n_classes` even on an embedding that knows
+the answer. Read it as a health check, never as a quality estimate -- that is
+what the test split and the baselines below are for.
+
 Pure functions over arrays and frames, per the `select_het_outliers` pattern,
 so they can be tested against hand-built input. Kept apart from
 `diagnostics.py`, which instruments the *prediction* path: that module asks
