@@ -315,11 +315,21 @@ class AncestryModel:
             f"(RAM: {psutil.virtual_memory().total / (1024**3):.1f}GB)"
         )
 
-        # Build pipeline
+        # Build pipeline. Every ClassifierConfig field is passed through --
+        # `learning_rate` used to be omitted, so XGBoost fell back to its own
+        # gblinear default of 0.5, which sits at the edge of numerical
+        # divergence; `n_jobs=1` takes gblinear off its nondeterministic
+        # Hogwild updater. See ClassifierConfig for the measurements. UMAP's
+        # own config fields are deliberately not read here: the grid search
+        # sets n_neighbors/n_components/a/b per candidate, and UMAPReducer
+        # reads the rest on the inference path.
         umap = UMAP(random_state=self.config.umap.random_state)
         xgb = XGBClassifier(
             booster=self.config.classifier.booster,
             random_state=self.config.classifier.random_state,
+            learning_rate=self.config.classifier.learning_rate,
+            n_estimators=self.config.classifier.n_estimators,
+            n_jobs=self.config.classifier.n_jobs,
         )
         pipeline = Pipeline([("umap", umap), ("xgb", xgb)])
 

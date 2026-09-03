@@ -136,11 +136,21 @@ class TestClassifierConfig:
         """Default values are set correctly."""
         config = ClassifierConfig()
         assert config.n_estimators == 100
-        assert config.max_depth == 6
         assert config.learning_rate == 0.1
         assert config.booster == "gblinear"
-        assert config.reg_lambda == 1.0
+        assert config.n_jobs == 1
         assert config.random_state == 123
+
+    def test_dead_fields_are_gone(self) -> None:
+        """max_depth and reg_lambda were never passed to the booster.
+
+        max_depth does nothing under gblinear by its own docstring, and
+        reg_lambda would read as the regularization knob while the grid
+        search's ``xgb__lambda`` is what actually reaches the booster.
+        """
+        for gone in ("max_depth", "reg_lambda"):
+            with pytest.raises(TypeError):
+                ClassifierConfig(**{gone: 1})
 
     def test_custom_values(self) -> None:
         """Custom values are accepted."""
@@ -153,10 +163,10 @@ class TestClassifierConfig:
         with pytest.raises(ValueError, match="n_estimators must be >= 1"):
             ClassifierConfig(n_estimators=0)
 
-    def test_invalid_max_depth(self) -> None:
-        """max_depth < 1 raises ValueError."""
-        with pytest.raises(ValueError, match="max_depth must be >= 1"):
-            ClassifierConfig(max_depth=0)
+    def test_invalid_n_jobs(self) -> None:
+        """n_jobs < 1 raises ValueError."""
+        with pytest.raises(ValueError, match="n_jobs must be >= 1"):
+            ClassifierConfig(n_jobs=0)
 
     def test_invalid_learning_rate(self) -> None:
         """Negative learning_rate raises ValueError."""

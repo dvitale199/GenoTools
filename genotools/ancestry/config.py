@@ -192,22 +192,38 @@ class ClassifierConfig(ThresholdConfig):
     - a (UMAP): [0.75, 1.0, 1.5]
     - b (UMAP): [0.25, 0.5, 0.75]
 
+    Every field here is passed to ``XGBClassifier``. That is deliberate: a
+    config field that is declared, documented and validated but never wired is
+    worse than no field at all, because it reads as settled. ``learning_rate``
+    was exactly that until round 19, and the value XGBoost used instead sat at
+    the edge of numerical divergence.
+
     Attributes:
-        n_estimators: Number of boosting rounds. Default is 100.
-        max_depth: Maximum tree depth. Not used with gblinear booster.
-            Default is 6 for tree boosters.
-        learning_rate: Step size shrinkage. Default is 0.1.
+        n_estimators: Number of boosting rounds. Default is 100, which is
+            also XGBoost's own default.
+        learning_rate: Step size shrinkage. Default is 0.1. Do not raise this
+            without measuring: gblinear's optimizer diverges as
+            ``learning_rate`` times the feature magnitude grows, and XGBoost's
+            own default of 0.5 is close enough to the boundary that dense
+            reference-panel PCs push a fit over it.
         booster: Boosting algorithm. Default is "gblinear" for linear
             booster matching current implementation.
-        reg_lambda: L2 regularization term. Default is 1.0.
-        random_state: Random seed for reproducibility. Default is 123.
+        n_jobs: Threads for the booster. Default is 1, and raising it makes
+            training nondeterministic: gblinear's default
+            ``updater="shotgun"`` is Hogwild — lock-free parallel coordinate
+            descent — which XGBoost documents as nondeterministic regardless
+            of ``random_state``. Thread races decided whether a fit converged
+            or diverged, and a diverged fit predicts one label for every
+            sample. 1 is also the fastest setting measured on this problem
+            shape; 56 threads on a 3206x25 linear problem is pure contention.
+        random_state: Random seed for reproducibility. Default is 123. Only
+            meaningful with ``n_jobs=1``.
     """
 
     n_estimators: int = 100
-    max_depth: int = 6
     learning_rate: float = 0.1
     booster: str = "gblinear"
-    reg_lambda: float = 1.0
+    n_jobs: int = 1
     random_state: int = 123
 
     def __post_init__(self) -> None:
@@ -216,15 +232,15 @@ class ClassifierConfig(ThresholdConfig):
             raise ValueError(
                 f"n_estimators must be >= 1, got {self.n_estimators}"
             )
-        if self.max_depth < 1:
-            raise ValueError(
-                f"max_depth must be >= 1, got {self.max_depth}"
-            )
         self._validate_positive(self.learning_rate, "learning_rate")
         if self.booster not in ("gbtree", "gblinear", "dart"):
             raise ValueError(
                 f"booster must be 'gbtree', 'gblinear', or 'dart', "
                 f"got '{self.booster}'"
+            )
+        if self.n_jobs < 1:
+            raise ValueError(
+                f"n_jobs must be >= 1, got {self.n_jobs}"
             )
 
 
