@@ -199,13 +199,21 @@ class ClassifierConfig(ThresholdConfig):
     the edge of numerical divergence.
 
     Attributes:
-        n_estimators: Number of boosting rounds. Default is 100, which is
-            also XGBoost's own default.
+        n_estimators: Number of boosting rounds. Default is 200, raised from
+            XGBoost's own 100 because ``learning_rate=0.1`` takes five times
+            smaller steps and 100 rounds no longer reach the same place.
+            Measured on GP2 reference-panel PCs, held-out balanced accuracy
+            was 0.9570 at (0.5, 100), 0.9150 at (0.1, 100) and 0.9560 at
+            (0.1, 200) -- so the rounds pay the accuracy back in full while
+            keeping 3x more margin to divergence than the old default had
+            (|intercept| 0.93 against 3.10). 500 rounds buys nothing more and
+            spends the margin.
         learning_rate: Step size shrinkage. Default is 0.1. Do not raise this
             without measuring: gblinear's optimizer diverges as
             ``learning_rate`` times the feature magnitude grows, and XGBoost's
             own default of 0.5 is close enough to the boundary that dense
-            reference-panel PCs push a fit over it.
+            reference-panel PCs push a fit over it. Lowering it further needs
+            more rounds to keep the accuracy -- the two move together.
         booster: Boosting algorithm. Default is "gblinear" for linear
             booster matching current implementation.
         n_jobs: Threads for the booster. Default is 1, and raising it makes
@@ -220,7 +228,7 @@ class ClassifierConfig(ThresholdConfig):
             meaningful with ``n_jobs=1``.
     """
 
-    n_estimators: int = 100
+    n_estimators: int = 200
     learning_rate: float = 0.1
     booster: str = "gblinear"
     n_jobs: int = 1

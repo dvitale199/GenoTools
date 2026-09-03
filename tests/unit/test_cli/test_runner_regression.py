@@ -18,8 +18,10 @@
 import logging
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 import pytest
 
 from genotools.core.exceptions import QCError, ValidationError
@@ -945,6 +947,114 @@ def _ancestry_runner(
         geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
     )
     return runner, out, work
+
+
+class TestAncestryFitFlagsReachTraining:
+    """The fit-validation flags must reach the fit, and only the fit.
+
+    Production runs ancestry once and then QCs each group as a separate flat
+    job, so a setting read in only one branch silently does nothing exactly
+    where it matters -- the --amr-het defect, round 11. Here the split is
+    training vs inference: the parser refuses these flags alongside --model,
+    so the only place they may appear is the training config.
+    """
+
+    def _runner(self, tmp_path: Path, **ancestry: Any) -> PipelineRunner:
+        geno = tmp_path / "geno"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=tmp_path / "out"),
+            ancestry=AncestryArgs(
+                run_ancestry=True,
+                ref_panel=tmp_path / "ref",
+                ref_labels=tmp_path / "lab",
+                **ancestry,
+            ),
+        )
+        return PipelineRunner(args)
+
+    def test_the_flags_reach_the_training_config(self, tmp_path: Path) -> None:
+        runner = self._runner(tmp_path, min_fit_accuracy=0.42, fit_fallbacks=1)
+        config = runner._ancestry_config()
+        assert config.training.min_fit_balanced_accuracy == 0.42
+        assert config.training.fit_fallbacks == 1
+
+    def test_a_zero_floor_is_carried_through_not_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """0 disables the raise; falling back to None would re-enable it."""
+        runner = self._runner(tmp_path, min_fit_accuracy=0.0)
+        assert runner._ancestry_config().training.min_fit_balanced_accuracy == 0.0
+
+    def test_unset_leaves_the_floor_to_be_derived(self, tmp_path: Path) -> None:
+        runner = self._runner(tmp_path)
+        config = runner._ancestry_config()
+        assert config.training.min_fit_balanced_accuracy is None
+        assert config.training.fit_fallbacks == 3
+
+    def test_the_config_reaches_the_model_the_training_path_builds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Drive `_run_training_mode` and capture what AncestryModel was given.
+
+        Asserting on `_ancestry_config()` alone would pass even if
+        `_run_training_mode` went on to construct `AncestryModel()` with no
+        config at all, which is exactly the shape of the original bug.
+        """
+        runner = self._runner(tmp_path, min_fit_accuracy=0.42, fit_fallbacks=1)
+        geno = tmp_path / "geno"
+        work = tmp_path / "tmpwork"
+        work.mkdir(exist_ok=True)
+        runner.state = PipelineState(
+            geno_path=geno, out_path=tmp_path / "out", tmp_dir=_StubTmpDir(work)
+        )
+        out = tmp_path / "out"
+        Path(f"{out}_labeled_ref_pca.txt").write_text("FID\tIID\tPC1\tlabel\n")
+
+        frame = pd.DataFrame(
+            {"FID": ["a"], "IID": ["a"], "label": ["EUR"], "snp1": [0.0]}
+        )
+        monkeypatch.setattr(
+            "genotools.ancestry.preprocessing.get_raw_files",
+            lambda **kwargs: {"raw_ref": frame.copy(), "raw_geno": frame.copy()},
+        )
+
+        seen: List[Any] = []
+
+        class _Model:
+            def __init__(self, config=None):
+                seen.append(config)
+                self.common_snps = None
+                self.best_params = {}
+
+            def fit(self, *a, **k):
+                return self
+
+            def save(self, path):
+                return path
+
+            def predict(self, *a, **k):
+                return SimpleNamespace(
+                    predictions=pd.DataFrame({"predicted_ancestry": ["EUR"]})
+                )
+
+        runner._run_training_mode(_Model, str(out), str(out))
+
+        assert len(seen) == 1
+        assert seen[0] is not None, "AncestryModel was built with no config"
+        assert seen[0].training.min_fit_balanced_accuracy == 0.42
+        assert seen[0].training.fit_fallbacks == 1
+
+    def test_inference_mode_never_builds_a_training_config(self) -> None:
+        """`_run_inference_mode` loads a fit that already happened."""
+        import inspect
+
+        from genotools.cli.runner import PipelineRunner as Runner
+
+        source = inspect.getsource(Runner._run_inference_mode)
+        assert "_ancestry_config" not in source
+        assert "min_fit" not in source
 
 
 class TestAncestryGroupPathsWithoutFullOutput:

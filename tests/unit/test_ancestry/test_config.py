@@ -135,7 +135,7 @@ class TestClassifierConfig:
     def test_default_values(self) -> None:
         """Default values are set correctly."""
         config = ClassifierConfig()
-        assert config.n_estimators == 100
+        assert config.n_estimators == 200
         assert config.learning_rate == 0.1
         assert config.booster == "gblinear"
         assert config.n_jobs == 1

@@ -26,7 +26,7 @@ import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..qc.config import (
     CallrateConfig,
@@ -277,6 +277,16 @@ class VariantQCArgs:
 #: cannot load that format, so honouring ``--container`` would need a rebuilt,
 #: republished image carrying a 2.0-format model. Until that exists these flags
 #: fail loudly rather than silently running local prediction.
+#: Flags that only mean something while a model is being trained, mapped to
+#: their ``AncestryArgs`` attribute and its default. They govern whether a
+#: fitted classifier is accepted, so on the ``--model`` path there is no fit to
+#: judge and honouring them would be a lie. Refused rather than ignored.
+_ANCESTRY_TRAINING_FLAGS: Dict[str, Tuple[str, Any]] = {
+    "--ancestry-min-fit-accuracy": ("min_fit_accuracy", None),
+    "--ancestry-fit-fallbacks": ("fit_fallbacks", 3),
+}
+
+
 _UNSUPPORTED_INFERENCE_FLAGS: Dict[str, Tuple[str, str]] = {
     "--container": (
         "use_container",
@@ -309,6 +319,10 @@ class AncestryArgs:
     subset_ancestry: Optional[List[str]] = None
     min_samples: int = 0
 
+    # Fit validation. Training-only -- see _ANCESTRY_TRAINING_FLAGS.
+    min_fit_accuracy: Optional[float] = None
+    fit_fallbacks: int = 3
+
     # Remote-execution flags. Accepted by the parser so that a 1.x command line
     # gets a targeted error instead of argparse's bare "unrecognized arguments",
     # but rejected in __post_init__ -- see _UNSUPPORTED_INFERENCE_FLAGS.
@@ -321,6 +335,30 @@ class AncestryArgs:
         for flag, (attr, detail) in _UNSUPPORTED_INFERENCE_FLAGS.items():
             if getattr(self, attr):
                 raise ValueError(f"{flag} is not supported in GenoTools 2.0. {detail}")
+        if self.min_fit_accuracy is not None and not (
+            0 <= self.min_fit_accuracy <= 1
+        ):
+            raise ValueError(
+                f"--ancestry-min-fit-accuracy must be a fraction in [0, 1], "
+                f"got {self.min_fit_accuracy}"
+            )
+        if self.fit_fallbacks < 0:
+            raise ValueError(
+                f"--ancestry-fit-fallbacks must be >= 0, got {self.fit_fallbacks}"
+            )
+
+    def training_flags_set(self) -> List[str]:
+        """Training-only flags the user actually passed.
+
+        A setting that is silently ignored is worse than one that is refused,
+        which is why --amr-het exists; these two govern the fit and reach
+        nothing on the --model path.
+        """
+        return [
+            flag
+            for flag, (attr, default) in _ANCESTRY_TRAINING_FLAGS.items()
+            if getattr(self, attr) != default
+        ]
 
 
 @dataclass
@@ -380,6 +418,25 @@ class PipelineArgs:
                 f"ancestry prediction has no ancestry labels to match. To set "
                 f"bounds for the whole input, use --het instead."
             )
+
+        # The fit-validation flags judge a classifier as it is trained. Without
+        # --ancestry there is no training, and with --model the fit already
+        # happened somewhere else.
+        training_flags = self.ancestry.training_flags_set()
+        if training_flags:
+            named = ", ".join(sorted(training_flags))
+            if not self.ancestry.run_ancestry:
+                raise ValueError(
+                    f"{named} requires --ancestry: there is no classifier to "
+                    f"validate in a run that does not train one."
+                )
+            if self.ancestry.model_path is not None:
+                raise ValueError(
+                    f"{named} cannot be used with --model: it governs how a "
+                    f"newly trained classifier is validated, and --model "
+                    f"loads one that was already fitted. Drop the flag, or "
+                    f"drop --model to retrain."
+                )
 
     @property
     def geno_path(self) -> Path:
@@ -840,6 +897,28 @@ Examples:
         default=0,
         metavar="N",
         help="Minimum samples per ancestry for downstream analysis (default: 0)",
+    )
+    ancestry_group.add_argument(
+        "--ancestry-min-fit-accuracy",
+        type=float,
+        default=None,
+        metavar="FRACTION",
+        help=(
+            "Training balanced accuracy a newly fitted classifier must reach "
+            "to be kept (default: 3x chance, i.e. 3/n_labels). 0 accepts any "
+            "fit while still reporting the measurements. Requires --ancestry"
+        ),
+    )
+    ancestry_group.add_argument(
+        "--ancestry-fit-fallbacks",
+        type=int,
+        default=3,
+        metavar="N",
+        help=(
+            "How many lower learning rates to try if the fit the grid search "
+            "selected collapses (default: 3). 0 fails immediately. Requires "
+            "--ancestry"
+        ),
     )
 
     # GWAS group
@@ -1387,6 +1466,8 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         model_path=ns.model,
         subset_ancestry=ns.subset_ancestry,
         min_samples=ns.min_samples,
+        min_fit_accuracy=ns.ancestry_min_fit_accuracy,
+        fit_fallbacks=ns.ancestry_fit_fallbacks,
         use_container=ns.container,
         use_singularity=ns.singularity,
         use_cloud=ns.cloud,

@@ -907,8 +907,10 @@ class PipelineRunner:
         # Capture common SNPs from ref column names
         snp_columns = [c for c in ref_data.columns if c not in ("FID", "IID")]
 
-        # Fit model
-        model = AncestryModel()
+        # Fit model. The fit-validation flags are training-only -- the parser
+        # refuses them alongside --model -- so they are threaded in here and
+        # nowhere on the inference path.
+        model = AncestryModel(config=self._ancestry_config())
         model.fit(ref_data, labels, out_path=Path(actual_out))
 
         # Store common SNPs and save model directory to final output path
@@ -930,6 +932,21 @@ class PipelineRunner:
         ref_pca = pd.read_csv(ref_pca_path, sep="\t")
 
         return model, predictions, ref_pca, raw
+
+    def _ancestry_config(self):
+        """The AncestryConfig this run's flags ask for.
+
+        Only the training-path settings differ from the defaults; everything
+        else is the dataclass default, which is where the real values live.
+        """
+        from ..ancestry.config import AncestryConfig, TrainingConfig
+
+        return AncestryConfig(
+            training=TrainingConfig(
+                min_fit_balanced_accuracy=self.args.ancestry.min_fit_accuracy,
+                fit_fallbacks=self.args.ancestry.fit_fallbacks,
+            )
+        )
 
     def _run_inference_mode(
         self,
