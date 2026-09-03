@@ -29,7 +29,7 @@ Example:
     {'EUR': 100, 'AFR': 50, ...}
 """
 
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -228,6 +228,30 @@ class TrainingMetrics:
     fit_attempts: List[Dict[str, Any]] = field(default_factory=list)
     n_failed_candidates: int = 0
     n_grid_candidates: int = 0
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Fill in fields a previously pickled model predates.
+
+        A pickle restores only the instance `__dict__`, so a field added later
+        is missing entirely on an old model unless its default happens to sit
+        on the class. That is true of `default=` scalars and *not* of
+        `default_factory` ones, so `baseline_scores` and `fit_attempts` would
+        raise `AttributeError` on any model saved before round 19 -- including
+        from `to_dict()`, which `save()` calls. Start from a default instance
+        and let the pickle overwrite what it carries.
+        """
+        defaults = {
+            field.name: (
+                field.default_factory()  # type: ignore[misc]
+                if field.default_factory is not MISSING
+                else field.default
+            )
+            for field in fields(self)
+        }
+        defaults = {
+            name: value for name, value in defaults.items() if value is not MISSING
+        }
+        self.__dict__.update({**defaults, **state})
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization.
