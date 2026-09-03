@@ -198,11 +198,13 @@ class FitValidation:
     def format_summary(self) -> str:
         """One line for the log."""
         health = "diverged" if self.diverged else "converged"
+
+        def show(name: str, value: Optional[float]) -> str:
+            return f"{name} {'n/a' if value is None else f'{value:.3g}'}"
+
         coef = (
-            "unmeasurable"
-            if self.max_abs_coefficient is None
-            else f"|coef| {self.max_abs_coefficient:.3g} "
-            f"|intercept| {self.max_abs_intercept:.3g}"
+            f"{show('|coef|', self.max_abs_coefficient)} "
+            f"{show('|intercept|', self.max_abs_intercept)}"
         )
         return (
             f"fit {health}: {coef}; "
@@ -269,8 +271,11 @@ def validate_fit(
     balanced = float(balanced_accuracy_score(true, pred))
 
     max_coef, max_intercept = coefficient_health(estimator)
+    # NaN counts as divergence too: `nan > threshold` is False, so testing the
+    # bound alone would report a model whose weights went to NaN as converged.
     diverged = any(
-        value is not None and value > MAX_HEALTHY_COEFFICIENT
+        value is not None
+        and (not np.isfinite(value) or value > MAX_HEALTHY_COEFFICIENT)
         for value in (max_coef, max_intercept)
     )
 
@@ -334,8 +339,7 @@ def fit_validation_warnings(
     if validation.diverged:
         warnings.append(
             f"the fit diverged rather than converged: "
-            f"|coef| {validation.max_abs_coefficient:.3g}, "
-            f"|intercept| {validation.max_abs_intercept:.3g}, against "
+            f"{validation.format_summary()}, against a bound of "
             f"{MAX_HEALTHY_COEFFICIENT:.0e}. A diverged linear model saturates "
             f"the softmax and predicts one label for every sample."
         )

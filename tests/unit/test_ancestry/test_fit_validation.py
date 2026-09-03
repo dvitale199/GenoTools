@@ -124,6 +124,24 @@ class TestValidateFit:
         assert result.diverged
         assert result.collapsed
 
+    def test_nan_weights_count_as_divergence(self) -> None:
+        """`nan > threshold` is False, so the bound alone would miss it."""
+        y = np.repeat(np.arange(4), 5)
+        wild = _Estimator(coef=[[np.nan]], intercept=[0.0])
+        assert validate_fit(wild, y, y, n_classes=4).diverged
+
+    def test_infinite_weights_count_as_divergence(self) -> None:
+        y = np.repeat(np.arange(4), 5)
+        wild = _Estimator(coef=[[np.inf]], intercept=[0.0])
+        assert validate_fit(wild, y, y, n_classes=4).diverged
+
+    def test_a_summary_survives_a_half_measurable_estimator(self) -> None:
+        """coef_ without intercept_ must not blow up the formatting."""
+        y = np.repeat(np.arange(4), 5)
+        half = _Estimator(coef=[[1.0]])
+        text = validate_fit(half, y, y, n_classes=4).format_summary()
+        assert "|intercept| n/a" in text
+
     def test_the_bound_is_where_it_says_it_is(self) -> None:
         y = np.repeat(np.arange(4), 5)
         just_under = _Estimator(
