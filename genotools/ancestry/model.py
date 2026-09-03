@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 import psutil
 from sklearn import preprocessing
+from sklearn.base import clone
 from sklearn.cluster import Birch
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
@@ -60,6 +61,11 @@ from genotools.ancestry.config import (
     AncestryConfig,
     InferenceMode,
     PCAConfig,
+)
+from genotools.ancestry.fit_validation import (
+    baseline_scores,
+    fit_validation_warnings,
+    validate_fit,
 )
 from genotools.ancestry.reducers.pca import PCAReducer
 from genotools.ancestry.reducers.umap_reducer import UMAPReducer
@@ -82,6 +88,14 @@ from genotools.core.provenance import (
 
 
 logger = get_logger(__name__)
+
+
+#: Learning rates a collapsed fit falls back through, in order. Each is
+#: strictly below the configured rate, and only as many are tried as
+#: `TrainingConfig.fit_fallbacks` allows. Lowering the learning rate is the
+#: axis measured to control gblinear's divergence; re-fitting identical
+#: parameters would now be deterministic and therefore pointless.
+FIT_FALLBACK_LEARNING_RATES = (0.1, 0.05, 0.01, 0.005)
 
 
 def _warn_on_version_drift(
@@ -162,6 +176,10 @@ class AncestryModel:
     training_metrics: Optional[TrainingMetrics] = field(default=None, repr=False)
     _is_fitted: bool = field(default=False, repr=False)
     _train_pca: Optional[pd.DataFrame] = field(default=None, repr=False)
+    # GridSearchCV.cv_results_ as a frame. Kept so the run can write the whole
+    # grid out beside the report: with the training race removed this is a
+    # genuine record of model selection.
+    _cv_results: Optional[pd.DataFrame] = field(default=None, repr=False)
     common_snps: Optional[List[str]] = field(default=None, repr=False)
     # Library versions behind the fit, captured by fit() and checked by load().
     # None on a model written before they were recorded, which is why load()
@@ -280,14 +298,22 @@ class AncestryModel:
         X_test: np.ndarray,  # type: ignore[type-arg]
         y_train: np.ndarray,  # type: ignore[type-arg]
         y_test: np.ndarray,  # type: ignore[type-arg]
+        test_pca: Optional[pd.DataFrame] = None,
     ) -> Dict[str, Any]:
         """Train UMAP + XGBoost classifier with grid search.
+
+        The winning candidate is fitted here rather than by the search, so a
+        collapsed fit can be refused before it becomes `self.pipeline` and gets
+        pickled. See `_fit_and_validate_candidate`.
 
         Args:
             X_train: Training PCA components.
             X_test: Test PCA components.
             y_train: Training labels (encoded).
             y_test: Test labels (encoded).
+            test_pca: Labeled held-out reference PCs, for the cheap baselines
+                scored beside the model. Optional so the classifier can still
+                be trained without them.
 
         Returns:
             Dictionary with trained classifier and metrics.
@@ -339,6 +365,11 @@ class AncestryModel:
             shuffle=True,
             random_state=self.config.training.random_state,
         )
+        # `refit=False` so the winning candidate is fitted here instead of
+        # inside the search. `best_params_` / `best_score_` stay available
+        # under single-metric scoring; only `best_estimator_` goes away, which
+        # is the point -- a fit has to pass validation before it becomes
+        # `self.pipeline` and gets pickled.
         grid_search = GridSearchCV(
             pipeline,
             param_grid,
@@ -346,18 +377,43 @@ class AncestryModel:
             scoring=self.config.grid_search.scoring,
             n_jobs=n_jobs,
             verbose=1,
+            refit=False,
         )
         grid_search.fit(X_train, y_train)
 
         # Get results
         results_df = pd.DataFrame(grid_search.cv_results_)
+        self._cv_results = results_df
         top_results = results_df[results_df["rank_test_score"] == 1]
 
-        train_acc = grid_search.best_score_
+        # A candidate that raises is scored NaN by `error_score` and silently
+        # ranked last; sklearn's FitFailedWarning goes through `warnings.warn`,
+        # which this codebase routes nowhere. Count them so the search's
+        # effective size is visible.
+        n_failed_candidates = int(
+            np.isnan(np.asarray(results_df["mean_test_score"], dtype=float)).sum()
+        )
+        if n_failed_candidates:
+            logger.warning(
+                f"{n_failed_candidates} of {len(results_df)} grid candidates "
+                f"failed to fit and were scored NaN, so the search chose among "
+                f"{len(results_df) - n_failed_candidates}."
+            )
+
+        cv_acc = float(grid_search.best_score_)
         train_ci_interval = 1.96 * float(top_results["std_test_score"].iloc[0])
 
-        self.pipeline = grid_search.best_estimator_
-        self.best_params = grid_search.best_params_
+        accepted = self._fit_and_validate_candidate(
+            pipeline=pipeline,
+            best_params=dict(grid_search.best_params_),
+            X_train=X_train,
+            y_train=y_train,
+            cv_score=cv_acc,
+        )
+
+        self.pipeline = accepted["pipeline"]
+        self.best_params = accepted["params"]
+        validation = accepted["validation"]
 
         # Evaluate on test set
         test_acc = float(self.pipeline.score(X_test, y_test))
@@ -366,33 +422,192 @@ class AncestryModel:
         # Confusion matrix
         y_pred = self.pipeline.predict(X_test)
         from sklearn import metrics
+        from sklearn.metrics import balanced_accuracy_score
 
         confusion_matrix = metrics.confusion_matrix(y_test, y_pred)
+        test_balanced_acc = float(balanced_accuracy_score(y_test, y_pred))
 
-        logger.info(f"Training Balanced Accuracy: {train_acc:.4f}")
-        logger.info(f"Test Balanced Accuracy: {test_acc:.4f}")
-        logger.info(f"Best Parameters: {grid_search.best_params_}")
+        # A second opinion that shares none of the pipeline's failure modes:
+        # no UMAP, no gradient descent, nothing to diverge. Milliseconds.
+        baselines = (
+            baseline_scores(self._train_pca, test_pca)
+            if self._train_pca is not None and test_pca is not None
+            else {}
+        )
+
+        # `train_accuracy` and `test_accuracy` keep the values they always
+        # had, mislabelled as they are: the first is a cross-validated mean and
+        # the second is plain accuracy, not balanced. The honestly named keys
+        # sit beside them.
+        logger.info(f"CV Balanced Accuracy (grid search best): {cv_acc:.4f}")
+        logger.info(f"Test Accuracy: {test_acc:.4f}")
+        logger.info(f"Test Balanced Accuracy: {test_balanced_acc:.4f}")
+        logger.info(validation.format_summary())
+        for name, score in sorted(baselines.items()):
+            logger.info(f"Baseline on raw reference PCs -- {name}: {score:.4f}")
+        logger.info(f"Best Parameters: {self.best_params}")
+
+        for message in fit_validation_warnings(
+            validation,
+            cv_score=cv_acc,
+            test_score=test_balanced_acc,
+            baseline=baselines,
+        ):
+            logger.warning(message)
 
         # Store training metrics
         self.training_metrics = TrainingMetrics(
-            train_accuracy=train_acc,
+            train_accuracy=cv_acc,
             test_accuracy=test_acc,
-            train_accuracy_ci=(train_acc - train_ci_interval, train_acc + train_ci_interval),
+            train_accuracy_ci=(cv_acc - train_ci_interval, cv_acc + train_ci_interval),
             test_accuracy_ci=(test_acc - test_margin, test_acc + test_margin),
             confusion_matrix=confusion_matrix,
-            best_params=grid_search.best_params_,
+            best_params=self.best_params,
             label_encoder_classes=list(self.label_encoder.classes_)
             if self.label_encoder
             else [],
+            cv_balanced_accuracy=cv_acc,
+            test_balanced_accuracy=test_balanced_acc,
+            train_balanced_accuracy=validation.train_balanced_accuracy,
+            baseline_scores=baselines,
+            fit_validation=validation.to_dict(),
+            fit_attempts=accepted["attempts"],
+            n_failed_candidates=n_failed_candidates,
+            n_grid_candidates=int(len(results_df)),
         )
 
         return {
             "pipeline": self.pipeline,
-            "best_params": grid_search.best_params_,
-            "train_accuracy": train_acc,
+            "best_params": self.best_params,
+            "train_accuracy": cv_acc,
             "test_accuracy": test_acc,
+            "test_balanced_accuracy": test_balanced_acc,
             "confusion_matrix": confusion_matrix,
+            "fit_validation": validation,
+            "baseline_scores": baselines,
         }
+
+    def _fit_and_validate_candidate(
+        self,
+        pipeline: Pipeline,
+        best_params: Dict[str, Any],
+        X_train: np.ndarray,  # type: ignore[type-arg]
+        y_train: np.ndarray,  # type: ignore[type-arg]
+        cv_score: float,
+    ) -> Dict[str, Any]:
+        """Fit the search's winner, and refuse to keep it if it collapsed.
+
+        Retrying identical parameters is pointless now that the fit is
+        deterministic, so each fallback *changes* the learning rate -- the axis
+        measured to control divergence -- rather than re-rolling the same dice.
+        One fit per attempt against the search's 1080 is under 0.4%.
+
+        Args:
+            pipeline: The unfitted pipeline the search was run over.
+            best_params: `GridSearchCV.best_params_`.
+            X_train: Training PCs.
+            y_train: Encoded training labels.
+            cv_score: `best_score_`, for the warning when a fallback is taken.
+
+        Returns:
+            `{"pipeline", "params", "validation", "attempts"}`.
+
+        Raises:
+            AncestryError: If no attempt produced a usable model.
+        """
+        n_classes = (
+            len(self.label_encoder.classes_)
+            if self.label_encoder is not None
+            else int(len(np.unique(y_train)))
+        )
+        labels = (
+            list(self.label_encoder.classes_)
+            if self.label_encoder is not None
+            else None
+        )
+        floor_override = self.config.training.min_fit_balanced_accuracy
+
+        attempts: List[Dict[str, Any]] = []
+        for index, learning_rate in enumerate(self._fit_attempt_learning_rates()):
+            candidate = clone(pipeline)
+            params = dict(best_params)
+            params["xgb__learning_rate"] = learning_rate
+            candidate.set_params(**params)
+            candidate.fit(X_train, y_train)
+
+            validation = validate_fit(
+                candidate,
+                y_train,
+                candidate.predict(X_train),
+                n_classes=n_classes,
+                min_balanced_accuracy=floor_override,
+                labels=labels,
+            )
+            attempts.append(
+                {
+                    "learning_rate": float(learning_rate),
+                    "accepted": not validation.collapsed,
+                    **validation.to_dict(),
+                }
+            )
+            logger.info(
+                f"fit attempt {index + 1} at learning_rate={learning_rate}: "
+                f"{validation.format_summary()}"
+            )
+
+            if not validation.collapsed:
+                if index > 0:
+                    logger.warning(
+                        f"the hyperparameters the search selected produced an "
+                        f"unusable fit; accepted a fallback with "
+                        f"learning_rate={learning_rate} instead of "
+                        f"{best_params.get('xgb__learning_rate', self.config.classifier.learning_rate)}. "
+                        f"The search's cross-validated score was "
+                        f"{cv_score:.4f} and the accepted fit's training "
+                        f"balanced accuracy is "
+                        f"{validation.train_balanced_accuracy:.4f}; treat the "
+                        f"selected hyperparameters as unvalidated."
+                    )
+                return {
+                    "pipeline": candidate,
+                    "params": params,
+                    "validation": validation,
+                    "attempts": attempts,
+                }
+
+        table = "\n".join(
+            f"  learning_rate={a['learning_rate']}: "
+            f"train balanced accuracy {a['train_balanced_accuracy']:.4f}, "
+            f"predicts {a['n_classes_predicted']}/{a['n_classes_expected']} "
+            f"labels, |coef| {a['max_abs_coefficient']}, "
+            f"|intercept| {a['max_abs_intercept']}"
+            for a in attempts
+        )
+        raise AncestryError(
+            f"every classifier fit collapsed, so no model was saved. A "
+            f"collapsed fit predicts one label for every sample, which is "
+            f"worse than no prediction. Attempts:\n{table}\n"
+            f"Retry with --ancestry-fit-fallbacks raised to try lower "
+            f"learning rates, or with --ancestry-min-fit-accuracy 0 to accept "
+            f"the fit anyway and inspect it yourself."
+        )
+
+    def _fit_attempt_learning_rates(self) -> List[float]:
+        """Learning rates to try, the configured one first.
+
+        Each fallback is strictly lower than the configured rate, because
+        divergence grows with `learning_rate` times the feature magnitude and
+        lowering it is the axis measured to control it.
+        """
+        configured = float(self.config.classifier.learning_rate)
+        rates = [configured]
+        budget = int(self.config.training.fit_fallbacks)
+        for rate in FIT_FALLBACK_LEARNING_RATES:
+            if len(rates) > budget:
+                break
+            if rate < configured:
+                rates.append(rate)
+        return rates
 
     def _predict_admixed(
         self,
@@ -534,6 +749,7 @@ class AncestryModel:
             X_test=pca_result["X_test"],
             y_train=split_data["y_train"],
             y_test=split_data["y_test"],
+            test_pca=pca_result["test_pca"],
         )
 
         # Captured at fit rather than at save: these are the versions that

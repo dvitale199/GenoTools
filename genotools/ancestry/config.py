@@ -361,18 +361,40 @@ class TrainingConfig(BaseConfig):
             auto-detect based on available resources. Default is None.
         gb_per_worker: Memory per worker for job calculation.
             Default is 3 GB.
+        min_fit_balanced_accuracy: Training balanced accuracy a fit must reach
+            before it is kept, or None to derive one from the number of
+            labels. 0 refuses nothing while still recording every
+            measurement. Derived rather than fixed because the label
+            vocabulary is user-supplied -- see
+            `fit_validation.fit_accuracy_floor`.
+        fit_fallbacks: How many lower learning rates to try after the
+            search's winner produces a collapsed fit. 0 refuses immediately.
+            Default is 3.
     """
 
     test_size: float = 0.2
     random_state: int = 123
     n_jobs: Optional[int] = None
     gb_per_worker: float = 3.0
+    min_fit_balanced_accuracy: Optional[float] = None
+    fit_fallbacks: int = 3
 
     def __post_init__(self) -> None:
         """Validate training configuration."""
         if self.test_size <= 0 or self.test_size >= 1:
             raise ValueError(
                 f"test_size must be in (0, 1), got {self.test_size}"
+            )
+        if self.min_fit_balanced_accuracy is not None and not (
+            0 <= self.min_fit_balanced_accuracy <= 1
+        ):
+            raise ValueError(
+                f"min_fit_balanced_accuracy must be a fraction in [0, 1], "
+                f"got {self.min_fit_balanced_accuracy}"
+            )
+        if self.fit_fallbacks < 0:
+            raise ValueError(
+                f"fit_fallbacks must be >= 0, got {self.fit_fallbacks}"
             )
 
 

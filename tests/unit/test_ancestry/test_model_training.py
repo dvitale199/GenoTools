@@ -18,25 +18,15 @@ import pytest
 from sklearn.pipeline import Pipeline
 
 from genotools.ancestry import model as model_module
-from genotools.ancestry.config import AncestryConfig, ClassifierConfig
-from genotools.ancestry.model import AncestryModel
-
-
-class _StubFittedPipeline:
-    """What the search hands back, so the code after it has something to score.
-
-    The real Pipeline is what these tests inspect; it is never fitted here
-    because one UMAP fit at the real fold shape is ~16 seconds.
-    """
-
-    def __init__(self, y):
-        self._y = np.asarray(y)
-
-    def score(self, X, y):
-        return 0.98
-
-    def predict(self, X):
-        return self._y[: len(X)]
+from genotools.ancestry.config import (
+    AncestryConfig,
+    ClassifierConfig,
+    GridSearchConfig,
+    PCAConfig,
+    TrainingConfig,
+)
+from genotools.ancestry.model import FIT_FALLBACK_LEARNING_RATES, AncestryModel
+from genotools.core.exceptions import AncestryError
 
 
 class _FakeGridSearch:
@@ -55,7 +45,8 @@ class _FakeGridSearch:
         type(self).captured.append(self)
 
     def fit(self, X, y):
-        self.best_estimator_ = _StubFittedPipeline(y)
+        # No `best_estimator_`: the production code sets `refit=False` so that
+        # the winning candidate is fitted and validated outside the search.
         self.best_params_ = {
             key: values[0] for key, values in self.param_grid.items()
         }
@@ -150,3 +141,212 @@ class TestClassifierConfigReachesTheBooster:
             X, X, y, y
         )
         assert _built_xgb(fake_grid_search).get_params()["random_state"] == 7
+
+
+class _StagedPipeline:
+    """A pipeline whose fit outcome is dictated per learning rate.
+
+    `set_params` is what the fallback loop uses to change the learning rate,
+    so the stub keys its behaviour off that. Every rate maps to either a
+    healthy fit or the collapsed one: |intercept| 3e15 predicting a single
+    label, which is what the real defect produced.
+    """
+
+    def __init__(self, outcomes, y_train):
+        self.outcomes = outcomes
+        self._y = np.asarray(y_train)
+        self.params = {}
+        self.fits = []
+
+    # sklearn.base.clone needs these two.
+    def get_params(self, deep=True):
+        return {"outcomes": self.outcomes, "y_train": self._y}
+
+    def set_params(self, **params):
+        self.params.update(params)
+        return self
+
+    @property
+    def learning_rate(self):
+        return self.params.get("xgb__learning_rate")
+
+    def fit(self, X, y):
+        self.fits.append(self.learning_rate)
+        healthy = self.outcomes[self.learning_rate]
+        if healthy:
+            self.coef_ = np.array([[1.03, -0.4]])
+            self.intercept_ = np.array([4.24])
+        else:
+            self.coef_ = np.array([[1727.0]])
+            self.intercept_ = np.array([3.0e15])
+        return self
+
+    def predict(self, X):
+        n = len(X)
+        if self.outcomes[self.learning_rate]:
+            return self._y[:n]
+        return np.full(n, self._y[0])
+
+    def score(self, X, y):
+        return 0.98 if self.outcomes[self.learning_rate] else 0.15
+
+
+def _staged_model(outcomes, y, **training) -> AncestryModel:
+    model = AncestryModel(
+        config=AncestryConfig(training=TrainingConfig(**training))
+    )
+    model.label_encoder = model_module.preprocessing.LabelEncoder()
+    model.label_encoder.fit([f"L{i}" for i in range(10)])
+    return model
+
+
+class TestFitFallback:
+    """A collapsed fit must never become `self.pipeline`."""
+
+    def _run(self, outcomes, **training):
+        """Drive `_fit_and_validate_candidate` through the staged pipeline."""
+        y = np.repeat(np.arange(10), 10)
+        model = _staged_model(outcomes, y, **training)
+        pipeline = _StagedPipeline(outcomes, y)
+        return model, pipeline, y, model._fit_and_validate_candidate(
+            pipeline=pipeline,
+            best_params={"umap__a": 0.75, "xgb__lambda": 0.001},
+            X_train=np.zeros((len(y), 3)),
+            y_train=y,
+            cv_score=0.94,
+        )
+
+    def test_a_healthy_first_fit_is_accepted_without_fallback(self) -> None:
+        _, _, _, accepted = self._run({0.1: True})
+        assert len(accepted["attempts"]) == 1
+        assert accepted["attempts"][0]["accepted"] is True
+        assert accepted["params"]["xgb__learning_rate"] == 0.1
+
+    def test_the_configured_rate_is_tried_first(self) -> None:
+        _, _, _, accepted = self._run({0.1: True, 0.05: True})
+        assert [a["learning_rate"] for a in accepted["attempts"]] == [0.1]
+
+    def test_a_collapsed_fit_steps_the_learning_rate_down(self) -> None:
+        """Retrying the same rate is deterministic now, so it must change."""
+        _, _, _, accepted = self._run({0.1: False, 0.05: True})
+        rates = [a["learning_rate"] for a in accepted["attempts"]]
+        assert rates == [0.1, 0.05]
+        assert accepted["attempts"][0]["accepted"] is False
+        assert accepted["attempts"][-1]["accepted"] is True
+        assert accepted["params"]["xgb__learning_rate"] == 0.05
+
+    def test_the_accepted_pipeline_is_the_one_that_passed(self) -> None:
+        _, _, _, accepted = self._run({0.1: False, 0.05: True})
+        assert accepted["pipeline"].learning_rate == 0.05
+        assert not accepted["validation"].collapsed
+
+    def test_a_successful_fallback_is_loud(self, caplog) -> None:
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            self._run({0.1: False, 0.05: True})
+        text = caplog.text
+        assert "unusable fit" in text
+        assert "learning_rate=0.05" in text
+        assert "0.94" in text
+
+    def test_exhausting_every_candidate_raises(self) -> None:
+        outcomes = {0.1: False, 0.05: False, 0.01: False, 0.005: False}
+        with pytest.raises(AncestryError) as excinfo:
+            self._run(outcomes)
+        message = str(excinfo.value)
+        assert "no model was saved" in message
+        assert "learning_rate=0.05" in message
+        assert "--ancestry-min-fit-accuracy 0" in message
+
+    def test_zero_fallbacks_refuses_immediately(self) -> None:
+        with pytest.raises(AncestryError):
+            self._run({0.1: False, 0.05: True}, fit_fallbacks=0)
+
+    def test_the_fallback_budget_is_honoured(self) -> None:
+        outcomes = dict.fromkeys(FIT_FALLBACK_LEARNING_RATES, False)
+        with pytest.raises(AncestryError):
+            self._run(outcomes, fit_fallbacks=1)
+        model = _staged_model(outcomes, np.repeat(np.arange(10), 10),
+                              fit_fallbacks=1)
+        assert model._fit_attempt_learning_rates() == [0.1, 0.05]
+
+    def test_every_fallback_is_below_the_configured_rate(self) -> None:
+        """Raising the rate is the direction that diverges."""
+        model = AncestryModel(
+            config=AncestryConfig(
+                classifier=ClassifierConfig(learning_rate=0.05),
+                training=TrainingConfig(fit_fallbacks=3),
+            )
+        )
+        rates = model._fit_attempt_learning_rates()
+        assert rates[0] == 0.05
+        assert all(rate < 0.05 for rate in rates[1:])
+
+    def test_a_zero_floor_still_refuses_a_constant_fit(self) -> None:
+        """--ancestry-min-fit-accuracy 0 drops the accuracy gate only.
+
+        A diverged, single-label model is refused whatever the floor says --
+        there is no threshold at which shipping it is the right answer.
+        """
+        with pytest.raises(AncestryError):
+            self._run({0.1: False}, min_fit_balanced_accuracy=0.0,
+                      fit_fallbacks=0)
+
+    def test_attempts_carry_the_measurements(self) -> None:
+        _, _, _, accepted = self._run({0.1: False, 0.05: True})
+        first = accepted["attempts"][0]
+        assert first["diverged"] is True
+        assert first["max_abs_intercept"] == pytest.approx(3.0e15)
+        assert first["n_classes_predicted"] == 1
+
+
+class TestFailedCandidateCounting:
+    """A candidate that raises is scored NaN and ranked last, silently."""
+
+    def test_nan_candidates_are_counted_and_reported(
+        self, fake_grid_search, caplog
+    ) -> None:
+        import logging
+
+        class _WithFailures(_FakeGridSearch):
+            def fit(self, X, y):
+                super().fit(X, y)
+                self.cv_results_ = {
+                    "rank_test_score": np.array([1, 2, 3, 4]),
+                    "std_test_score": np.array([0.01, 0.01, 0.01, 0.01]),
+                    "mean_test_score": np.array([0.95, 0.90, np.nan, np.nan]),
+                }
+                return self
+
+        fake_grid_search.captured = []
+        X, y = _tiny_training_arrays(n_classes=3, per_class=8)
+        model = _model_with(ClassifierConfig())
+        with caplog.at_level(logging.WARNING):
+            monkey = _WithFailures
+            model_module.GridSearchCV = monkey
+            try:
+                model._train_classifier(X, X, y, y)
+            finally:
+                model_module.GridSearchCV = _FakeGridSearch
+        assert model.training_metrics.n_failed_candidates == 2
+        assert model.training_metrics.n_grid_candidates == 4
+        assert "2 of 4 grid candidates failed to fit" in caplog.text
+
+
+class TestSearchDoesNotRefit:
+    """The winner is fitted here so it can be refused before it is pickled."""
+
+    def test_grid_search_is_constructed_with_refit_false(
+        self, fake_grid_search
+    ) -> None:
+        X, y = _tiny_training_arrays()
+        _model_with(ClassifierConfig())._train_classifier(X, X, y, y)
+        assert fake_grid_search.captured[0].kwargs["refit"] is False
+
+    def test_cv_results_are_kept_for_the_report(self, fake_grid_search) -> None:
+        X, y = _tiny_training_arrays()
+        model = _model_with(ClassifierConfig())
+        model._train_classifier(X, X, y, y)
+        assert isinstance(model._cv_results, pd.DataFrame)
+        assert len(model._cv_results) == 1
