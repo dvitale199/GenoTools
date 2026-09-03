@@ -277,16 +277,6 @@ class VariantQCArgs:
 #: cannot load that format, so honouring ``--container`` would need a rebuilt,
 #: republished image carrying a 2.0-format model. Until that exists these flags
 #: fail loudly rather than silently running local prediction.
-#: Flags that only mean something while a model is being trained, mapped to
-#: their ``AncestryArgs`` attribute and its default. They govern whether a
-#: fitted classifier is accepted, so on the ``--model`` path there is no fit to
-#: judge and honouring them would be a lie. Refused rather than ignored.
-_ANCESTRY_TRAINING_FLAGS: Dict[str, Tuple[str, Any]] = {
-    "--ancestry-min-fit-accuracy": ("min_fit_accuracy", None),
-    "--ancestry-fit-fallbacks": ("fit_fallbacks", 3),
-}
-
-
 _UNSUPPORTED_INFERENCE_FLAGS: Dict[str, Tuple[str, str]] = {
     "--container": (
         "use_container",
@@ -305,6 +295,16 @@ _UNSUPPORTED_INFERENCE_FLAGS: Dict[str, Tuple[str, str]] = {
         "Cloud prediction has never been implemented -- not in 2.0 and not in "
         "1.x. Drop the flag to predict locally. See MIGRATION_2.0.md.",
     ),
+}
+
+
+#: Flags that only mean something while a model is being trained, mapped to
+#: their ``AncestryArgs`` attribute and its default. They govern whether a
+#: fitted classifier is accepted, so on the ``--model`` path there is no fit to
+#: judge and honouring them would be a lie. Refused rather than ignored.
+_ANCESTRY_TRAINING_FLAGS: Dict[str, Tuple[str, Any]] = {
+    "--ancestry-min-fit-accuracy": ("min_fit_accuracy", None),
+    "--ancestry-fit-fallbacks": ("fit_fallbacks", 3),
 }
 
 
