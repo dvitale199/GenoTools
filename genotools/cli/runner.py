@@ -928,6 +928,16 @@ class PipelineRunner:
         model.save(model_save_dir)
         logger.info(f"Ancestry model saved to: {model_save_dir}")
 
+        # The whole grid, at the *final* prefix rather than the temp working
+        # directory, which is deleted unless --full-output. Now that training
+        # is deterministic this is a genuine record of model selection; before
+        # the fix it would have shown a grid scored half by luck.
+        cv_results = getattr(model, "_cv_results", None)
+        if cv_results is not None:
+            grid_path = Path(f"{out_path}_ancestry_grid_search.txt")
+            cv_results.to_csv(grid_path, sep="\t", index=False)
+            logger.info(f"Grid search results written to: {grid_path}")
+
         # Predict
         predictions = model.predict(
             geno_data,

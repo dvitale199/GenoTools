@@ -388,6 +388,10 @@ measured and a bad one is refused rather than pickled.
     reaches the report. `0` fails immediately. When every attempt collapses
     the run raises and **no model is written**.
 
+Both also add `{out}_ancestry_grid_search.txt` beside the report: the whole
+`GridSearchCV.cv_results_` table, one row per candidate. Now that training is
+deterministic it is a genuine record of model selection.
+
 ---
 
 ### GWAS and PCA Arguments

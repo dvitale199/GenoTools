@@ -1422,7 +1422,13 @@ removed, model selection becomes meaningful — and its outcome moves.
     accepts). That one needs a stub unpickler whose `find_class` returns a
     permissive dynamically-created *class* — not a function, since `NEWOBJ`
     calls `__class__.__new__`.
-12. **`tests/scripts/compare_fit_determinism.py`** — reproduces the whole
+12. **`{out}_ancestry_grid_search.txt`** — the whole `cv_results_` table,
+    written at the *final* prefix rather than into the temp working directory
+    that is deleted unless `--full-output`. Now that training is deterministic
+    this is a genuine record of model selection; before the fix it would have
+    shown a grid scored half by luck. It is kept out of the pickle
+    (`__getstate__`), since it describes the run and not the model.
+13. **`tests/scripts/compare_fit_determinism.py`** — reproduces the whole
     finding from a JSON report alone, no PLINK and no genotypes: `ref_pcs` and
     `projected_pcs` are enough to re-run everything downstream of the PCA, and
     the PCA is not what failed.

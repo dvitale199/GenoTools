@@ -191,6 +191,18 @@ class AncestryModel:
         """Whether the model has been fitted."""
         return self._is_fitted
 
+    def __getstate__(self) -> Dict[str, Any]:
+        """Everything but the grid-search table.
+
+        `_cv_results` records how *this run* chose its hyperparameters, not
+        anything the fitted model needs to predict; the run writes it beside
+        the report instead. Keeping it out stops every saved model carrying a
+        216-row frame it will never read.
+        """
+        state = self.__dict__.copy()
+        state["_cv_results"] = None
+        return state
+
     def _prepare_training_data(
         self,
         raw_data: pd.DataFrame,

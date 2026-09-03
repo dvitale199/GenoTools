@@ -1046,6 +1046,53 @@ class TestAncestryFitFlagsReachTraining:
         assert seen[0].training.min_fit_balanced_accuracy == 0.42
         assert seen[0].training.fit_fallbacks == 1
 
+    def test_the_grid_search_table_is_written_at_the_final_prefix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Not into the temp dir, which is deleted unless --full-output."""
+        runner = self._runner(tmp_path)
+        geno = tmp_path / "geno"
+        work = tmp_path / "tmpwork"
+        work.mkdir(exist_ok=True)
+        out = tmp_path / "out"
+        runner.state = PipelineState(
+            geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
+        )
+        Path(f"{work}/tmpout_labeled_ref_pca.txt").write_text("FID\tIID\tPC1\tlabel\n")
+
+        frame = pd.DataFrame(
+            {"FID": ["a"], "IID": ["a"], "label": ["EUR"], "snp1": [0.0]}
+        )
+        monkeypatch.setattr(
+            "genotools.ancestry.preprocessing.get_raw_files",
+            lambda **kwargs: {"raw_ref": frame.copy(), "raw_geno": frame.copy()},
+        )
+
+        grid = pd.DataFrame({"param_umap__a": [0.75], "mean_test_score": [0.94]})
+
+        class _Model:
+            def __init__(self, config=None):
+                self.common_snps = None
+                self.best_params = {}
+                self._cv_results = grid
+
+            def fit(self, *a, **k):
+                return self
+
+            def save(self, path):
+                return path
+
+            def predict(self, *a, **k):
+                return SimpleNamespace(
+                    predictions=pd.DataFrame({"predicted_ancestry": ["EUR"]})
+                )
+
+        runner._run_training_mode(_Model, f"{work}/tmpout", str(out))
+
+        written = Path(f"{out}_ancestry_grid_search.txt")
+        assert written.exists(), "the grid went into the temp dir, or nowhere"
+        assert "param_umap__a" in written.read_text()
+
     def test_inference_mode_never_builds_a_training_config(self) -> None:
         """`_run_inference_mode` loads a fit that already happened."""
         import inspect
