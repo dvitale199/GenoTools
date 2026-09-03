@@ -1334,8 +1334,11 @@ identical repeats at the shipped defaults:
 
 | panel PCs | collapses | max abs intercept |
 |---|---|---|
-| PPMI (dense WGS) | **6/20**, and **19/20** on a second draw of the same config | 4.4 × 10¹⁵ |
+| PPMI (dense WGS) | **2/20**, **6/20** and **19/20** across three draws of the same config | 4.4 × 10¹⁵ |
 | GP2 (array) | **0/20** | 6.32 |
+
+The rate is not stable either — it moves with how contended the machine is,
+which is what a thread race looks like from the outside.
 
 Scaling the PPMI embedding at `lr=0.5` walks the rate up monotonically —
 2/20 at 0.25×, 19/20 at 1×, 20/20 at 4× — while GP2 stays at 0/20 even scaled
@@ -1343,6 +1346,16 @@ Scaling the PPMI embedding at `lr=0.5` walks the rate up monotonically —
 inside the stable region and dense-WGS cohorts do not: **having more
 overlapping variants than usual is what caused the failure**, and the audit of
 models already in production is a spot check rather than a fire drill.
+
+**The fix does not move GP2 labels.** Holding the hyperparameters fixed, all
+three arms — as shipped, threads pinned, and the fix — label the full
+129,831-sample GP2 cohort identically, and held-out balanced accuracy moves
+0.9570 → 0.9560. What can still move labels is the search now selecting
+meaningfully, which is a separate measurement.
+
+**`n_jobs=1` is faster, not a trade.** 0.78 s/fit against 27.3 for the
+contended default on the same data — 56 threads on a 3206×25 linear problem
+is pure contention.
 
 **The consequence that outlives the crash:** where fits collapse at random,
 each of the 216 grid points is scored partly by luck, so `best_params_` is
