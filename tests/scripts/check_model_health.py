@@ -434,9 +434,17 @@ def measure(path: Path) -> Dict[str, Any]:
         for value in (max_coef, max_intercept)
     )
 
+    # Every pre-round-19 model pickled `learning_rate=None`, because the field
+    # was never passed. That makes it a reliable marker of which side of the
+    # fix a saved model was trained on -- useful when auditing a directory of
+    # them, since a converged pre-fix model is still evidence about luck rather
+    # than about the process.
+    pre_fix = "learning_rate" in params and params["learning_rate"] is None
+
     return {
         "path": str(path),
         "pickle": str(target),
+        "pre_fix": pre_fix,
         "max_abs_coefficient": max_coef,
         "max_abs_intercept": max_intercept,
         "n_classes": n_classes,
@@ -496,6 +504,13 @@ def describe(result: Dict[str, Any]) -> str:
             "    No coefficients found. Absence is not health -- either the "
             "booster is a tree booster, or the pickle did not walk cleanly."
         )
+    if result.get("pre_fix"):
+        lines.append(
+            "    Trained before the round-19 fix: the booster pickled "
+            "learning_rate=None, so it descended at XGBoost's default of 0.5 "
+            "on the nondeterministic Hogwild updater. This one came out fine, "
+            "but the run that produced it was a coin flip."
+        )
     if result["stubbed_modules"]:
         lines.append(
             f"    read with stubs for: {', '.join(result['stubbed_modules'])}"
@@ -529,6 +544,7 @@ def main() -> int:
         return 1
     print(f"{len(args.paths)} models checked, none collapsed.")
     return 0
+
 
 
 if __name__ == "__main__":

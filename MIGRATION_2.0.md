@@ -189,6 +189,11 @@ It reports `|coef|`, `|intercept|` and the distinct-class count, and exits
 non-zero if any model checked has diverged. A healthy GP2 model measures
 `|coef| 1.03 / |intercept| 4.24`; a collapsed one measured `5.32 / 2.0e15`.
 
+It also says which side of the fix a model was trained on: every pre-2.0.2
+model pickled `learning_rate=None`, because the field was never passed. A
+converged pre-fix model is still evidence about luck rather than about the
+process, so retrain when you next can.
+
 ### `ClassifierConfig` lost two fields
 
 `max_depth` and `reg_lambda` were never passed to `XGBClassifier` and are gone.
