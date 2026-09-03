@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 from .. import __version__
@@ -83,6 +84,27 @@ class GWASMetrics:
     ancestry: str = "all"
 
 
+def _jsonable(value: Any) -> Any:
+    """Coerce numpy scalars and arrays so `json.dump` can write them.
+
+    The report is dumped with a plain `json.dump`, no custom encoder, so a
+    `np.float32` reaching it raises rather than being written -- and the fit
+    block is full of them: sklearn scores, XGBoost parameters, the grid's own
+    numbers.
+    """
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _jsonable(value.tolist())
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
 @dataclass
 class PipelineOutput:
     """Complete pipeline output.
@@ -95,7 +117,12 @@ class PipelineOutput:
         ancestry_counts: Ancestry prediction counts.
         ancestry_labels: Per-sample ancestry labels.
         confusion_matrix: Ancestry model confusion matrix.
-        test_accuracy: Ancestry model test accuracy.
+        test_accuracy: Ancestry model test accuracy. Plain accuracy, not
+            balanced -- the honestly named figures are in `ancestry_fit`.
+        ancestry_fit: What training measured about the classifier it produced:
+            the selected hyperparameters, balanced accuracies, numerical
+            health, the cheap baselines, and the attempt table. Training runs
+            only; a `--model` run's fit happened somewhere else.
         ref_pcs: Reference PCA coordinates.
         projected_pcs: Projected sample PCA coordinates.
         total_umap: Combined UMAP coordinates.
@@ -115,6 +142,7 @@ class PipelineOutput:
     ancestry_labels: Optional[pd.DataFrame] = None
     confusion_matrix: Optional[pd.DataFrame] = None
     test_accuracy: Optional[float] = None
+    ancestry_fit: Optional[Dict[str, Any]] = None
     common_snps: Optional[List[str]] = None
     ref_pcs: Optional[pd.DataFrame] = None
     projected_pcs: Optional[pd.DataFrame] = None
@@ -240,6 +268,10 @@ class PipelineOutput:
         # Test accuracy
         if "metrics" in ancestry_result and "test_accuracy" in ancestry_result["metrics"]:
             self.test_accuracy = ancestry_result["metrics"]["test_accuracy"]
+
+        # Fit measurements (training runs only)
+        if "metrics" in ancestry_result:
+            self.ancestry_fit = ancestry_result["metrics"].get("fit")
 
         # Common SNPs
         if "data" in ancestry_result and "common_snps" in ancestry_result["data"]:
@@ -455,6 +487,16 @@ class PipelineOutput:
             result["confusion_matrix"] = self.confusion_matrix.to_dict()
         if self.test_accuracy is not None:
             result["test_accuracy"] = self.test_accuracy
+        if self.ancestry_fit is not None:
+            # The confusion matrix is already a top-level key; repeating it
+            # here would double the largest thing in the block.
+            result["ancestry_fit"] = _jsonable(
+                {
+                    key: value
+                    for key, value in self.ancestry_fit.items()
+                    if key != "confusion_matrix"
+                }
+            )
         if self.common_snps is not None:
             result["common_snps"] = self.common_snps
 

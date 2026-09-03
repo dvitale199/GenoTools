@@ -836,6 +836,15 @@ class PipelineRunner:
                 if model.training_metrics
                 else None
             ),
+            # Everything about the fit itself, under an honest name. Present
+            # only on the training path: an inference run loads a model whose
+            # `training_metrics` describe a fit that happened elsewhere.
+            "fit": (
+                model.training_metrics.to_dict()
+                if model.training_metrics is not None
+                and self.args.ancestry.model_path is None
+                else None
+            ),
         }
 
         outfiles_dict: Dict[str, Any] = {
