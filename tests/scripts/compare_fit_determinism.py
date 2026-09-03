@@ -42,15 +42,33 @@ Three arms per report, each fitting the same UMAP embedding N times:
 Measured results, 20 repeats each
 ---------------------------------
     PPMI (long-read WGS, ~168k panel/cohort SNP overlap)
-        as shipped     6/20 and 19/20 collapses on two draws of the same
-                       configuration -- the rate itself is not stable
+        as shipped     2/20, 6/20 and 19/20 collapses across three draws of
+                       the same configuration. The rate is not stable either:
+                       it moves with how contended the machine is, which is
+                       what a thread race looks like from the outside.
         the fix        0/20, bit-identical across repeats
     GP2 (array, 43k overlap)
-        as shipped     0/20
+        as shipped     0/20, but still not reproducible run to run
         the fix        0/20, bit-identical across repeats
 
 So array cohorts sit inside the stable region and dense-WGS cohorts do not.
 Having *more* overlapping variants than usual is what caused the failure.
+
+Two more things fell out of running it on both:
+
+    The fix does not move GP2 labels. Holding the hyperparameters fixed, all
+    three arms label the full 129,831-sample GP2 cohort identically, and
+    held-out balanced accuracy moves 0.9570 -> 0.9560. (The end-to-end change
+    can still move labels, because the search now selects meaningfully; that
+    is a separate measurement.)
+
+    n_jobs=1 is much faster, not a trade. 0.78 s/fit against 27.3 for the
+    contended default on the same data -- 56 threads on a 3206x25 linear
+    problem is pure contention.
+
+And the PPMI cohort's ancestry, which their collapsed run reported as 636/644
+`SAS`, is recoverable from their report alone: EUR 510, AJ 92, AAC 13, EAS 9,
+AMR 9, MDE 4, AFR 3, CAS 2, FIN 1, SAS 1.
 
 Usage
 -----
