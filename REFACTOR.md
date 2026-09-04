@@ -1656,3 +1656,23 @@ Priority order for making the refactor mergeable to `main`:
     step that actually failed — is dead code, and reads like the intent the
     blanket return was meant to have. Disk retention wants its own switch
     (or that revived per-step guard), independent of `--no-warn`.
+40. **Ancestry preprocessing materializes the whole cohort as a dense 8-byte
+    frame, with a measured 4.5x peak multiplier.** `get_raw_files`
+    (`ancestry/preprocessing.py:267-283`) reads the `--recode A` `.raw` into
+    pandas, drops the six leading columns, and concatenates the FID/IID frame
+    back on. At GP2 r12 scale that matrix is 129,630 x 43,173 = 5.6e9 cells,
+    **41.7 GiB per copy**, and the path holds several at once: measured on the
+    same code with the real column count, peak RSS is **2.69x** the matrix
+    after `read_csv` alone, 3.48x after the `drop` (which copies —
+    `np.shares_memory` is `False`), and **4.48x** after the `concat`. That
+    extrapolates to a **~187 GiB peak**, so the full release cannot be
+    predicted on a 56 GiB machine; round 19's T3 needs high-memory hardware.
+    Evidence and the probe: `~/round19-evidence/dense_frame_{findings.txt,probe.py}`.
+    Two independent fixes, either of which would mostly close it: read the
+    dosages as **int8** (5.2 GiB, an 8x reduction — `--recode A` emits integer
+    dosages, and missing calls only force float64, not width), and build the
+    frame **without the copies** (`usecols` instead of a later `drop`, and
+    index alignment instead of the `concat`). Predicting in row chunks would
+    bound it regardless of dtype. Not a round-19 regression: this path is a
+    faithful port of 1.x, and the released r12 labels came through the same
+    code on larger hardware.
