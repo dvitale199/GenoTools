@@ -1620,8 +1620,26 @@ Priority order for making the refactor mergeable to `main`:
     regardless; this is about reproducible cost, not reproducible results.
 35. **Does UMAP + gblinear earn its cost over k-NN?** On the PPMI panel, 15-NN
     on the raw PCs scores 0.9499 against 0.9530 for a healthy trained model,
-    and on GP2 0.956 against 0.957. The baselines are reported precisely
+    and on GP2 (10k) 0.956 against 0.957. The baselines are reported precisely
     because they are that close. A real open question, not addressed here.
+    **Updated by the round-19 full-scale run, which reversed the sign:** on the
+    full GP2 r12 release, nearest-centroid scores **0.9592** against the
+    trained pipeline's **0.9524** test balanced accuracy, and the run emits its
+    own warning saying so. The 0.68-point gap sits inside the reported test
+    accuracy CI (+/-0.87 points), so the fair reading is a **tie** reached by a
+    method with no model, no UMAP and no booster -- not a defeat, but not the
+    clear win a pipeline this expensive should produce.
+    **The measurement is also the wrong shape to settle it.** Both scores come
+    from a held-out split of the *reference panel*, whose samples are curated
+    and prototypical; the cohort is admixed and differently genotyped. On the
+    real 129,831 samples the centroid baseline agrees with the trained model
+    only ~87% of the time, so the two methods behave very differently exactly
+    where it matters, while scoring the same where it does not. Deciding this
+    needs cohort samples with independently known ancestry (self-report, or a
+    second platform on the same people) -- not more panel splits. Until then
+    neither "UMAP earns its cost" nor "drop it" is supported.
+    Evidence: `~/round19-evidence/t3_centroid_arbiter.txt`, and `baseline_scores`
+    in any round-19 report.
 36. **Supervised UMAP is asymmetric.** The Pipeline passes `y` to
     `UMAP.fit_transform`, so `_supervised=True` and the training embedding is
     label-informed while `transform` on new samples is not. Measured benign on
