@@ -376,8 +376,10 @@ def check_output_pfiles(rep: Report, old_prefix: Path, new_prefix: Path,
         rep.add("pfiles present", True, f"compared {len(checked)} ancestry group(s)")
 
 
-def cross_check_release(old: dict, new: dict, release_path: Path, keep: Path | None) -> None:
-    """Informational: how the two runs line up with the released full-cohort run."""
+def cross_check_release(
+    runs: list[tuple[str, dict]], release_path: Path, keep: Path | None
+) -> None:
+    """Informational: how each run lines up with the released full-cohort run."""
     print(f"\n{'=' * 72}\nRELEASE CROSS-CHECK (informational — does not gate)\n{'=' * 72}")
     with open(release_path) as f:
         rel = json.load(f)
@@ -385,7 +387,7 @@ def cross_check_release(old: dict, new: dict, release_path: Path, keep: Path | N
     rel_labels = pd.DataFrame(rel["ancestry_labels"])
     rel_map = rel_labels.set_index(rel_labels["IID"].astype(str))["label"]
 
-    for name, d in (("old", old), ("new", new)):
+    for name, d in runs:
         lab = _labels(d)
         if lab is None:
             print(f"  {name}: no ancestry_labels to compare")
@@ -415,7 +417,7 @@ def cross_check_release(old: dict, new: dict, release_path: Path, keep: Path | N
     if subset_ids:
         rel_cr &= subset_ids
     print(f"\n  released callrate outliers inside this subset: {len(rel_cr):,}")
-    for name, d in (("old", old), ("new", new)):
+    for name, d in runs:
         p = _frame(d, "pruned_samples")
         if p is None:
             print(f"    {name}: no pruned_samples")
@@ -432,7 +434,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--old", required=True, type=Path, help="Old-CLI --out prefix")
+    parser.add_argument("--old", type=Path, default=None,
+                        help="Old-CLI --out prefix. Omit to cross-check --new "
+                             "against --release-json alone (no second run needed)")
     parser.add_argument("--new", required=True, type=Path, help="New-CLI --out prefix")
     parser.add_argument("--release-json", type=Path, default=None,
                         help="Released full-cohort JSON for an informational cross-check")
@@ -443,29 +447,45 @@ def main() -> int:
                              "IDs and the plink2 --pgen-diff genotype comparison (faster)")
     args = parser.parse_args()
 
-    old, new = _load_json(args.old), _load_json(args.new)
+    if args.old is None and args.release_json is None:
+        parser.error("nothing to compare against: pass --old, or --release-json, or both")
+
+    new = _load_json(args.new)
+    old = _load_json(args.old) if args.old is not None else None
 
     plink2 = _resolve_plink2()
-    if plink2 is None and not args.skip_genotypes:
+    if plink2 is None and not args.skip_genotypes and old is not None:
         parser.error("plink2 not found (needed for the genotype diff); pass --skip-genotypes to skip")
 
-    print("=" * 72)
-    print("OLD vs NEW — ancestry + full QC")
-    print("=" * 72)
-
     rep = Report()
-    check_labels(rep, old, new)
-    check_counts(rep, old, new)
-    check_model_quality(rep, old, new)
-    check_qc_metrics(rep, old, new)
-    check_pruned_samples(rep, old, new)
-    check_related(rep, old, new)
-    check_pass_fail(rep, old, new)
+    if old is None:
+        # Release-only mode: one run, cross-checked against the released
+        # report. Every gating check below is old-vs-new by construction, so
+        # there is nothing here to gate on -- the cross-check is informational.
+        print("=" * 72)
+        print("RELEASE-ONLY CROSS-CHECK — no --old run supplied")
+        print("=" * 72)
+    else:
+        print("=" * 72)
+        print("OLD vs NEW — ancestry + full QC")
+        print("=" * 72)
+
+        check_labels(rep, old, new)
+        check_counts(rep, old, new)
+        check_model_quality(rep, old, new)
+        check_qc_metrics(rep, old, new)
+        check_pruned_samples(rep, old, new)
+        check_related(rep, old, new)
+        check_pass_fail(rep, old, new)
 
     labels = sorted(
-        k[: -len(_PASS_FAIL_SUFFIX)] for k in set(old) | set(new) if k.endswith(_PASS_FAIL_SUFFIX)
+        k[: -len(_PASS_FAIL_SUFFIX)]
+        for k in (set(old) | set(new) if old is not None else set(new))
+        if k.endswith(_PASS_FAIL_SUFFIX)
     )
-    if args.skip_genotypes:
+    if old is None:
+        pass  # nothing to diff genotypes against
+    elif args.skip_genotypes:
         print("  [SKIP] output pfiles: --skip-genotypes")
     elif labels:
         check_output_pfiles(rep, args.old, args.new, labels, plink2)
@@ -473,7 +493,8 @@ def main() -> int:
         rep.add("output pfiles", False, "could not infer ancestry labels from the reports")
 
     if args.release_json:
-        cross_check_release(old, new, args.release_json, args.keep)
+        runs = [("new", new)] if old is None else [("old", old), ("new", new)]
+        cross_check_release(runs, args.release_json, args.keep)
 
     print("\n" + "=" * 72)
     print("SUMMARY")
@@ -484,7 +505,10 @@ def main() -> int:
     if failed:
         print(f"\n{len(failed)} check(s) FAILED: {', '.join(failed)}")
         return 1
-    print(f"\nAll {len(rep.rows)} check(s) passed — old and new agree.")
+    if not rep.rows:
+        print("\nNo gating checks ran (release-only mode); see the cross-check above.")
+    else:
+        print(f"\nAll {len(rep.rows)} check(s) passed — old and new agree.")
     return 0
 
 
