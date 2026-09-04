@@ -1640,3 +1640,19 @@ Priority order for making the refactor mergeable to `main`:
     writes it out. With the race removed it is a genuine record of model
     selection; before the fix it would have exposed a 50%-noisy grid at a
     glance.
+39. **Disk hygiene is welded to the failure policy.**
+    `_cleanup_intermediate_files` (`cli/runner.py:1584`) returns early on
+    `if self.args.warn_only:`, and `warn_only` defaults **True**
+    (`parser.py:385`, `warn_only=not ns.no_warn`), so at defaults *no*
+    intermediate pfile is ever deleted. The only way to get cleanup is
+    `--no-warn`, which also switches the pipeline from warn-and-continue to
+    fail-fast — a bad trade on a long run, where the whole point of
+    warn-and-continue is not losing hours to one recoverable step. That
+    coupling is what made the round-19 full-GP2 run marginal: ~98 GiB of
+    writes at defaults against ~50 GiB peak with cleanup on.
+    The blanket return also makes the per-step guard below it
+    (`if self.args.warn_only and ... not out_dict[step]["pass"]`) unreachable,
+    so the narrower behaviour it encodes — keep intermediates only for the
+    step that actually failed — is dead code, and reads like the intent the
+    blanket return was meant to have. Disk retention wants its own switch
+    (or that revived per-step guard), independent of `--no-warn`.
