@@ -323,7 +323,7 @@ def _parity_ancestry(old_out: Path, new_out: Path, plink2: str,
         rep.add("output pfiles", False, "could not infer ancestry labels from the reports")
 
     if release_json:
-        cross_check_release(old, new, release_json, keep)
+        cross_check_release([("old", old), ("new", new)], release_json, keep)
 
     failed = rep.failed()
     if failed:
