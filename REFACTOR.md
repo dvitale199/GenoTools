@@ -1676,3 +1676,32 @@ Priority order for making the refactor mergeable to `main`:
     bound it regardless of dtype. Not a round-19 regression: this path is a
     faithful port of 1.x, and the released r12 labels came through the same
     code on larger hardware.
+41. **Retraining reproducibility is ~98.7%, which is not the same thing as
+    run-to-run determinism.** Round 19 made a single configuration
+    bit-identical across repeats, and that claim holds. But *retraining* —
+    same code, same reference panel, a different cohort — moves about 1.3% of
+    labels, and this is a property of the search, not of the race. Measured on
+    the full GP2 r12 release against the released 1.x labels: **1,695 of
+    129,831 samples moved (1.306%)**, against 0.08% for old-vs-new with the
+    training data held fixed. 1.3.6 pays the same ~1.3% against those labels,
+    so the fix is not the cause.
+    Two compounding sources, both measured
+    (`~/round19-evidence/t3_{grid_selection,label_diff,centroid_arbiter}.txt`):
+    the grid's top is a **plateau** — 48 of 216 candidates lie within one
+    fold-std of the winner, five tie at rank 3 to ten decimal places, and the
+    T3 winner beats the 10k's winner by 0.000667 while its own fold-to-fold
+    std is 0.014178, **21x the gap**; and the common-SNP list is
+    **cohort-dependent**, since `--geno 0.1` and the lowest-missingness
+    tie-break in `_select_one_per_position` both read per-variant missingness,
+    which moved one variant between the 10k and full runs (43,172 shared).
+    A one-variant perturbation is more than enough to reshuffle an argmax on a
+    plateau that flat, and the substantive parameters (`n_components=25`,
+    `n_neighbors=5`, `lambda=0.001`) did reproduce — only the UMAP `a`/`b`
+    shape pair moved, which is the direction the plateau is flattest in.
+    Worth deciding deliberately: pin the hyperparameters for production
+    releases rather than re-searching a plateau, and/or make the selection
+    tie-break stable instead of argmax-on-noise. Note also that a model-free
+    nearest-centroid arbiter **cannot say which labeling is better** (31.8%
+    released vs 33.0% T3 on 50 PCs, 35.2% neither), because at cohort scale
+    that baseline agrees with either labeling on only ~87%. Related: item 33
+    on uncalibrated thresholds, item 38 on persisting `cv_results_`.
