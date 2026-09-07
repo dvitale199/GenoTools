@@ -994,6 +994,115 @@ class TestAncestryRequiresReferencePanel:
         assert args.ancestry.run_ancestry is False
 
 
+class TestAncestryFitFlags:
+    """The two fit-validation flags, at all three layers.
+
+    They govern whether a newly trained classifier is accepted, so they are
+    training-only. A silently ignored setting is worse than a refused one --
+    the whole reason --het-ancestry is refused without --ancestry.
+    """
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+    ANCESTRY = ["--ancestry", "--ref-panel", "/tmp/ref", "--ref-labels", "/tmp/lab"]
+
+    # --- layer 1: the dataclass ---
+
+    def test_dataclass_defaults(self) -> None:
+        args = AncestryArgs()
+        assert args.min_fit_accuracy is None
+        assert args.fit_fallbacks == 3
+
+    @pytest.mark.parametrize("value", [-0.1, 1.1, 2.0])
+    def test_dataclass_rejects_an_out_of_range_accuracy(self, value) -> None:
+        with pytest.raises(ValueError, match="fraction in \\[0, 1\\]"):
+            AncestryArgs(min_fit_accuracy=value)
+
+    @pytest.mark.parametrize("value", [0.0, 0.3, 1.0])
+    def test_dataclass_accepts_the_whole_range(self, value) -> None:
+        assert AncestryArgs(min_fit_accuracy=value).min_fit_accuracy == value
+
+    def test_dataclass_rejects_negative_fallbacks(self) -> None:
+        with pytest.raises(ValueError, match="--ancestry-fit-fallbacks must be >= 0"):
+            AncestryArgs(fit_fallbacks=-1)
+
+    # --- layer 2: training_flags_set ---
+
+    def test_nothing_set_reports_nothing(self) -> None:
+        assert AncestryArgs().training_flags_set() == []
+
+    def test_a_zero_accuracy_still_counts_as_set(self) -> None:
+        """0 is a meaningful value, not an absence -- it disables the raise."""
+        assert AncestryArgs(min_fit_accuracy=0.0).training_flags_set() == [
+            "--ancestry-min-fit-accuracy"
+        ]
+
+    def test_a_zero_fallback_count_counts_as_set(self) -> None:
+        assert AncestryArgs(fit_fallbacks=0).training_flags_set() == [
+            "--ancestry-fit-fallbacks"
+        ]
+
+    def test_the_default_fallback_count_does_not_count_as_set(self) -> None:
+        assert AncestryArgs(fit_fallbacks=3).training_flags_set() == []
+
+    def test_both_are_reported(self) -> None:
+        flags = AncestryArgs(min_fit_accuracy=0.5, fit_fallbacks=1)
+        assert sorted(flags.training_flags_set()) == [
+            "--ancestry-fit-fallbacks",
+            "--ancestry-min-fit-accuracy",
+        ]
+
+    # --- layer 3: end to end through parse_args ---
+
+    def test_flags_reach_the_args(self) -> None:
+        args = parse_args(
+            self.BASE
+            + self.ANCESTRY
+            + ["--ancestry-min-fit-accuracy", "0.5", "--ancestry-fit-fallbacks", "1"]
+        )
+        assert args.ancestry.min_fit_accuracy == 0.5
+        assert args.ancestry.fit_fallbacks == 1
+
+    def test_defaults_survive_a_plain_ancestry_run(self) -> None:
+        args = parse_args(self.BASE + self.ANCESTRY)
+        assert args.ancestry.min_fit_accuracy is None
+        assert args.ancestry.fit_fallbacks == 3
+
+    def test_refused_without_ancestry(self) -> None:
+        with pytest.raises(ValueError, match="requires --ancestry") as excinfo:
+            parse_args(self.BASE + ["--ancestry-min-fit-accuracy", "0.5"])
+        assert "no classifier to validate" in str(excinfo.value)
+
+    def test_refused_alongside_a_saved_model(self) -> None:
+        """--model loads a fit that already happened somewhere else."""
+        with pytest.raises(ValueError, match="cannot be used with --model") as excinfo:
+            parse_args(
+                self.BASE
+                + self.ANCESTRY
+                + ["--model", "/tmp/model", "--ancestry-fit-fallbacks", "0"]
+            )
+        assert "--ancestry-fit-fallbacks" in str(excinfo.value)
+
+    def test_an_out_of_range_accuracy_is_refused_end_to_end(self) -> None:
+        with pytest.raises(ValueError, match="fraction in \\[0, 1\\]"):
+            parse_args(
+                self.BASE + self.ANCESTRY + ["--ancestry-min-fit-accuracy", "1.5"]
+            )
+
+    def test_a_model_run_without_the_flags_is_fine(self) -> None:
+        args = parse_args(self.BASE + self.ANCESTRY + ["--model", "/tmp/model"])
+        assert args.ancestry.model_path is not None
+
+    def test_underscore_spellings_are_not_offered(self) -> None:
+        """Hyphenated spellings only for anything added in 2.0+."""
+        from genotools.cli.parser import create_parser
+
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["--pfile", "/x", "--ancestry_min_fit_accuracy", "0.5"]
+            )
+
+
 class TestDeprecatedFlagSpellings:
     """Pre-refactor underscore flags must keep working, with a warning.
 

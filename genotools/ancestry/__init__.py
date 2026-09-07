@@ -105,6 +105,16 @@ from genotools.ancestry.model import (
     load_trained_pipeline,
 )
 
+# Fit validation (training-path model health)
+from genotools.ancestry.fit_validation import (
+    FitValidation,
+    baseline_scores,
+    coefficient_health,
+    fit_accuracy_floor,
+    fit_validation_warnings,
+    validate_fit,
+)
+
 # Reducers (for advanced usage)
 from genotools.ancestry.reducers import (
     PCAReducer,
@@ -147,6 +157,13 @@ __all__ = [
     "PCAResult",
     "UMAPResult",
     "SplitResult",
+    # Fit validation
+    "FitValidation",
+    "baseline_scores",
+    "coefficient_health",
+    "fit_accuracy_floor",
+    "fit_validation_warnings",
+    "validate_fit",
     # Utilities
     "load_trained_pipeline",
     # Reducers

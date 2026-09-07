@@ -1447,6 +1447,181 @@ localizes the fault in one line.
 
 ---
 
+### Round 19 (the ancestry classifier's nondeterministic training collapse)
+
+Branched off `main`, so it skips round 18's numbering; the remaining-work items
+below start at 31 to sit after round 18's 27-30 once both land.
+
+A PPMI/NAPU ancestry run labeled 636 of 644 cohort samples `SAS` and predicted
+`SAS` for all 802 held-out panel samples. Its `test_accuracy` of 0.1496 is
+exactly SAS's prevalence in that split — the classifier had become a constant
+function. It was pickled and used to label the cohort anyway, and nothing in
+the pipeline noticed.
+
+**The cause is one unwired config field, exposed by a race.**
+`ClassifierConfig.learning_rate: float = 0.1` was declared, documented
+("Step size shrinkage. Default is 0.1.") and validated in `__post_init__` —
+and never passed to `XGBClassifier`. So XGBoost used its own gblinear default
+of **0.5**, at which the optimizer sits at the edge of numerical divergence.
+What decides which side of that edge a fit lands on is that `gblinear` defaults
+to `updater="shotgun"` — Hogwild, lock-free parallel coordinate descent — with
+no thread count set, so `nthread: 0` used every core. XGBoost documents shotgun
+as nondeterministic *regardless of* `random_state`. Present identically in 1.x
+and 2.0.
+
+The contrast between the two real models settles it. Recovered from their
+pickles by `check_model_health.py`:
+
+| | max abs coef | max abs intercept | classes predicted |
+|---|---|---|---|
+| GP2 2.0 parity model | 1.033 | 4.236 | 10 |
+| GP2 1.x model | 1.018 | 3.297 | 10 |
+| PPMI 1.x model | 5.322 | **2.0 × 10¹⁵** | **1** |
+
+An intercept of 10¹⁵ saturates the softmax, so every sample gets the same
+label.
+
+**Whether a cohort is affected is a property of its data.** Divergence grows
+with `learning_rate` times the magnitude of the features, and the panel's PCs
+are recomputed each run over only the SNPs the panel shares with the cohort.
+Long-read WGS intersected ~168,000 panel variants against GP2 array data's
+43,173; panel PC sd came out 25.9 against GP2's 11.9. Measured over 20
+identical repeats at the shipped defaults:
+
+| panel PCs | collapses | max abs intercept |
+|---|---|---|
+| PPMI (dense WGS) | **2/20**, **6/20** and **19/20** across three draws of the same config | 4.4 × 10¹⁵ |
+| GP2 (array) | **0/20** | 6.32 |
+
+The rate is not stable either — it moves with how contended the machine is,
+which is what a thread race looks like from the outside.
+
+Scaling the PPMI embedding at `lr=0.5` walks the rate up monotonically —
+2/20 at 0.25×, 19/20 at 1×, 20/20 at 4× — while GP2 stays at 0/20 even scaled
+4× up. At `lr=0.1`, both are 0/20 at every scale tried. So array cohorts sit
+inside the stable region and dense-WGS cohorts do not: **having more
+overlapping variants than usual is what caused the failure**, and the audit of
+models already in production is a spot check rather than a fire drill.
+
+**The fix does not move GP2 labels.** Holding the hyperparameters fixed, all
+three arms — as shipped, threads pinned, and the fix — label the full
+129,831-sample GP2 cohort identically, and held-out balanced accuracy moves
+0.9570 → 0.9560. What can still move labels is the search now selecting
+meaningfully, which is a separate measurement.
+
+**`n_jobs=1` is faster, not a trade.** 0.78 s/fit against 27.3 for the
+contended default on the same data — 56 threads on a 3206×25 linear problem
+is pure contention.
+
+**The consequence that outlives the crash:** where fits collapse at random,
+each of the 216 grid points is scored partly by luck, so `best_params_` is
+whichever candidate drew the luckiest folds. That is the likeliest reason the
+PPMI search landed on `a=1.0` and the GP2 one on `a=0.75`. With the race
+removed, model selection becomes meaningful — and its outcome moves.
+
+**What changed.**
+
+1. **`_train_classifier` passes every `ClassifierConfig` field** —
+   `learning_rate`, `n_estimators` and a new `n_jobs` (default 1) alongside the
+   `booster` and `random_state` already wired. Together they are also the
+   *fastest* configuration measured (0.39 s/fit; 56 threads on a 3206×25 linear
+   problem is pure contention) with 8× more margin to divergence.
+   `updater="coord_descent"` is equally correct and was rejected at 79.1 s/fit —
+   148× slower, 23.7 hours for a full search.
+2. **`n_estimators` 100 → 200.** Not in the original plan; measurement forced
+   it. `learning_rate=0.1` takes five times smaller steps, and on GP2 panel PCs
+   100 rounds no longer reach the same place: held-out balanced accuracy 0.9570
+   at (0.5, 100), **0.9150** at (0.1, 100), 0.9560 at (0.1, 200), 0.9570 at
+   (0.1, 500). 200 pays the accuracy back in full while keeping 3× more margin
+   than the old default had (|intercept| 0.93 against 3.10); 500 buys nothing
+   and spends the margin.
+3. **`max_depth` and `reg_lambda` deleted.** Neither was ever passed.
+   `max_depth`'s own docstring said it does nothing under gblinear, and the
+   grid's `xgb__lambda` travels through `**kwargs` and never touched
+   `reg_lambda` — their pickle shows `reg_lambda=None` beside
+   `kwargs={'lambda': 0.001}`. A field that is declared, documented and
+   validated but not passed is worse than no field, because it reads as
+   settled.
+4. **`ancestry/fit_validation.py`** — pure measurements over a fitted
+   estimator, per the `select_het_outliers` pattern. `|coef|` / `|intercept|`
+   bounds catch divergence at its source rather than through its symptom; the
+   distinct-prediction count catches a constant function; balanced accuracy is
+   checked against a floor **derived** as `3 / n_labels` rather than fixed,
+   because the vocabulary is user-supplied and 0.70 would wrongly kill a usable
+   model on a 25-label panel. All measured on the **training** set, so the test
+   score stays an honest estimate and a retry leaks nothing. A rare class going
+   unpredicted is explicitly *not* collapse — AAC (1.8% of the panel, admixed)
+   and FIN (2.5%, inside EUR) are legitimate zero-prediction candidates, so
+   only labels above 3% support produce a warning.
+5. **`GridSearchCV(refit=False)`**, so the winning candidate is fitted outside
+   the search and can be refused before it becomes `self.pipeline`. A collapsed
+   fit falls back by **lowering the learning rate**, not by re-rolling: the fit
+   is deterministic now, so an identical retry gives an identical result.
+   Exhausting the ladder raises `AncestryError` with the attempt table, and
+   because the pickle is written later in `runner.py`, raising here means no
+   model is saved. Cost: at most 4 extra fits against the search's 1080.
+6. **Grid candidates that raised are counted.** `error_score` defaults to
+   `nan` and sklearn's `FitFailedWarning` goes through `warnings.warn`, which
+   this codebase routes nowhere, so such candidates were ranked last silently.
+7. **Cheap baselines beside the model.** k-NN and nearest-centroid on the raw
+   reference PCs, sharing none of the pipeline's failure modes. On the PPMI run
+   the report would have read `15-NN 0.95 / model 0.15`. A warning and never a
+   gate: on a healthy run the baseline legitimately matches the model.
+8. **`TrainingMetrics` gained honestly named keys.** Two existing ones are
+   mislabelled and keep their values: `train_accuracy` is `best_score_`, a CV
+   mean and not a training-set score, and `test_accuracy` comes from
+   `XGBClassifier.score`, which is plain accuracy despite being logged as
+   "Test Balanced Accuracy". 1.x has the identical mislabel. The log strings
+   were corrected.
+9. **`ancestry_fit` in the JSON report**, training runs only, carrying all of
+   the above. `_jsonable` coerces the numpy scalars it is full of, since the
+   report is dumped with a plain `json.dump` and no encoder.
+10. **Two CLI flags**, `--ancestry-min-fit-accuracy` and
+    `--ancestry-fit-fallbacks`. Both are training-only, so a
+    `_ANCESTRY_TRAINING_FLAGS` registry and `training_flags_set()` refuse them
+    without `--ancestry` and alongside `--model` rather than ignoring them —
+    the `--amr-het` lesson from round 11.
+11. **`tests/scripts/check_model_health.py`** — converged/collapsed verdict for
+    a 2.0 model directory or a 1.x `.pkl`, so models already in production can
+    be audited. The coefficients hide differently in each format and it reads
+    all three ways: as a property on a model that unpickles for real, and out
+    of `Booster.handle`'s UBJSON buffer for the PPMI 1.x pickle, which unpickles
+    in **no** environment available here (UMAP embeds numba `Dispatcher`
+    objects carrying an `impl_kind` field neither numba 0.63.1 nor 0.67.0
+    accepts). That one needs a stub unpickler whose `find_class` returns a
+    permissive dynamically-created *class* — not a function, since `NEWOBJ`
+    calls `__class__.__new__`.
+12. **`{out}_ancestry_grid_search.txt`** — the whole `cv_results_` table,
+    written at the *final* prefix rather than into the temp working directory
+    that is deleted unless `--full-output`. Now that training is deterministic
+    this is a genuine record of model selection; before the fix it would have
+    shown a grid scored half by luck. It is kept out of the pickle
+    (`__getstate__`), since it describes the run and not the model.
+13. **`tests/scripts/compare_fit_determinism.py`** — reproduces the whole
+    finding from a JSON report alone, no PLINK and no genotypes: `ref_pcs` and
+    `projected_pcs` are enough to re-run everything downstream of the PCA, and
+    the PCA is not what failed.
+
+**Kept out of `diagnostics.py`.** That module (round 18) instruments the
+*prediction* path, asking whether the data reaching a model is fit to predict
+on. `fit_validation.py` asks whether the model that came out of training is fit
+to predict with. Separate modules also mean this branch adds no add/add
+conflict against round 18.
+
+**Revert-checked**, per item 17: removing the three constructor arguments fails
+4 of the 5 wiring tests (`random_state` was already wired and correctly still
+passes); dropping `refit=False` fails the refit test; accepting a collapsed fit
+unconditionally fails 7 of the fallback tests; and building `AncestryModel()`
+with no config fails the runner wiring test.
+
+**Two measurement traps worth recording.** `nohup cmd &` from a tool-invoked
+shell is killed with its parent — use `setsid nohup ... < /dev/null & disown`.
+And piping through `grep` re-buffers even under `python -u`, so a timed-out run
+shows *no* output rather than partial output; write findings to a file. Both
+scripts take `--out` for exactly this reason.
+
+---
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1611,3 +1786,125 @@ Priority order for making the refactor mergeable to `main`:
     against a hand-built result dict. The same gap is why round 18 needed no
     golden regeneration; it is also why a change to that section's shape would
     not be caught.
+31. **Audit the ancestry models already in production.** The defect is present
+    in 1.x and 2.0 alike, and `tests/scripts/check_model_health.py` gives a
+    verdict for either format. Scope it by the round-19 measurement: dense-WGS
+    cohorts first, where the collapse rate is 30-95%, array cohorts as a spot
+    check, where 20 repeats produced none.
+32. **`updater="coord_descent"` removes the Hogwild path entirely** and is
+    equally correct (0/20 collapses), but was measured at 79.1 s/fit — 148×
+    slower than `n_jobs=1`, so 23.7 hours for a full grid search. Worth
+    revisiting only if XGBoost's linear updaters change.
+33. **The fit-validation thresholds are reasoned, not calibrated.**
+    `3 × chance` and `MAX_HEALTHY_COEFFICIENT = 1e3` come from one 10-label
+    panel and two real models, not from a sweep across class counts — the same
+    gap as item 28.
+34. **`TrainingConfig.n_jobs` still derives from `psutil.virtual_memory()` and
+    `os.cpu_count()`,** so the number of grid-search workers, and therefore
+    the run time, varies by machine. The *classifier* is now deterministic
+    regardless; this is about reproducible cost, not reproducible results.
+35. **Does UMAP + gblinear earn its cost over k-NN?** On the PPMI panel, 15-NN
+    on the raw PCs scores 0.9499 against 0.9530 for a healthy trained model,
+    and on GP2 (10k) 0.956 against 0.957. The baselines are reported precisely
+    because they are that close. A real open question, not addressed here.
+    **Updated by the round-19 full-scale run, which reversed the sign:** on the
+    full GP2 r12 release, nearest-centroid scores **0.9592** against the
+    trained pipeline's **0.9524** test balanced accuracy, and the run emits its
+    own warning saying so. The 0.68-point gap sits inside the reported test
+    accuracy CI (+/-0.87 points), so the fair reading is a **tie** reached by a
+    method with no model, no UMAP and no booster -- not a defeat, but not the
+    clear win a pipeline this expensive should produce.
+    **The measurement is also the wrong shape to settle it.** Both scores come
+    from a held-out split of the *reference panel*, whose samples are curated
+    and prototypical; the cohort is admixed and differently genotyped. On the
+    real 129,831 samples the centroid baseline agrees with the trained model
+    only ~87% of the time, so the two methods behave very differently exactly
+    where it matters, while scoring the same where it does not. Deciding this
+    needs cohort samples with independently known ancestry (self-report, or a
+    second platform on the same people) -- not more panel splits. Until then
+    neither "UMAP earns its cost" nor "drop it" is supported.
+    Evidence: `~/round19-evidence/t3_centroid_arbiter.txt`, and `baseline_scores`
+    in any round-19 report.
+36. **Supervised UMAP is asymmetric.** The Pipeline passes `y` to
+    `UMAP.fit_transform`, so `_supervised=True` and the training embedding is
+    label-informed while `transform` on new samples is not. Measured benign on
+    this data, but uncharacterized.
+37. **Cache the UMAP fits.** One UMAP fit at the real fold shape is ~16.3s
+    against ~0.4s for a classifier fit, so UMAP is ~95% of every pipeline fit.
+    The grid is 36 UMAP configs × 6 λ values, and `GridSearchCV` refits the
+    whole pipeline per candidate, so each embedding is recomputed six times:
+    1,080 UMAP fits where `Pipeline(memory=...)` would need 180. The cache
+    cannot live under the run's temp dir (deleted in a `finally`) or under the
+    output prefix (`guard_output_not_exists` forces a retry to use a different
+    one), so it wants `~/.genotools/cache/ancestry/` beside the existing
+    panel directory, capped with `Memory.reduce_size`.
+38. **Persist `cv_results_`.** It is already a DataFrame in
+    `_train_classifier` and kept on `AncestryModel._cv_results`, but nothing
+    writes it out. With the race removed it is a genuine record of model
+    selection; before the fix it would have exposed a 50%-noisy grid at a
+    glance.
+39. **Disk hygiene is welded to the failure policy.**
+    `_cleanup_intermediate_files` (`cli/runner.py:1584`) returns early on
+    `if self.args.warn_only:`, and `warn_only` defaults **True**
+    (`parser.py:385`, `warn_only=not ns.no_warn`), so at defaults *no*
+    intermediate pfile is ever deleted. The only way to get cleanup is
+    `--no-warn`, which also switches the pipeline from warn-and-continue to
+    fail-fast — a bad trade on a long run, where the whole point of
+    warn-and-continue is not losing hours to one recoverable step. That
+    coupling is what made the round-19 full-GP2 run marginal: ~98 GiB of
+    writes at defaults against ~50 GiB peak with cleanup on.
+    The blanket return also makes the per-step guard below it
+    (`if self.args.warn_only and ... not out_dict[step]["pass"]`) unreachable,
+    so the narrower behaviour it encodes — keep intermediates only for the
+    step that actually failed — is dead code, and reads like the intent the
+    blanket return was meant to have. Disk retention wants its own switch
+    (or that revived per-step guard), independent of `--no-warn`.
+40. **Ancestry preprocessing materializes the whole cohort as a dense 8-byte
+    frame, with a measured 4.5x peak multiplier.** `get_raw_files`
+    (`ancestry/preprocessing.py:267-283`) reads the `--recode A` `.raw` into
+    pandas, drops the six leading columns, and concatenates the FID/IID frame
+    back on. At GP2 r12 scale that matrix is 129,630 x 43,173 = 5.6e9 cells,
+    **41.7 GiB per copy**, and the path holds several at once: measured on the
+    same code with the real column count, peak RSS is **2.69x** the matrix
+    after `read_csv` alone, 3.48x after the `drop` (which copies —
+    `np.shares_memory` is `False`), and **4.48x** after the `concat`. That
+    extrapolates to a **~187 GiB peak**, so the full release cannot be
+    predicted on a 56 GiB machine; round 19's T3 needs high-memory hardware.
+    Evidence and the probe: `~/round19-evidence/dense_frame_{findings.txt,probe.py}`.
+    Two independent fixes, either of which would mostly close it: read the
+    dosages as **int8** (5.2 GiB, an 8x reduction — `--recode A` emits integer
+    dosages, and missing calls only force float64, not width), and build the
+    frame **without the copies** (`usecols` instead of a later `drop`, and
+    index alignment instead of the `concat`). Predicting in row chunks would
+    bound it regardless of dtype. Not a round-19 regression: this path is a
+    faithful port of 1.x, and the released r12 labels came through the same
+    code on larger hardware.
+41. **Retraining reproducibility is ~98.7%, which is not the same thing as
+    run-to-run determinism.** Round 19 made a single configuration
+    bit-identical across repeats, and that claim holds. But *retraining* —
+    same code, same reference panel, a different cohort — moves about 1.3% of
+    labels, and this is a property of the search, not of the race. Measured on
+    the full GP2 r12 release against the released 1.x labels: **1,695 of
+    129,831 samples moved (1.306%)**, against 0.08% for old-vs-new with the
+    training data held fixed. 1.3.6 pays the same ~1.3% against those labels,
+    so the fix is not the cause.
+    Two compounding sources, both measured
+    (`~/round19-evidence/t3_{grid_selection,label_diff,centroid_arbiter}.txt`):
+    the grid's top is a **plateau** — 48 of 216 candidates lie within one
+    fold-std of the winner, five tie at rank 3 to ten decimal places, and the
+    T3 winner beats the 10k's winner by 0.000667 while its own fold-to-fold
+    std is 0.014178, **21x the gap**; and the common-SNP list is
+    **cohort-dependent**, since `--geno 0.1` and the lowest-missingness
+    tie-break in `_select_one_per_position` both read per-variant missingness,
+    which moved one variant between the 10k and full runs (43,172 shared).
+    A one-variant perturbation is more than enough to reshuffle an argmax on a
+    plateau that flat, and the substantive parameters (`n_components=25`,
+    `n_neighbors=5`, `lambda=0.001`) did reproduce — only the UMAP `a`/`b`
+    shape pair moved, which is the direction the plateau is flattest in.
+    Worth deciding deliberately: pin the hyperparameters for production
+    releases rather than re-searching a plateau, and/or make the selection
+    tie-break stable instead of argmax-on-noise. Note also that a model-free
+    nearest-centroid arbiter **cannot say which labeling is better** (31.8%
+    released vs 33.0% T3 on 50 PCs, 35.2% neither), because at cohort scale
+    that baseline agrees with either labeling on only ~87%. Related: item 33
+    on uncalibrated thresholds, item 38 on persisting `cv_results_`.

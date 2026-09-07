@@ -29,7 +29,7 @@ Example:
     {'EUR': 100, 'AFR': 50, ...}
 """
 
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -187,14 +187,40 @@ class TrainingMetrics:
     Captures accuracy, confusion matrix, and hyperparameters from
     the training process for model evaluation and diagnostics.
 
+    Two of the original keys are mislabelled and keep their values anyway,
+    because changing what they hold would silently change every consumer:
+    `train_accuracy` is `GridSearchCV.best_score_`, a cross-validated mean and
+    not a training-set score, and `test_accuracy` comes from
+    `XGBClassifier.score`, which is plain accuracy and not balanced. The
+    honestly named keys sit beside them.
+
     Attributes:
-        train_accuracy: Cross-validated training accuracy.
-        test_accuracy: Accuracy on held-out test set.
+        train_accuracy: Cross-validated score from the grid search. Aliased
+            honestly as `cv_balanced_accuracy`.
+        test_accuracy: Plain accuracy on the held-out test set.
         train_accuracy_ci: 95% confidence interval for train accuracy.
         test_accuracy_ci: 95% confidence interval for test accuracy.
         confusion_matrix: Confusion matrix as numpy array.
-        best_params: Best hyperparameters from grid search.
+        best_params: Best hyperparameters from grid search, plus the learning
+            rate the accepted fit actually used.
         label_encoder_classes: Ordered list of class labels.
+        cv_balanced_accuracy: The grid search's best cross-validated score,
+            under a name that says what it is.
+        test_balanced_accuracy: Balanced accuracy on the held-out test set --
+            the figure comparable to the grid search's scoring metric.
+        train_balanced_accuracy: Balanced accuracy of the accepted fit on the
+            data it was fitted to. A collapsed model scores ~1/n_classes here.
+        baseline_scores: Balanced accuracy of cheap classifiers on the raw
+            reference PCs, sharing none of the pipeline's failure modes. A
+            second opinion, not a gate.
+        fit_validation: `FitValidation.to_dict()` for the accepted fit --
+            numerical health, distinct predictions, the floor it had to clear.
+        fit_attempts: One entry per fit attempted, in order, so a run that
+            fell back to a lower learning rate says so.
+        n_failed_candidates: Grid candidates that raised and were scored NaN.
+            They are ranked last silently, so the search's effective size is
+            smaller than `n_grid_candidates` by this much.
+        n_grid_candidates: Candidates the search evaluated.
     """
 
     train_accuracy: float
@@ -204,6 +230,38 @@ class TrainingMetrics:
     confusion_matrix: np.ndarray  # type: ignore[type-arg]
     best_params: Dict[str, Any]
     label_encoder_classes: List[str] = field(default_factory=list)
+    cv_balanced_accuracy: Optional[float] = None
+    test_balanced_accuracy: Optional[float] = None
+    train_balanced_accuracy: Optional[float] = None
+    baseline_scores: Dict[str, float] = field(default_factory=dict)
+    fit_validation: Optional[Dict[str, Any]] = None
+    fit_attempts: List[Dict[str, Any]] = field(default_factory=list)
+    n_failed_candidates: int = 0
+    n_grid_candidates: int = 0
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Fill in fields a previously pickled model predates.
+
+        A pickle restores only the instance `__dict__`, so a field added later
+        is missing entirely on an old model unless its default happens to sit
+        on the class. That is true of `default=` scalars and *not* of
+        `default_factory` ones, so `baseline_scores` and `fit_attempts` would
+        raise `AttributeError` on any model saved before round 19 -- including
+        from `to_dict()`, which `save()` calls. Start from a default instance
+        and let the pickle overwrite what it carries.
+        """
+        defaults = {
+            field.name: (
+                field.default_factory()  # type: ignore[misc]
+                if field.default_factory is not MISSING
+                else field.default
+            )
+            for field in fields(self)
+        }
+        defaults = {
+            name: value for name, value in defaults.items() if value is not MISSING
+        }
+        self.__dict__.update({**defaults, **state})
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -219,6 +277,14 @@ class TrainingMetrics:
             "confusion_matrix": self.confusion_matrix.tolist(),
             "best_params": self.best_params,
             "label_encoder_classes": self.label_encoder_classes,
+            "cv_balanced_accuracy": self.cv_balanced_accuracy,
+            "test_balanced_accuracy": self.test_balanced_accuracy,
+            "train_balanced_accuracy": self.train_balanced_accuracy,
+            "baseline_scores": dict(self.baseline_scores),
+            "fit_validation": self.fit_validation,
+            "fit_attempts": list(self.fit_attempts),
+            "n_failed_candidates": int(self.n_failed_candidates),
+            "n_grid_candidates": int(self.n_grid_candidates),
         }
 
 

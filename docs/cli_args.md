@@ -428,6 +428,45 @@ final output prefix — they survive a run without `--full-output`):
 | `{out}_pca_diagnostic.png` | With `--ancestry-plots` |
 | `{out}_centroid_distance.png` | With `--ancestry-plots` |
 
+#### Fit validation
+
+Both flags govern how a *newly trained* classifier is judged, so both require
+`--ancestry` and are refused alongside `--model`, which loads a fit that
+already happened. A refused flag is better than a silently ignored one.
+
+They exist because a fit can collapse: a numerically diverged linear model
+saturates the softmax and predicts one label for every sample while reporting
+an accuracy exactly equal to that label's prevalence in the panel. Round 19
+removed the nondeterminism that caused it, but a numerical failure that depends
+on the data is not something settings alone can rule out, so the fit is
+measured and a bad one is refused rather than pickled.
+
+- **`--ancestry-min-fit-accuracy`**
+  - *Type*: `float` in `[0, 1]`
+  - *Default*: unset — derived as `3 / n_labels` (0.30 on the 10-label GP2
+    panel)
+  - *Description*: Balanced accuracy on the training set that a fitted
+    classifier must reach to be kept. Derived from the label count rather than
+    fixed, because the vocabulary comes from `--ref-labels` and a threshold
+    that suits ten labels would wrongly reject a usable model on twenty-five.
+    `0` accepts any accuracy while still recording every measurement in the
+    report; a model that predicts a single label is refused regardless.
+
+- **`--ancestry-fit-fallbacks`**
+  - *Type*: `int` ≥ 0
+  - *Default*: `3`
+  - *Description*: How many lower learning rates to try when the fit the grid
+    search selected fails validation. Each fallback *changes* the learning
+    rate rather than re-rolling the same one, since training is deterministic
+    and an identical retry would give an identical result. A successful
+    fallback logs a warning naming what changed, and the whole attempt table
+    reaches the report. `0` fails immediately. When every attempt collapses
+    the run raises and **no model is written**.
+
+Both also add `{out}_ancestry_grid_search.txt` beside the report: the whole
+`GridSearchCV.cv_results_` table, one row per candidate. Now that training is
+deterministic it is a genuine record of model selection.
+
 ---
 
 ### GWAS and PCA Arguments

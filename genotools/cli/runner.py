@@ -865,6 +865,15 @@ class PipelineRunner:
                 if model.training_metrics
                 else None
             ),
+            # Everything about the fit itself, under an honest name. Present
+            # only on the training path: an inference run loads a model whose
+            # `training_metrics` describe a fit that happened elsewhere.
+            "fit": (
+                model.training_metrics.to_dict()
+                if model.training_metrics is not None
+                and self.args.ancestry.model_path is None
+                else None
+            ),
         }
 
         outfiles_dict: Dict[str, Any] = {
@@ -943,8 +952,10 @@ class PipelineRunner:
         # Capture common SNPs from ref column names
         snp_columns = [c for c in ref_data.columns if c not in ("FID", "IID")]
 
-        # Fit model
-        model = AncestryModel()
+        # Fit model. The fit-validation flags are training-only -- the parser
+        # refuses them alongside --model -- so they are threaded in here and
+        # nowhere on the inference path.
+        model = AncestryModel(config=self._ancestry_config())
         model.fit(ref_data, labels, out_path=Path(actual_out))
 
         # Store common SNPs and save model directory to final output path
@@ -952,6 +963,16 @@ class PipelineRunner:
         model_save_dir = Path(f"{out_path}_ancestry_model")
         model.save(model_save_dir)
         logger.info(f"Ancestry model saved to: {model_save_dir}")
+
+        # The whole grid, at the *final* prefix rather than the temp working
+        # directory, which is deleted unless --full-output. Now that training
+        # is deterministic this is a genuine record of model selection; before
+        # the fix it would have shown a grid scored half by luck.
+        cv_results = getattr(model, "_cv_results", None)
+        if cv_results is not None:
+            grid_path = Path(f"{out_path}_ancestry_grid_search.txt")
+            cv_results.to_csv(grid_path, sep="\t", index=False)
+            logger.info(f"Grid search results written to: {grid_path}")
 
         # Predict
         predictions = model.predict(
@@ -968,6 +989,21 @@ class PipelineRunner:
         ref_pca = pd.read_csv(ref_pca_path, sep="\t")
 
         return model, predictions, ref_pca, raw
+
+    def _ancestry_config(self):
+        """The AncestryConfig this run's flags ask for.
+
+        Only the training-path settings differ from the defaults; everything
+        else is the dataclass default, which is where the real values live.
+        """
+        from ..ancestry.config import AncestryConfig, TrainingConfig
+
+        return AncestryConfig(
+            training=TrainingConfig(
+                min_fit_balanced_accuracy=self.args.ancestry.min_fit_accuracy,
+                fit_fallbacks=self.args.ancestry.fit_fallbacks,
+            )
+        )
 
     def _run_inference_mode(
         self,

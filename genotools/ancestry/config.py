@@ -211,22 +211,46 @@ class ClassifierConfig(ThresholdConfig):
     - a (UMAP): [0.75, 1.0, 1.5]
     - b (UMAP): [0.25, 0.5, 0.75]
 
+    Every field here is passed to ``XGBClassifier``. That is deliberate: a
+    config field that is declared, documented and validated but never wired is
+    worse than no field at all, because it reads as settled. ``learning_rate``
+    was exactly that until round 19, and the value XGBoost used instead sat at
+    the edge of numerical divergence.
+
     Attributes:
-        n_estimators: Number of boosting rounds. Default is 100.
-        max_depth: Maximum tree depth. Not used with gblinear booster.
-            Default is 6 for tree boosters.
-        learning_rate: Step size shrinkage. Default is 0.1.
+        n_estimators: Number of boosting rounds. Default is 200, raised from
+            XGBoost's own 100 because ``learning_rate=0.1`` takes five times
+            smaller steps and 100 rounds no longer reach the same place.
+            Measured on GP2 reference-panel PCs, held-out balanced accuracy
+            was 0.9570 at (0.5, 100), 0.9150 at (0.1, 100) and 0.9560 at
+            (0.1, 200) -- so the rounds pay the accuracy back in full while
+            keeping 3x more margin to divergence than the old default had
+            (|intercept| 0.93 against 3.10). 500 rounds buys nothing more and
+            spends the margin.
+        learning_rate: Step size shrinkage. Default is 0.1. Do not raise this
+            without measuring: gblinear's optimizer diverges as
+            ``learning_rate`` times the feature magnitude grows, and XGBoost's
+            own default of 0.5 is close enough to the boundary that dense
+            reference-panel PCs push a fit over it. Lowering it further needs
+            more rounds to keep the accuracy -- the two move together.
         booster: Boosting algorithm. Default is "gblinear" for linear
             booster matching current implementation.
-        reg_lambda: L2 regularization term. Default is 1.0.
-        random_state: Random seed for reproducibility. Default is 123.
+        n_jobs: Threads for the booster. Default is 1, and raising it makes
+            training nondeterministic: gblinear's default
+            ``updater="shotgun"`` is Hogwild — lock-free parallel coordinate
+            descent — which XGBoost documents as nondeterministic regardless
+            of ``random_state``. Thread races decided whether a fit converged
+            or diverged, and a diverged fit predicts one label for every
+            sample. 1 is also the fastest setting measured on this problem
+            shape; 56 threads on a 3206x25 linear problem is pure contention.
+        random_state: Random seed for reproducibility. Default is 123. Only
+            meaningful with ``n_jobs=1``.
     """
 
-    n_estimators: int = 100
-    max_depth: int = 6
+    n_estimators: int = 200
     learning_rate: float = 0.1
     booster: str = "gblinear"
-    reg_lambda: float = 1.0
+    n_jobs: int = 1
     random_state: int = 123
 
     def __post_init__(self) -> None:
@@ -235,15 +259,15 @@ class ClassifierConfig(ThresholdConfig):
             raise ValueError(
                 f"n_estimators must be >= 1, got {self.n_estimators}"
             )
-        if self.max_depth < 1:
-            raise ValueError(
-                f"max_depth must be >= 1, got {self.max_depth}"
-            )
         self._validate_positive(self.learning_rate, "learning_rate")
         if self.booster not in ("gbtree", "gblinear", "dart"):
             raise ValueError(
                 f"booster must be 'gbtree', 'gblinear', or 'dart', "
                 f"got '{self.booster}'"
+            )
+        if self.n_jobs < 1:
+            raise ValueError(
+                f"n_jobs must be >= 1, got {self.n_jobs}"
             )
 
 
@@ -364,18 +388,40 @@ class TrainingConfig(BaseConfig):
             auto-detect based on available resources. Default is None.
         gb_per_worker: Memory per worker for job calculation.
             Default is 3 GB.
+        min_fit_balanced_accuracy: Training balanced accuracy a fit must reach
+            before it is kept, or None to derive one from the number of
+            labels. 0 refuses nothing while still recording every
+            measurement. Derived rather than fixed because the label
+            vocabulary is user-supplied -- see
+            `fit_validation.fit_accuracy_floor`.
+        fit_fallbacks: How many lower learning rates to try after the
+            search's winner produces a collapsed fit. 0 refuses immediately.
+            Default is 3.
     """
 
     test_size: float = 0.2
     random_state: int = 123
     n_jobs: Optional[int] = None
     gb_per_worker: float = 3.0
+    min_fit_balanced_accuracy: Optional[float] = None
+    fit_fallbacks: int = 3
 
     def __post_init__(self) -> None:
         """Validate training configuration."""
         if self.test_size <= 0 or self.test_size >= 1:
             raise ValueError(
                 f"test_size must be in (0, 1), got {self.test_size}"
+            )
+        if self.min_fit_balanced_accuracy is not None and not (
+            0 <= self.min_fit_balanced_accuracy <= 1
+        ):
+            raise ValueError(
+                f"min_fit_balanced_accuracy must be a fraction in [0, 1], "
+                f"got {self.min_fit_balanced_accuracy}"
+            )
+        if self.fit_fallbacks < 0:
+            raise ValueError(
+                f"fit_fallbacks must be >= 0, got {self.fit_fallbacks}"
             )
 
 

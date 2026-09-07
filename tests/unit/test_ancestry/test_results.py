@@ -135,6 +135,71 @@ class TestAncestryPredictions:
         assert len(df) == 5
 
 
+class TestTrainingMetricsPickleCompatibility:
+    """A model pickled before round 19 must still be readable.
+
+    A pickle restores only the instance `__dict__`, so a field added later is
+    missing on an old model unless its default sits on the class -- true of
+    `default=` scalars, not of `default_factory` ones. Without `__setstate__`,
+    `baseline_scores` and `fit_attempts` raise `AttributeError` on every model
+    saved before this round, `to_dict()` included, which `AncestryModel.save()`
+    calls.
+    """
+
+    NEW_FIELDS = (
+        "cv_balanced_accuracy",
+        "test_balanced_accuracy",
+        "train_balanced_accuracy",
+        "baseline_scores",
+        "fit_validation",
+        "fit_attempts",
+        "n_failed_candidates",
+        "n_grid_candidates",
+    )
+
+    def _old_pickle(self) -> bytes:
+        """A pickle carrying only the fields that existed before round 19."""
+        import pickle
+
+        metrics = TrainingMetrics(
+            train_accuracy=0.94,
+            test_accuracy=0.98,
+            train_accuracy_ci=(0.93, 0.95),
+            test_accuracy_ci=(0.97, 0.99),
+            confusion_matrix=np.eye(2),
+            best_params={"umap__a": 0.75},
+            label_encoder_classes=["EUR", "AFR"],
+        )
+        for name in self.NEW_FIELDS:
+            metrics.__dict__.pop(name, None)
+        return pickle.dumps(metrics)
+
+    def test_every_new_field_comes_back_at_its_default(self) -> None:
+        import pickle
+
+        restored = pickle.loads(self._old_pickle())
+        assert restored.baseline_scores == {}
+        assert restored.fit_attempts == []
+        assert restored.cv_balanced_accuracy is None
+        assert restored.n_grid_candidates == 0
+
+    def test_the_old_fields_are_untouched(self) -> None:
+        import pickle
+
+        restored = pickle.loads(self._old_pickle())
+        assert restored.train_accuracy == 0.94
+        assert restored.best_params == {"umap__a": 0.75}
+        assert restored.label_encoder_classes == ["EUR", "AFR"]
+
+    def test_to_dict_does_not_raise(self) -> None:
+        """`AncestryModel.save()` calls this, so a re-save must not crash."""
+        import pickle
+
+        payload = pickle.loads(self._old_pickle()).to_dict()
+        assert payload["test_accuracy"] == 0.98
+        assert payload["baseline_scores"] == {}
+
+
 class TestTrainingMetrics:
     """Tests for TrainingMetrics class."""
 

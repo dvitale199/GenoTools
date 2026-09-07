@@ -132,7 +132,8 @@ that `--het sd` is the spelling now. See
 
 ### New flags
 
-`--het-ancestry`, `--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`.
+`--het-ancestry`, `--quiet`, `--debug`, `--no-warn`, `--no-prune-duplicated`,
+`--ancestry-min-fit-accuracy`, `--ancestry-fit-fallbacks`.
 `--het` accepts a new `sd [N]` form.
 
 Ancestry prediction adds `--no-admixture-detection`,
@@ -144,6 +145,69 @@ and `docs/cli_args.md`.
 ---
 
 ## Behavior changes
+
+### Ancestry training is now deterministic, and picks different hyperparameters
+
+`ClassifierConfig.learning_rate` was declared, documented and validated but
+never passed to `XGBClassifier`, in 1.x and in 2.0 alike. XGBoost therefore
+used its own gblinear default of 0.5, which sits at the edge of numerical
+divergence — and gblinear's default `updater="shotgun"` is Hogwild, so with the
+thread count unset a race decided per run which side of that edge a fit landed
+on. A diverged fit reaches `|intercept| ~1e15`, saturates the softmax, and
+predicts one label for every sample while reporting an accuracy exactly equal
+to that label's prevalence in the reference panel. It was pickled and used
+anyway.
+
+Measured over 20 identical repeats: on dense long-read WGS panel PCs, 6/20 and
+19/20 collapses on two draws of the *same* configuration. On GP2 array PCs,
+0/20 — array cohorts sit inside the stable region, which is why this went
+unnoticed. Having *more* overlapping variants than usual is what caused the
+failure.
+
+What changes for you:
+
+- **Retraining is now reproducible.** With `n_jobs=1` and `learning_rate=0.1`
+  wired through, repeated fits are bit-identical.
+- **The search will select different hyperparameters.** Where fits collapsed
+  at random, each grid point was scored partly by luck, so `best_params_` was
+  whichever candidate drew the luckiest folds. With the race gone, model
+  selection is meaningful — and its outcome may differ from what a 1.x run
+  chose. Expect equal or better quality, not identical labels.
+- **`n_estimators` rose from 100 to 200.** `learning_rate=0.1` takes five times
+  smaller steps, and 100 rounds no longer reach the same place: measured on GP2
+  panel PCs, held-out balanced accuracy was 0.9570 at (0.5, 100), 0.9150 at
+  (0.1, 100), and 0.9560 at (0.1, 200).
+- **A collapsed fit now fails the run instead of being saved.** Tune with
+  `--ancestry-min-fit-accuracy` and `--ancestry-fit-fallbacks`; see
+  [docs/cli_args.md](docs/cli_args.md).
+- **The report gained an `ancestry_fit` block** carrying the selected
+  hyperparameters, balanced accuracies, the fitted model's numerical health,
+  cheap k-NN and nearest-centroid baselines, and the attempt table.
+
+**Audit models you already have.** The defect is present in every 1.x and
+pre-2.0.2 model, so a saved model may be collapsed:
+
+```bash
+python tests/scripts/check_model_health.py <model dir or 1.x .pkl>
+```
+
+It reports `|coef|`, `|intercept|` and the distinct-class count, and exits
+non-zero if any model checked has diverged. A healthy GP2 model measures
+`|coef| 1.03 / |intercept| 4.24`; a collapsed one measured `5.32 / 2.0e15`.
+
+It also says which side of the fix a model was trained on: every pre-2.0.2
+model pickled `learning_rate=None`, because the field was never passed. A
+converged pre-fix model is still evidence about luck rather than about the
+process, so retrain when you next can.
+
+### `ClassifierConfig` lost two fields
+
+`max_depth` and `reg_lambda` were never passed to `XGBClassifier` and are gone.
+`max_depth` does nothing under the gblinear booster by its own docstring, and
+the grid's `xgb__lambda` travels through `**kwargs` and never touched
+`reg_lambda`, so reading it invited tuning a value that changed nothing. Only
+code constructing `ClassifierConfig` directly is affected; no CLI flag exposed
+either.
 
 ### Relatedness pruning is unchanged
 

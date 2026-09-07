@@ -41,7 +41,30 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
  
 - **`test_accuracy`**  
   - *Process*: `Ancestry`  
-  - *Description*: Reference panel test set accuracy.
+  - *Description*: Reference panel test set accuracy. Plain accuracy, not
+    balanced, despite what the training log used to call it — the honestly
+    named figures are under `ancestry_fit`.
+
+- **`ancestry_fit`**  
+  - *Process*: `Ancestry` (training runs only — a `--model` run's fit happened
+    elsewhere)  
+  - *Description*: What training measured about the classifier it produced.
+    A model can come out of training numerically diverged, in which case it
+    predicts one label for every sample while reporting an accuracy exactly
+    equal to that label's prevalence in the panel; this block is what makes
+    that legible rather than merely looking like a weak model. Keys:
+
+    | Key | Contents |
+    |---|---|
+    | `cv_balanced_accuracy` | The grid search's best cross-validated score. The same number as `train_accuracy`, under a name that says what it is |
+    | `test_balanced_accuracy` | Balanced accuracy on the held-out reference split — the figure comparable to the search's own scoring metric |
+    | `train_balanced_accuracy` | Balanced accuracy of the accepted fit on the data it was fitted to. A collapsed model scores about `1 / n_labels` here |
+    | `best_params` | Hyperparameters the search selected, plus the learning rate the accepted fit actually used |
+    | `baseline_scores` | Balanced accuracy of k-NN and nearest-centroid on the raw reference PCs. A second opinion sharing none of the pipeline's failure modes; it can legitimately match or beat a healthy model |
+    | `fit_validation` | Numerical health of the fitted booster: `max_abs_coefficient`, `max_abs_intercept`, `n_classes_predicted`, `diverged`, `collapsed`, the accuracy floor and whether it was derived or overridden, and any well-supported label the model never predicts |
+    | `fit_attempts` | One entry per fit attempted, in order, so a run that fell back to a lower learning rate says so |
+    | `n_failed_candidates` | Grid candidates that raised and were scored `NaN`. They rank last silently, so the search chose among fewer than it evaluated |
+    | `n_grid_candidates` | Candidates the search evaluated |
  
 - **`ref_pcs`**  
   - *Process*: `Ancestry`  

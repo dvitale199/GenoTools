@@ -604,3 +604,80 @@ class TestRunInfo:
 
     def test_absent_when_empty(self) -> None:
         assert "run_info" not in PipelineOutput().to_dict()
+
+
+class TestAncestryFitBlock:
+    """What training measured about the classifier reaches the report.
+
+    On the collapsed PPMI run the report said `test_accuracy` 0.1496 and
+    nothing else, which reads as a weak model rather than a broken one. This
+    block is what makes the difference legible: |intercept| 3e15, one class
+    predicted, and a k-NN baseline at 0.956 beside it.
+    """
+
+    FIT = {
+        "cv_balanced_accuracy": np.float32(0.9362),
+        "test_balanced_accuracy": 0.985,
+        "train_balanced_accuracy": 0.99,
+        "best_params": {"umap__a": np.float64(0.75), "xgb__lambda": 0.001},
+        "baseline_scores": {"15-NN": 0.956},
+        "fit_validation": {
+            "max_abs_intercept": 4.236,
+            "n_classes_predicted": 10,
+            "collapsed": False,
+        },
+        "fit_attempts": [{"learning_rate": 0.1, "accepted": True}],
+        "n_failed_candidates": 0,
+        "n_grid_candidates": 216,
+        "confusion_matrix": [[1, 0], [0, 1]],
+    }
+
+    def _from_result(self, metrics: Dict[str, Any]) -> PipelineOutput:
+        output = PipelineOutput()
+        output._process_ancestry_result({"metrics": metrics})
+        return output
+
+    def test_the_block_reaches_the_report(self) -> None:
+        result = self._from_result({"fit": dict(self.FIT)}).to_dict()
+        assert result["ancestry_fit"]["test_balanced_accuracy"] == 0.985
+        assert result["ancestry_fit"]["n_grid_candidates"] == 216
+
+    def test_absent_when_no_fit_happened(self) -> None:
+        """A --model run's fit happened somewhere else."""
+        assert "ancestry_fit" not in self._from_result({"fit": None}).to_dict()
+        assert "ancestry_fit" not in PipelineOutput().to_dict()
+
+    def test_numpy_scalars_survive_json(self) -> None:
+        """The report is dumped with a plain json.dump and no encoder."""
+        output = self._from_result({"fit": dict(self.FIT)})
+        payload = json.loads(json.dumps(output.to_dict()))
+        assert payload["ancestry_fit"]["cv_balanced_accuracy"] == pytest.approx(
+            0.9362, abs=1e-6
+        )
+        assert payload["ancestry_fit"]["best_params"]["umap__a"] == 0.75
+
+    def test_non_finite_numbers_become_null(self) -> None:
+        """JSON has no inf; a diverged fit must still serialize."""
+        fit = dict(self.FIT)
+        fit["fit_validation"] = {"max_abs_intercept": float("inf")}
+        result = self._from_result({"fit": fit}).to_dict()
+        assert result["ancestry_fit"]["fit_validation"]["max_abs_intercept"] is None
+
+    def test_the_confusion_matrix_is_not_repeated(self) -> None:
+        """It is already a top-level key and is the largest thing in the block."""
+        result = self._from_result({"fit": dict(self.FIT)}).to_dict()
+        assert "confusion_matrix" not in result["ancestry_fit"]
+
+    def test_a_collapsed_fit_is_legible_in_the_report(self) -> None:
+        """The PPMI signature, as it would now appear."""
+        fit = dict(self.FIT)
+        fit["test_balanced_accuracy"] = 0.1
+        fit["baseline_scores"] = {"15-NN": 0.956}
+        fit["fit_validation"] = {
+            "max_abs_intercept": 3.0e15,
+            "n_classes_predicted": 1,
+            "collapsed": True,
+        }
+        block = self._from_result({"fit": fit}).to_dict()["ancestry_fit"]
+        assert block["fit_validation"]["collapsed"] is True
+        assert block["baseline_scores"]["15-NN"] > block["test_balanced_accuracy"]
