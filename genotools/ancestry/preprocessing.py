@@ -1,17 +1,38 @@
 """Ancestry PLINK preprocessing (legacy-free port of the Ancestry helpers).
 
 Ports of legacy Ancestry.get_raw_files / clean_up and utils.get_common_snps,
-using core.executors. `get_raw_files` output is identical to the legacy version
-(proven by differential tests). `get_common_snps` deliberately diverges: it
-excludes palindromic sites and breaks position ties by missingness, both of
-which the legacy version got wrong. See the helpers below.
+using core.executors. `get_raw_files` deliberately diverges from the legacy
+version in one place -- how it fills SNPs the cohort does not carry, see
+`MISSING_FILL_STRATEGIES` -- and is otherwise identical to it (proven by
+differential tests). `get_common_snps` diverges too: it excludes palindromic
+sites and breaks position ties by missingness, both of which the legacy version
+got wrong. See the helpers below.
+
+This is also where the ancestry run's diagnostics start: the two questions this
+module can answer that no later stage can -- how much of the model's SNP list
+the cohort actually carried, and whether the matched sites agree on allele
+frequency -- are recorded into an `AncestryDiagnostics` here and carried
+through to the report.
 """
 
 import os
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+from genotools.ancestry.config import LEGACY_FILL_VALUE, MISSING_FILL_STRATEGIES
+from genotools.ancestry.diagnostics import (
+    AncestryDiagnostics,
+    DEFAULT_MAX_FILL_FRACTION,
+    SnpOverlapReport,
+    allele_frequency_concordance,
+    allele_frequency_warnings,
+    bim_compatibility,
+    is_low_overlap,
+    snp_overlap_warnings,
+)
+from genotools.core.exceptions import AncestryError
 from genotools.core.executors import run_command, get_plink, get_plink2
 from genotools.core.logging import get_logger
 
@@ -96,6 +117,42 @@ def _select_one_per_position(common_snps: pd.DataFrame, geno_path1: str) -> pd.D
     )
 
 
+def _check_overlap(
+    common_snps: pd.DataFrame,
+    bim1: pd.DataFrame,
+    bim2: pd.DataFrame,
+    geno_path1: str,
+    geno_path2: str,
+) -> None:
+    """Fail loudly when two files barely match, and say why they might not.
+
+    A near-empty match is almost never two cohorts genuinely differing. It is
+    `chr1` against `1`, hg19 against hg38, or a path pointing at the wrong
+    file -- and none of those are visible downstream, where the symptom is
+    instead a feature matrix made mostly of fill and a cohort that predicts one
+    label. `bim_compatibility` names the mismatch; this decides whether to warn
+    or to stop.
+
+    Zero overlap raises: `plink2 --extract` on an empty list fails anyway, with
+    a message about a file rather than about the genome.
+    """
+    n_common = len(common_snps)
+    n_variants = (len(bim1), len(bim2))
+    if not is_low_overlap(n_common, n_variants):
+        return
+
+    compat = bim_compatibility(bim1, bim2)
+    if n_common == 0:
+        raise AncestryError(
+            f"No common variants between {geno_path1} and {geno_path2}.\n"
+            f"{compat.format_report()}"
+        )
+    logger.warning(
+        f"Only {n_common} variant(s) are common to {geno_path1} and "
+        f"{geno_path2}:\n{compat.format_report()}"
+    )
+
+
 def get_common_snps(geno_path1: str, geno_path2: str, out_name: str) -> dict:
     """Extract SNPs common to two bfiles from geno_path1. Returns output paths."""
     logger.info("Getting Common SNPs")
@@ -139,6 +196,7 @@ def get_common_snps(geno_path1: str, geno_path2: str, out_name: str) -> dict:
 
     common_snps = pd.concat([common_snps, common_snps1, common_snps2], axis=0)
     common_snps = _select_one_per_position(common_snps, geno_path1)
+    _check_overlap(common_snps, bim1, bim2, geno_path1, geno_path2)
 
     common_snps_file = f"{out_name}.common_snps"
     common_snps["rsid_y"].to_csv(f"{common_snps_file}", sep="\t", header=False, index=False)
@@ -168,15 +226,57 @@ def get_raw_files(
     out_path: str,
     train: bool,
     common_snps_file: str | None = None,
+    fill_strategy: str = "ref-mean",
+    max_missing_fraction: float = DEFAULT_MAX_FILL_FRACTION,
+    diagnostics: Optional[AncestryDiagnostics] = None,
+    diagnostics_prefix: Optional[str] = None,
 ) -> dict:
     """Process reference + genotype data into labeled raw feature matrices.
 
-    Faithful port of legacy Ancestry.get_raw_files (train + model-inference
-    branches; containerized branch intentionally omitted). In inference mode,
-    pass the model's common-SNP list path via `common_snps_file`.
+    Port of legacy Ancestry.get_raw_files (train + model-inference branches;
+    containerized branch intentionally omitted). In inference mode, pass the
+    model's common-SNP list path via `common_snps_file`.
+
+    Args:
+        geno_path: Cohort pfile prefix.
+        ref_panel: Reference panel bfile prefix.
+        ref_labels: TSV of `FID IID label` for the reference panel.
+        out_path: Output prefix for intermediate files.
+        train: Whether to derive the common-SNP list (True) or take it from a
+            saved model (False).
+        common_snps_file: The model's common-SNP list. Required when
+            `train` is False.
+        fill_strategy: How to fill a model SNP the cohort does not carry. One
+            of `MISSING_FILL_STRATEGIES`.
+        max_missing_fraction: Refuse to build the matrix when more than this
+            share of the model's SNPs had to be filled. A label predicted from
+            mostly-filled features describes the fill.
+        diagnostics: Collector to record the SNP overlap and allele-frequency
+            findings into. One is created if not supplied, and returned either
+            way.
+        diagnostics_prefix: Prefix for diagnostic artifacts the user keeps.
+            Defaults to `out_path`, which for a partial-output run is a
+            temporary directory -- the runner passes the final output prefix so
+            the evidence outlives the run that produced it.
+
+    Returns:
+        Dict with `raw_ref`, `raw_geno`, `out_paths` and `diagnostics`.
+
+    Raises:
+        AncestryError: If `fill_strategy` is unknown, or if the cohort matched
+            too little of the model's SNP list to predict from.
+        FileNotFoundError: If an expected PLINK output is missing.
     """
+    if fill_strategy not in MISSING_FILL_STRATEGIES:
+        raise AncestryError(
+            f"Unknown fill strategy {fill_strategy!r}; expected one of "
+            f"{', '.join(MISSING_FILL_STRATEGIES)}"
+        )
+
     plink2 = get_plink2()
     out_paths = {}
+    diagnostics = diagnostics if diagnostics is not None else AncestryDiagnostics()
+    diagnostics_prefix = diagnostics_prefix or out_path
 
     # variant prune geno before getting common snps
     geno_prune_path = f"{out_path}_variant_pruned"
@@ -269,14 +369,73 @@ def get_raw_files(
     geno_snps = raw_geno.drop(columns=["FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"])
     geno_snps.columns = geno_snps.columns.str.extract("(.*)_")[0]
 
-    # adding missing snps when not training
-    missing_cols = []
+    # Do the panel and the cohort agree about the sites they matched? Asked
+    # before any fill, so the answer is about real genotypes only. Both
+    # matrices count the same allele by this point, so disagreement here is a
+    # matching or orientation fault, not population difference.
+    concordance = allele_frequency_concordance(ref_snps, geno_snps)
+    diagnostics.allele_frequency = concordance
+    correlation = concordance["correlation"]
+    logger.info(
+        f"Panel/cohort allele-frequency concordance over "
+        f"{concordance['n_snps']} matched SNP(s): "
+        f"r={'n/a' if correlation is None else f'{correlation:.4f}'}, "
+        f"{concordance['n_discordant']} discordant, "
+        f"{concordance['n_flip_signature']} with a swap signature"
+    )
+    diagnostics.add_warnings(allele_frequency_warnings(concordance))
+
+    # Adding missing snps when not training. The model's feature matrix has a
+    # fixed width and order, so a SNP the cohort does not carry has to be
+    # invented -- and how much of the matrix was invented is the number that
+    # separates "the model is wrong about this cohort" from "the model was
+    # never shown this cohort". Recorded, warned about, and above a threshold
+    # refused, because none of it is visible in a predicted label.
     if not train:
-        for col in ref_snps.columns:
-            if col not in geno_snps.columns:
-                missing_cols += [pd.Series(np.repeat(2, geno_snps.shape[0]), name=col)]
-        if len(missing_cols) > 0:
-            missing_cols = pd.concat(missing_cols, axis=1)
+        absent = [col for col in ref_snps.columns if col not in set(geno_snps.columns)]
+        overlap = SnpOverlapReport(
+            n_model_snps=len(ref_snps.columns),
+            n_matched=len(ref_snps.columns) - len(absent),
+            fill_strategy=fill_strategy,
+            filled_snps=tuple(absent),
+        )
+        diagnostics.snp_overlap = overlap
+        logger.info(f"Model SNP overlap: {overlap.format_summary()}")
+
+        if absent:
+            filled_path = f"{diagnostics_prefix}_filled_snps.txt"
+            with open(filled_path, "w") as handle:
+                for snp in absent:
+                    handle.write(f"{snp}\n")
+            diagnostics.filled_snps_path = filled_path
+            logger.info(f"Filled SNP IDs written to: {filled_path}")
+
+        diagnostics.add_warnings(snp_overlap_warnings(overlap))
+        if overlap.fraction_filled > max_missing_fraction:
+            raise AncestryError(
+                f"The cohort carries only {overlap.n_matched} of the model's "
+                f"{overlap.n_model_snps} SNPs, so "
+                f"{100 * overlap.fraction_filled:.2f}% of the feature matrix "
+                f"would be fill -- above the "
+                f"{100 * max_missing_fraction:.0f}% limit. A label predicted "
+                f"from that describes the fill, not the sample. Check that the "
+                f"cohort and the reference panel share a genome build and "
+                f"chromosome naming; the matched and filled SNPs are listed "
+                f"beside this run. Raise --ancestry-max-missing-snps to "
+                f"predict anyway."
+            )
+
+        if absent:
+            # ``constant`` reproduces 1.x exactly, int dosages included;
+            # ``ref-mean`` writes NaN for PCAReducer's reference-fitted imputer
+            # to fill. See MISSING_FILL_STRATEGIES.
+            if fill_strategy == "constant":
+                fill = np.repeat(LEGACY_FILL_VALUE, geno_snps.shape[0])
+            else:
+                fill = np.full(geno_snps.shape[0], np.nan)
+            missing_cols = pd.DataFrame(
+                {col: fill for col in absent}, index=geno_snps.index
+            )
             geno_snps = pd.concat([geno_snps, missing_cols], axis=1)
         geno_snps = geno_snps[ref_snps.columns]
 
@@ -293,4 +452,5 @@ def get_raw_files(
         "raw_ref": labeled_ref_raw,
         "raw_geno": raw_geno,
         "out_paths": out_paths,
+        "diagnostics": diagnostics,
     }

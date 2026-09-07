@@ -94,6 +94,10 @@ class PipelineOutput:
         input_samples: DataFrame of input samples.
         ancestry_counts: Ancestry prediction counts.
         ancestry_labels: Per-sample ancestry labels.
+        ancestry_diagnostics: What the prediction path measured about itself -
+            SNP overlap with the model, allele-frequency concordance, where the
+            cohort landed in reference PC space, and what the CAH override did.
+            See ancestry/diagnostics.py.
         confusion_matrix: Ancestry model confusion matrix.
         test_accuracy: Ancestry model test accuracy.
         ref_pcs: Reference PCA coordinates.
@@ -113,6 +117,7 @@ class PipelineOutput:
     input_samples: Optional[pd.DataFrame] = None
     ancestry_counts: Optional[pd.DataFrame] = None
     ancestry_labels: Optional[pd.DataFrame] = None
+    ancestry_diagnostics: Optional[Dict[str, Any]] = None
     confusion_matrix: Optional[pd.DataFrame] = None
     test_accuracy: Optional[float] = None
     common_snps: Optional[List[str]] = None
@@ -216,8 +221,11 @@ class PipelineOutput:
             if "predict_data" in data and "ids" in data["predict_data"]:
                 self.ancestry_labels = pd.DataFrame(data["predict_data"]["ids"])
 
-            # Confusion matrix
-            if "confusion_matrix" in data and "label_encoder" in data:
+            # Confusion matrix. Checked for a value rather than a key: the
+            # runner sets both to None when a loaded model carries no training
+            # metrics, and a None encoder here would crash report assembly
+            # after the run had already done all its work.
+            if data.get("confusion_matrix") is not None and data.get("label_encoder") is not None:
                 le = data["label_encoder"]
                 cm = pd.DataFrame(data["confusion_matrix"])
                 labels = le.inverse_transform([i for i in range(len(cm))])
@@ -244,6 +252,14 @@ class PipelineOutput:
         # Common SNPs
         if "data" in ancestry_result and "common_snps" in ancestry_result["data"]:
             self.common_snps = ancestry_result["data"]["common_snps"]
+
+        # Diagnostics. Accepts either the collector or its dict form, so a
+        # caller assembling this dict by hand does not have to know which.
+        diagnostics = ancestry_result.get("diagnostics")
+        if diagnostics is not None:
+            self.ancestry_diagnostics = (
+                diagnostics.to_dict() if hasattr(diagnostics, "to_dict") else diagnostics
+            )
 
     def _process_qc_results(
         self,
@@ -457,6 +473,8 @@ class PipelineOutput:
             result["test_accuracy"] = self.test_accuracy
         if self.common_snps is not None:
             result["common_snps"] = self.common_snps
+        if self.ancestry_diagnostics:
+            result["ancestry_diagnostics"] = self.ancestry_diagnostics
 
         # PCA/UMAP data
         if self.ref_pcs is not None:

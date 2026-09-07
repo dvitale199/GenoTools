@@ -55,6 +55,7 @@ from ..core.validation import (
 from ..qc.results import STEP_REPORT, unrun_result
 
 if TYPE_CHECKING:  # QC config is imported lazily in _initialize_modules
+    from ..ancestry.diagnostics import AncestryDiagnostics
     from ..qc.config import HetConfig
 
 logger = get_logger(__name__)
@@ -332,7 +333,7 @@ class PipelineRunner:
         )
 
         # Import Ancestry module
-        from ..ancestry import AncestryModel, AncestryConfig
+        from ..ancestry import AncestryModel, AncestryConfig, AncestryDiagnostics
 
         # Store module references
         self._new_modules = {
@@ -349,6 +350,7 @@ class PipelineRunner:
             "run_gwas_association": run_gwas_association,
             "GenotypeData": GenotypeData,
             "AncestryModel": AncestryModel,
+            "AncestryDiagnostics": AncestryDiagnostics,
         }
 
         # Store config classes
@@ -759,22 +761,49 @@ class PipelineRunner:
         model_path = self.args.ancestry.model_path
         is_inference = model_path is not None
 
+        # One collector for the whole run: preprocessing fills in the SNP
+        # overlap and the allele frequencies, prediction fills in the PC drift
+        # and the admixture decision, and the report gets all of it. Its
+        # artifacts are written to `out_path` rather than `actual_out`, so the
+        # evidence survives a run that discards its temp directory.
+        diagnostics = self._new_modules["AncestryDiagnostics"]()
+
         if is_inference:
             model, predictions, ref_pca, raw = self._run_inference_mode(
-                AncestryModel, model_path, actual_out
+                AncestryModel, model_path, actual_out, diagnostics, out_path
             )
         else:
             model, predictions, ref_pca, raw = self._run_training_mode(
-                AncestryModel, actual_out, out_path
+                AncestryModel, actual_out, out_path, diagnostics
             )
 
         # --- Common post-processing (both modes) ---
 
-        # UMAP visualization
-        from ..ancestry.reducers.umap_reducer import run_umap
+        # Positive control. High training accuracy says the model learned the
+        # panel; this says the *prediction path* can still recover it. When it
+        # passes and a cohort still comes back one label, the cohort's own
+        # preprocessing is the only thing left.
+        if self.args.ancestry.self_test:
+            diagnostics.self_test = model.self_test(
+                raw["raw_ref"],
+                detect_admixed=self.args.ancestry.detect_admixed,
+            )
 
         projected_pca_path = f"{actual_out}_projected_new_pca.txt"
         projected_pca = pd.read_csv(projected_pca_path, sep="\t")
+
+        if self.args.ancestry.write_plots:
+            from ..ancestry.plots import plot_ancestry_diagnostics
+
+            diagnostics.plots = plot_ancestry_diagnostics(
+                train_pca=model._train_pca,
+                projected=projected_pca,
+                out_prefix=out_path,
+                decisions=predictions.decisions,
+            )
+
+        # UMAP visualization
+        from ..ancestry.reducers.umap_reducer import run_umap
 
         umap_result: Optional[Dict[str, Any]] = None
         if ref_pca is not None:
@@ -848,6 +877,7 @@ class PipelineRunner:
             "data": data_dict,
             "metrics": metrics_dict,
             "output": outfiles_dict,
+            "diagnostics": diagnostics.to_dict(),
         }
 
         # Cleanup intermediate files
@@ -870,6 +900,7 @@ class PipelineRunner:
         AncestryModel: type,
         actual_out: str,
         out_path: str,
+        diagnostics: "AncestryDiagnostics",
     ) -> tuple:
         """Train a new AncestryModel from reference panel.
 
@@ -877,6 +908,7 @@ class PipelineRunner:
             AncestryModel: The AncestryModel class.
             actual_out: Output path prefix (may be temp dir).
             out_path: Final output path (for saving model).
+            diagnostics: Run-wide diagnostics collector.
 
         Returns:
             Tuple of (model, predictions, ref_pca, raw).
@@ -890,6 +922,10 @@ class PipelineRunner:
             ref_labels=str(self.args.ancestry.ref_labels),
             out_path=actual_out,
             train=True,
+            fill_strategy=self.args.ancestry.missing_fill,
+            max_missing_fraction=self.args.ancestry.max_missing_snps,
+            diagnostics=diagnostics,
+            diagnostics_prefix=out_path,
         )
         raw_ref = raw["raw_ref"]
         raw_geno = raw["raw_geno"]
@@ -922,7 +958,9 @@ class PipelineRunner:
             geno_data,
             geno_ids,
             out_path=Path(actual_out),
-            detect_admixed=True,
+            detect_admixed=self.args.ancestry.detect_admixed,
+            diagnostics=diagnostics,
+            diagnostics_prefix=out_path,
         )
 
         # Load ref PCA written by fit()
@@ -936,6 +974,8 @@ class PipelineRunner:
         AncestryModel: type,
         model_path: Path,
         actual_out: str,
+        diagnostics: "AncestryDiagnostics",
+        out_path: str,
     ) -> tuple:
         """Load a pre-trained AncestryModel and predict.
 
@@ -944,6 +984,8 @@ class PipelineRunner:
             model_path: Path to a model directory, or a single .pkl written
                 by GenoTools 2.0.
             actual_out: Output path prefix.
+            diagnostics: Run-wide diagnostics collector.
+            out_path: Final output prefix, for artifacts the user keeps.
 
         Returns:
             Tuple of (model, predictions, ref_pca, raw).
@@ -976,6 +1018,10 @@ class PipelineRunner:
             out_path=actual_out,
             train=False,
             common_snps_file=common_snps_file,
+            fill_strategy=self.args.ancestry.missing_fill,
+            max_missing_fraction=self.args.ancestry.max_missing_snps,
+            diagnostics=diagnostics,
+            diagnostics_prefix=out_path,
         )
         raw_geno = raw["raw_geno"]
         geno_data = raw_geno.drop(columns=["label"])
@@ -986,7 +1032,9 @@ class PipelineRunner:
             geno_data,
             geno_ids,
             out_path=Path(actual_out),
-            detect_admixed=True,
+            detect_admixed=self.args.ancestry.detect_admixed,
+            diagnostics=diagnostics,
+            diagnostics_prefix=out_path,
         )
 
         # Use training PCA as ref PCA for UMAP visualization

@@ -61,6 +61,8 @@ from genotools.ancestry.config import (
     InferenceMode,
     PCAConfig,
 )
+from genotools.ancestry import diagnostics as diagnostics_mod
+from genotools.ancestry.diagnostics import AncestryDiagnostics
 from genotools.ancestry.reducers.pca import PCAReducer
 from genotools.ancestry.reducers.umap_reducer import UMAPReducer
 from genotools.ancestry.results import (
@@ -388,18 +390,29 @@ class AncestryModel:
         self,
         projected: pd.DataFrame,
         train_pca: pd.DataFrame,
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Identify samples with complex admixture history.
 
         Samples closest to the global centroid rather than any specific
         ancestry centroid are classified as CAH (Complex Admixture History).
+
+        This is the last thing to touch a label and it *discards* what the
+        classifier said, so the second return value keeps the working: both
+        labels, every centroid distance, and the margin the decision turned on.
+        Without it an all-CAH run is indistinguishable from a broken
+        classifier, which is the case that prompted this.
 
         Args:
             projected: DataFrame with projected samples (PCs + predicted label).
             train_pca: DataFrame with training PCA data and labels.
 
         Returns:
-            Updated projected DataFrame with CAH labels.
+            Tuple of `(labeled, decisions)`. `labeled` is the projected frame
+            with CAH labels applied -- unchanged from before this round.
+            `decisions` is one row per sample: `FID`, `IID`,
+            `label_pre_admixture`, `label`, `nearest_centroid`,
+            `dist_to_all`, `nearest_ancestry`, `dist_to_nearest_ancestry`,
+            `margin_to_all`, and a `dist_<centroid>` column per centroid.
         """
         # Copy training data for admixture calculation
         train_pca_admix = train_pca.copy()
@@ -468,7 +481,28 @@ class AncestryModel:
             projected_ids["label"],
         )
 
-        return result
+        # The same decision, with its inputs kept. `margin_to_all` restates the
+        # CAH rule as a single signed number: negative means the global
+        # centroid won, so negative is CAH. A cohort clustered just left of
+        # zero is a threshold question; one far to the left is a projection
+        # question.
+        ancestry_cols = [c for c in distance_cols if c != "ALL"]
+        decisions = projected_ids[["FID", "IID"]].reset_index(drop=True).copy()
+        decisions["label_pre_admixture"] = projected_ids["label"].values
+        decisions["label"] = result["label"].values
+        decisions["nearest_centroid"] = projected_pcs["min_distance_ancestry"].values
+        decisions["dist_to_all"] = projected_pcs["ALL"].values
+        if ancestry_cols:
+            ancestry_dist = projected_pcs[ancestry_cols]
+            decisions["nearest_ancestry"] = ancestry_dist.idxmin(axis=1).values
+            decisions["dist_to_nearest_ancestry"] = ancestry_dist.min(axis=1).values
+            decisions["margin_to_all"] = (
+                decisions["dist_to_all"] - decisions["dist_to_nearest_ancestry"]
+            )
+        for centroid in distance_cols:
+            decisions[f"dist_{centroid}"] = projected_pcs[centroid].values
+
+        return result, decisions
 
     def fit(
         self,
@@ -542,6 +576,9 @@ class AncestryModel:
         geno_ids: pd.DataFrame,
         out_path: Optional[Path] = None,
         detect_admixed: bool = True,
+        diagnostics: Optional[AncestryDiagnostics] = None,
+        diagnostics_prefix: Optional[str] = None,
+        collect_diagnostics: bool = True,
     ) -> AncestryPredictions:
         """Predict ancestry for new samples.
 
@@ -550,9 +587,19 @@ class AncestryModel:
             geno_ids: DataFrame with FID, IID columns.
             out_path: Optional path for saving outputs.
             detect_admixed: Whether to detect admixed samples. Default True.
+            diagnostics: Collector to record PC drift and the admixture
+                decision into. Created if not supplied.
+            diagnostics_prefix: Prefix for the per-sample decision file.
+                Defaults to `out_path`; the runner passes the final output
+                prefix so the file survives a partial-output run.
+            collect_diagnostics: Whether to measure and report at all. False
+                for the reference-panel self-test, which calls this method
+                about data whose drift against itself means nothing.
 
         Returns:
-            AncestryPredictions with predicted ancestries.
+            AncestryPredictions with predicted ancestries, and -- when
+            diagnostics are collected -- the per-sample admixture decisions and
+            the findings.
 
         Raises:
             AncestryError: If model not fitted or prediction fails.
@@ -587,11 +634,15 @@ class AncestryModel:
         projected["label"] = y_pred
 
         # Detect admixed samples if requested
+        decisions: Optional[pd.DataFrame] = None
         if detect_admixed and self._train_pca is not None:
-            projected = self._predict_admixed(projected, self._train_pca)
+            projected, decisions = self._predict_admixed(projected, self._train_pca)
             y_pred = projected["label"].values
 
-        # Save outputs if path provided
+        # Save outputs if path provided. `_projected_new_pca.txt` keeps exactly
+        # the columns it always had: run_umap treats every column it does not
+        # recognise as a feature, so a diagnostic column added here would
+        # silently enter the embedding. The diagnostics get their own file.
         output_path = None
         if out_path:
             output_path = Path(f"{out_path}_umap_linearsvc_predicted_labels.txt")
@@ -608,10 +659,166 @@ class AncestryModel:
 
         logger.info(f"Predicted ancestry counts: {pd.Series(y_pred).value_counts().to_dict()}")
 
+        if collect_diagnostics:
+            diagnostics = diagnostics if diagnostics is not None else AncestryDiagnostics()
+            self._report_prediction_diagnostics(
+                diagnostics=diagnostics,
+                projected=projected,
+                decisions=decisions,
+                prefix=str(diagnostics_prefix or out_path) if (diagnostics_prefix or out_path) else None,
+            )
+
         return AncestryPredictions(
             predictions=predictions_df,
             output_path=output_path,
+            decisions=decisions,
+            diagnostics=diagnostics if collect_diagnostics else None,
         )
+
+    def _report_prediction_diagnostics(
+        self,
+        diagnostics: AncestryDiagnostics,
+        projected: pd.DataFrame,
+        decisions: Optional[pd.DataFrame],
+        prefix: Optional[str],
+    ) -> None:
+        """Measure where the cohort landed, and what the CAH rule did to it.
+
+        Both questions are answered against the reference the cohort is being
+        compared to, so both need `_train_pca` -- a model saved without it can
+        still predict, and then simply has less to say.
+        """
+        if self._train_pca is not None:
+            drift = diagnostics_mod.pc_drift(self._train_pca, projected)
+            diagnostics.pc_drift = drift
+            logger.info(
+                "Cohort position in reference PC space:\n"
+                + diagnostics_mod.format_pc_drift(drift)
+            )
+            diagnostics.add_warnings(diagnostics_mod.pc_drift_warnings(drift))
+
+        if decisions is None or decisions.empty:
+            return
+
+        summary = diagnostics_mod.admixture_summary(decisions)
+        diagnostics.admixture = summary
+        logger.info(
+            f"Admixture detection: {summary['n_cah']}/{summary['n_samples']} "
+            f"labeled CAH; classifier labels before the override: "
+            f"{summary.get('pre_admixture_counts')}"
+        )
+        diagnostics.add_warnings(diagnostics_mod.admixture_warnings(summary))
+
+        if prefix:
+            decisions_path = f"{prefix}_decisions.txt"
+            decisions.to_csv(decisions_path, sep="\t", index=False)
+            logger.info(f"Per-sample ancestry decisions written to: {decisions_path}")
+
+    def self_test(
+        self,
+        labeled_ref_data: pd.DataFrame,
+        detect_admixed: bool = True,
+    ) -> Dict[str, Any]:
+        """Positive control: predict the reference panel's own ancestries.
+
+        Training accuracy is measured inside `fit`, on features built by the
+        training branch of `get_raw_files`. This instead pushes the reference
+        panel through `predict` -- the same PCA projection, classifier and CAH
+        override a cohort goes through -- and checks the labels against the
+        panel's own. It is the one measurement that separates "the model is
+        broken" from "the cohort never reached the model": a panel that
+        predicts itself correctly here leaves only the cohort's own
+        preprocessing to blame.
+
+        Accuracy is optimistic by construction -- most of these samples were
+        fitted on -- so it is a floor, not an estimate. The `cah_fraction` is
+        the load-bearing number: the reference panel defines the ancestry
+        centroids, so almost none of it should fall nearer the global centroid
+        than to any of them. A panel that comes back largely CAH indicts the
+        override, whatever the cohort looks like.
+
+        Args:
+            labeled_ref_data: Reference matrix from `get_raw_files`
+                (`FID`, `IID`, model SNPs, `label`).
+            detect_admixed: Whether to apply the CAH override, so the test can
+                measure it.
+
+        Returns:
+            Dict with sample count, balanced accuracy before and after the
+            override, the CAH fraction overall and per true label, and the
+            most common confusions.
+        """
+        from sklearn.metrics import balanced_accuracy_score
+
+        labeled = labeled_ref_data[labeled_ref_data["label"].notna()]
+        if labeled.empty:
+            return {"n_samples": 0, "error": "no labeled reference samples"}
+
+        truth = labeled["label"].astype(str).reset_index(drop=True)
+        ids = labeled[["FID", "IID"]].reset_index(drop=True)
+        features = labeled.drop(columns=["label"]).reset_index(drop=True)
+
+        predictions = self.predict(
+            features,
+            ids,
+            out_path=None,
+            detect_admixed=detect_admixed,
+            collect_diagnostics=False,
+        )
+        final = predictions.predictions["predicted_ancestry"].astype(str).reset_index(drop=True)
+        if predictions.decisions is not None:
+            pre = predictions.decisions["label_pre_admixture"].astype(str).reset_index(drop=True)
+        else:
+            pre = final
+
+        is_cah = final == "CAH"
+        confusions = (
+            pd.DataFrame({"truth": truth, "predicted": final})
+            .loc[truth != final]
+            .value_counts()
+            .head(5)
+        )
+
+        result: Dict[str, Any] = {
+            "n_samples": int(len(truth)),
+            "n_labels": int(truth.nunique()),
+            "balanced_accuracy_pre_admixture": float(
+                balanced_accuracy_score(truth, pre)
+            ),
+            "balanced_accuracy": float(balanced_accuracy_score(truth, final)),
+            "n_cah": int(is_cah.sum()),
+            "cah_fraction": float(is_cah.mean()),
+            "cah_fraction_by_label": {
+                str(label): float(is_cah[truth == label].mean())
+                for label in sorted(truth.unique())
+            },
+            "top_confusions": {
+                f"{t}->{pred}": int(count)
+                for (t, pred), count in confusions.items()
+            },
+        }
+        logger.info(
+            f"Reference-panel self-test on {result['n_samples']} samples: "
+            f"balanced accuracy {result['balanced_accuracy']:.4f} "
+            f"({result['balanced_accuracy_pre_admixture']:.4f} before the CAH "
+            f"override), CAH {100 * result['cah_fraction']:.2f}%"
+        )
+        if result["cah_fraction"] > diagnostics_mod.WARN_CAH_FRACTION:
+            logger.warning(
+                f"The reference panel itself comes back "
+                f"{100 * result['cah_fraction']:.1f}% CAH. The panel defines "
+                f"the ancestry centroids, so this is the admixture detection "
+                f"or the projection failing, not the cohort."
+            )
+        elif result["balanced_accuracy"] < 0.5:
+            logger.warning(
+                f"The reference panel predicts itself at only "
+                f"{result['balanced_accuracy']:.3f} balanced accuracy through "
+                f"the prediction path, despite being what the model was fitted "
+                f"on. The fault is in the model or its saved state, not in the "
+                f"cohort."
+            )
+        return result
 
     def save(self, path: Path) -> Path:
         """Save fitted model to a directory.

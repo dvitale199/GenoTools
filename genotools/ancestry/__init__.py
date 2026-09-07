@@ -73,7 +73,21 @@ from genotools.ancestry.config import (
     TrainingConfig,
     InferenceMode,
     DEFAULT_ANCESTRY_LABELS,
+    MISSING_FILL_STRATEGIES,
+    LEGACY_FILL_VALUE,
 )
+
+# Diagnostics for the prediction path
+from genotools.ancestry.diagnostics import (
+    AncestryDiagnostics,
+    SnpOverlapReport,
+    BimCompatibility,
+    admixture_summary,
+    allele_frequency_concordance,
+    bim_compatibility,
+    pc_drift,
+)
+from genotools.ancestry.plots import plot_ancestry_diagnostics
 
 # Result classes
 from genotools.ancestry.results import (
@@ -115,6 +129,17 @@ __all__ = [
     "TrainingConfig",
     "InferenceMode",
     "DEFAULT_ANCESTRY_LABELS",
+    "MISSING_FILL_STRATEGIES",
+    "LEGACY_FILL_VALUE",
+    # Diagnostics
+    "AncestryDiagnostics",
+    "SnpOverlapReport",
+    "BimCompatibility",
+    "admixture_summary",
+    "allele_frequency_concordance",
+    "bim_compatibility",
+    "pc_drift",
+    "plot_ancestry_diagnostics",
     # Results
     "AncestryPredictions",
     "AncestryResult",

@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Sequence
 
+from ..ancestry.config import MISSING_FILL_STRATEGIES
+from ..ancestry.diagnostics import DEFAULT_MAX_FILL_FRACTION
 from ..qc.config import (
     CallrateConfig,
     SexConfig,
@@ -298,6 +300,19 @@ _UNSUPPORTED_INFERENCE_FLAGS: Dict[str, Tuple[str, str]] = {
 }
 
 
+#: Diagnostic settings that only mean something when prediction actually runs,
+#: mapped to ``(flag, default)``. Passing one without ``--ancestry`` is an
+#: error rather than a no-op, for the reason ``--amr-het`` exists: a setting
+#: that is quietly ignored is worse than one that is refused.
+_ANCESTRY_DIAGNOSTIC_FLAGS: Dict[str, Tuple[str, object]] = {
+    "detect_admixed": ("--no-admixture-detection", True),
+    "missing_fill": ("--ancestry-missing-fill", "ref-mean"),
+    "max_missing_snps": ("--ancestry-max-missing-snps", DEFAULT_MAX_FILL_FRACTION),
+    "write_plots": ("--ancestry-plots", False),
+    "self_test": ("--ancestry-self-test", False),
+}
+
+
 @dataclass
 class AncestryArgs:
     """Ancestry prediction arguments."""
@@ -308,6 +323,16 @@ class AncestryArgs:
     model_path: Optional[Path] = None
     subset_ancestry: Optional[List[str]] = None
     min_samples: int = 0
+
+    # Prediction-path controls and diagnostics (see ancestry/diagnostics.py).
+    # detect_admixed exists to be turned *off*: the CAH override replaces the
+    # classifier's label, so seeing what the classifier said is the fastest way
+    # to tell a broken classifier from a broken override.
+    detect_admixed: bool = True
+    missing_fill: str = "ref-mean"
+    max_missing_snps: float = DEFAULT_MAX_FILL_FRACTION
+    write_plots: bool = False
+    self_test: bool = False
 
     # Remote-execution flags. Accepted by the parser so that a 1.x command line
     # gets a targeted error instead of argparse's bare "unrecognized arguments",
@@ -321,6 +346,25 @@ class AncestryArgs:
         for flag, (attr, detail) in _UNSUPPORTED_INFERENCE_FLAGS.items():
             if getattr(self, attr):
                 raise ValueError(f"{flag} is not supported in GenoTools 2.0. {detail}")
+
+        if self.missing_fill not in MISSING_FILL_STRATEGIES:
+            raise ValueError(
+                f"--ancestry-missing-fill must be one of "
+                f"{', '.join(MISSING_FILL_STRATEGIES)}, got {self.missing_fill!r}"
+            )
+        if not 0.0 <= self.max_missing_snps <= 1.0:
+            raise ValueError(
+                f"--ancestry-max-missing-snps must be a fraction in [0, 1], "
+                f"got {self.max_missing_snps}"
+            )
+
+    def diagnostic_flags_set(self) -> List[str]:
+        """Diagnostic flags whose value differs from the default."""
+        return [
+            flag
+            for attr, (flag, default) in _ANCESTRY_DIAGNOSTIC_FLAGS.items()
+            if getattr(self, attr) != default
+        ]
 
 
 @dataclass
@@ -380,6 +424,17 @@ class PipelineArgs:
                 f"ancestry prediction has no ancestry labels to match. To set "
                 f"bounds for the whole input, use --het instead."
             )
+
+        # Same rule for the prediction-path settings: without --ancestry there
+        # is no prediction to configure or measure, and accepting the flag
+        # would mean silently doing nothing with it.
+        if not self.ancestry.run_ancestry:
+            stray = self.ancestry.diagnostic_flags_set()
+            if stray:
+                raise ValueError(
+                    f"{', '.join(stray)} requires --ancestry: there is no "
+                    f"ancestry prediction to configure in a run without it."
+                )
 
     @property
     def geno_path(self) -> Path:
@@ -840,6 +895,41 @@ Examples:
         default=0,
         metavar="N",
         help="Minimum samples per ancestry for downstream analysis (default: 0)",
+    )
+    ancestry_group.add_argument(
+        "--no-admixture-detection",
+        action="store_true",
+        help="Report the classifier's own labels instead of relabeling "
+             "samples nearest the global centroid as CAH",
+    )
+    ancestry_group.add_argument(
+        "--ancestry-missing-fill",
+        type=str,
+        default="ref-mean",
+        choices=list(MISSING_FILL_STRATEGIES),
+        help="How to fill a model SNP the cohort does not carry: 'ref-mean' "
+             "(neutral, the default) or 'constant' (dosage 2, as 1.x did)",
+    )
+    ancestry_group.add_argument(
+        "--ancestry-max-missing-snps",
+        type=float,
+        default=DEFAULT_MAX_FILL_FRACTION,
+        metavar="FRAC",
+        help=f"Refuse to predict when more than this fraction of the model's "
+             f"SNPs are absent from the cohort "
+             f"(default: {DEFAULT_MAX_FILL_FRACTION})",
+    )
+    ancestry_group.add_argument(
+        "--ancestry-plots",
+        action="store_true",
+        help="Write diagnostic PNGs: the cohort projected onto the reference "
+             "panel, and the margin behind each CAH decision",
+    )
+    ancestry_group.add_argument(
+        "--ancestry-self-test",
+        action="store_true",
+        help="Predict the reference panel's own ancestries through the "
+             "prediction path, as a positive control on the model",
     )
 
     # GWAS group
@@ -1387,6 +1477,11 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         model_path=ns.model,
         subset_ancestry=ns.subset_ancestry,
         min_samples=ns.min_samples,
+        detect_admixed=not ns.no_admixture_detection,
+        missing_fill=ns.ancestry_missing_fill,
+        max_missing_snps=ns.ancestry_max_missing_snps,
+        write_plots=ns.ancestry_plots,
+        self_test=ns.ancestry_self_test,
         use_container=ns.container,
         use_singularity=ns.singularity,
         use_cloud=ns.cloud,

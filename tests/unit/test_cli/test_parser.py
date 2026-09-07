@@ -1166,3 +1166,111 @@ class TestInvocationRecorded:
             input=InputArgs(pfile=Path("/tmp/geno")),
             output=OutputArgs(out_path=Path("/tmp/out")),
         ).invocation is None
+
+
+class TestAncestryDiagnosticArgs:
+    """The prediction-path controls, at the dataclass layer.
+
+    The interesting cases are the two the validation exists for: a value the
+    preprocessing could not act on, and a flag passed to a run that has no
+    prediction to apply it to.
+    """
+
+    def test_defaults_are_the_measured_path(self) -> None:
+        args = AncestryArgs()
+        assert args.detect_admixed is True
+        assert args.missing_fill == "ref-mean"
+        assert args.max_missing_snps == 0.5
+        assert args.write_plots is False
+        assert args.self_test is False
+        assert args.diagnostic_flags_set() == []
+
+    def test_an_unknown_fill_strategy_names_the_alternatives(self) -> None:
+        with pytest.raises(ValueError, match="ref-mean, constant"):
+            AncestryArgs(missing_fill="zero")
+
+    @pytest.mark.parametrize("value", [-0.1, 1.5])
+    def test_the_missing_snp_limit_must_be_a_fraction(self, value: float) -> None:
+        with pytest.raises(ValueError, match="fraction in \\[0, 1\\]"):
+            AncestryArgs(max_missing_snps=value)
+
+    def test_a_fraction_of_zero_or_one_is_allowed(self) -> None:
+        assert AncestryArgs(max_missing_snps=0.0).max_missing_snps == 0.0
+        assert AncestryArgs(max_missing_snps=1.0).max_missing_snps == 1.0
+
+    def test_each_non_default_setting_is_reported_by_its_flag(self) -> None:
+        assert AncestryArgs(detect_admixed=False).diagnostic_flags_set() == [
+            "--no-admixture-detection"
+        ]
+        assert AncestryArgs(missing_fill="constant").diagnostic_flags_set() == [
+            "--ancestry-missing-fill"
+        ]
+        assert AncestryArgs(self_test=True, write_plots=True).diagnostic_flags_set() == [
+            "--ancestry-plots", "--ancestry-self-test"
+        ]
+
+    def test_a_diagnostic_flag_without_ancestry_is_refused(self) -> None:
+        """The --amr-het rule: refuse a setting rather than ignore it."""
+        with pytest.raises(ValueError, match="--ancestry-plots requires --ancestry"):
+            PipelineArgs(
+                input=InputArgs(pfile=Path("/tmp/geno")),
+                output=OutputArgs(out_path=Path("/tmp/out")),
+                ancestry=AncestryArgs(write_plots=True),
+            )
+
+    def test_the_same_flags_are_fine_alongside_ancestry(self) -> None:
+        args = PipelineArgs(
+            input=InputArgs(pfile=Path("/tmp/geno")),
+            output=OutputArgs(out_path=Path("/tmp/out")),
+            ancestry=AncestryArgs(
+                run_ancestry=True, write_plots=True, detect_admixed=False
+            ),
+        )
+        assert args.ancestry.write_plots is True
+
+
+class TestAncestryDiagnosticFlagsEndToEnd:
+    """The same settings through parse_args, the layer users reach."""
+
+    BASE = [
+        "--pfile", "/data/test",
+        "--out", "/tmp/out",
+        "--ancestry",
+        "--ref-panel", "/tmp/ref",
+        "--ref-labels", "/tmp/lab",
+    ]
+
+    def _ancestry(self, extra: List[str]):
+        return parse_args(self.BASE + extra).ancestry
+
+    def test_defaults_measure_but_change_nothing_the_user_did_not_ask_for(self) -> None:
+        ancestry = self._ancestry([])
+        assert ancestry.detect_admixed is True
+        assert ancestry.write_plots is False
+        assert ancestry.self_test is False
+        assert ancestry.missing_fill == "ref-mean"
+
+    def test_admixture_detection_is_turned_off_by_the_negative_flag(self) -> None:
+        assert self._ancestry(["--no-admixture-detection"]).detect_admixed is False
+
+    def test_the_legacy_fill_is_reachable(self) -> None:
+        assert self._ancestry(["--ancestry-missing-fill", "constant"]).missing_fill == (
+            "constant"
+        )
+
+    def test_an_unknown_fill_is_rejected_by_the_parser(self) -> None:
+        with pytest.raises(SystemExit):
+            self._ancestry(["--ancestry-missing-fill", "zero"])
+
+    def test_the_missing_snp_limit_is_a_float(self) -> None:
+        assert self._ancestry(["--ancestry-max-missing-snps", "0.9"]).max_missing_snps == 0.9
+
+    def test_plots_and_self_test_are_opt_in(self) -> None:
+        ancestry = self._ancestry(["--ancestry-plots", "--ancestry-self-test"])
+        assert (ancestry.write_plots, ancestry.self_test) == (True, True)
+
+    def test_a_diagnostic_flag_without_ancestry_fails_the_whole_parse(self) -> None:
+        with pytest.raises(ValueError, match="requires --ancestry"):
+            parse_args([
+                "--pfile", "/data/test", "--out", "/tmp/out", "--ancestry-self-test",
+            ])

@@ -20,6 +20,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 import pytest
 
 from genotools.core.exceptions import QCError, ValidationError
@@ -1957,3 +1958,273 @@ class TestSoftwareProvenance:
             "provenance leaked into the console stream"
         )
         assert "plink2:" in Path(f"{out}_all_logs.log").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Ancestry diagnostics wiring
+# ---------------------------------------------------------------------------
+
+
+class _StubAncestryModel:
+    """Stands in for AncestryModel across both prediction modes.
+
+    Records what the runner asked for, and writes the two files the runner
+    reads back off disk (`_labeled_ref_pca.txt` from `fit`, and
+    `_projected_new_pca.txt` from `predict`).
+    """
+
+    predict_calls: List[Dict[str, Any]] = []
+    self_test_calls: List[Dict[str, Any]] = []
+
+    def __init__(self) -> None:
+        self.best_params = None
+        self.common_snps = ["rs1", "rs2"]
+        self.label_encoder = None
+        self.training_metrics = None
+        self._train_pca = _pc_frame()
+
+    @classmethod
+    def load(cls, path: Path) -> "_StubAncestryModel":
+        return cls()
+
+    def fit(self, ref_data, labels, out_path=None):
+        if out_path is not None:
+            _pc_frame().to_csv(f"{out_path}_labeled_ref_pca.txt", sep="\t", index=False)
+        return self
+
+    def save(self, path: Path) -> Path:
+        return Path(path)
+
+    def predict(self, geno_data, geno_ids, out_path=None, detect_admixed=True,
+                diagnostics=None, diagnostics_prefix=None, collect_diagnostics=True):
+        from genotools.ancestry.results import AncestryPredictions
+
+        type(self).predict_calls.append({
+            "detect_admixed": detect_admixed,
+            "diagnostics": diagnostics,
+            "diagnostics_prefix": diagnostics_prefix,
+        })
+        if out_path is not None:
+            _pc_frame().to_csv(f"{out_path}_projected_new_pca.txt", sep="\t", index=False)
+            Path(f"{out_path}_umap_linearsvc_predicted_labels.txt").write_text(
+                "FID\tIID\tlabel\nF0\tI0\tEUR\n"
+            )
+        predictions = pd.DataFrame({
+            "FID": ["F0"], "IID": ["I0"], "predicted_ancestry": ["EUR"]
+        })
+        if diagnostics is not None:
+            diagnostics.pc_drift = pd.DataFrame([{"pc": "PC1", "shift_sd": 0.1}])
+        return AncestryPredictions(predictions=predictions, decisions=_decision_frame())
+
+    def self_test(self, labeled_ref_data, detect_admixed=True):
+        type(self).self_test_calls.append({"detect_admixed": detect_admixed})
+        return {"n_samples": len(labeled_ref_data), "cah_fraction": 0.0}
+
+
+def _pc_frame() -> "pd.DataFrame":
+    return pd.DataFrame({
+        "FID": ["F0", "F1"], "IID": ["I0", "I1"],
+        "PC1": [0.1, 0.2], "PC2": [0.3, 0.4], "label": ["EUR", "AFR"],
+    })
+
+
+def _decision_frame() -> "pd.DataFrame":
+    return pd.DataFrame({
+        "FID": ["F0"], "IID": ["I0"], "label_pre_admixture": ["EUR"],
+        "label": ["EUR"], "margin_to_all": [1.0],
+    })
+
+
+class TestAncestryDiagnosticsWiring:
+    """The diagnostic settings have to reach preprocessing and prediction in
+    *both* prediction modes.
+
+    Training and inference are separate methods that each call `get_raw_files`
+    and `predict` with their own argument lists, which is the shape that made
+    `--amr-het` inert in production: a setting honoured on one path and
+    forgotten on the other looks like it works right up until the run that
+    matters. Every assertion here is made twice, once per mode.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset(self) -> None:
+        _StubAncestryModel.predict_calls = []
+        _StubAncestryModel.self_test_calls = []
+
+    def _run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        ancestry: AncestryArgs, **stub_overrides: Any,
+    ) -> Dict[str, Any]:
+        import genotools.ancestry.cohort as cohort_mod
+        import genotools.ancestry.plots as plots_mod
+        import genotools.ancestry.preprocessing as prep_mod
+        import genotools.ancestry.reducers.umap_reducer as umap_mod
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        work = tmp_path / "tmpwork"
+        work.mkdir(exist_ok=True)
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=False),
+            ancestry=ancestry,
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(
+            geno_path=geno, out_path=out, tmp_dir=_StubTmpDir(work)
+        )
+        runner._initialize_modules()
+        runner._new_modules["AncestryModel"] = _StubAncestryModel
+
+        raw_calls: List[Dict[str, Any]] = []
+
+        def fake_get_raw_files(**kwargs: Any) -> Dict[str, Any]:
+            raw_calls.append(kwargs)
+            ref = pd.DataFrame({
+                "FID": ["F0"], "IID": ["I0"], "rs1": [1.0], "label": ["EUR"]
+            })
+            return {
+                "raw_ref": ref,
+                "raw_geno": pd.DataFrame({
+                    "FID": ["F0"], "IID": ["I0"], "rs1": [1.0], "label": ["new"]
+                }),
+                "out_paths": {"common_snps": str(tmp_path / "snps.txt")},
+                "diagnostics": kwargs["diagnostics"],
+            }
+
+        plot_calls: List[Dict[str, Any]] = []
+
+        monkeypatch.setattr(prep_mod, "get_raw_files", fake_get_raw_files)
+        monkeypatch.setattr(prep_mod, "clean_up_files", lambda files: None)
+        monkeypatch.setattr(
+            plots_mod, "plot_ancestry_diagnostics",
+            lambda **kwargs: (plot_calls.append(kwargs), ["/tmp/plot.png"])[1],
+        )
+        monkeypatch.setattr(
+            umap_mod, "run_umap",
+            lambda **kwargs: {"total_umap": None, "ref_umap": None, "new_umap": None},
+        )
+        monkeypatch.setattr(
+            cohort_mod, "split_cohort_by_ancestry",
+            lambda **kwargs: {
+                "labels": ["EUR"], "pruned_samples": pd.DataFrame(), "paths": {}
+            },
+        )
+
+        result = runner._run_ancestry_prediction_new()
+        return {
+            "result": result,
+            "raw_calls": raw_calls,
+            "plot_calls": plot_calls,
+            "out": out,
+        }
+
+    def _ancestry_args(self, tmp_path: Path, mode: str, **kwargs: Any) -> AncestryArgs:
+        model_path = None
+        if mode == "inference":
+            model_path = tmp_path / "model"
+            model_path.mkdir(exist_ok=True)
+        return AncestryArgs(
+            run_ancestry=True,
+            ref_panel=tmp_path / "ref",
+            ref_labels=tmp_path / "labels",
+            model_path=model_path,
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_fill_settings_reach_preprocessing_in_both_modes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        run = self._run(
+            tmp_path, monkeypatch,
+            self._ancestry_args(
+                tmp_path, mode, missing_fill="constant", max_missing_snps=0.9
+            ),
+        )
+        (call,) = run["raw_calls"]
+        assert call["fill_strategy"] == "constant"
+        assert call["max_missing_fraction"] == 0.9
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_admixture_detection_setting_reaches_predict_in_both_modes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        self._run(
+            tmp_path, monkeypatch,
+            self._ancestry_args(tmp_path, mode, detect_admixed=False),
+        )
+        (call,) = _StubAncestryModel.predict_calls
+        assert call["detect_admixed"] is False
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_diagnostic_artifacts_are_written_outside_the_temp_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        """A partial-output run deletes its temp directory, and with it any
+        evidence written beside the intermediates. The prefix handed to both
+        layers has to be the final output path instead."""
+        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
+        expected = str(run["out"])
+        assert run["raw_calls"][0]["diagnostics_prefix"] == expected
+        assert _StubAncestryModel.predict_calls[0]["diagnostics_prefix"] == expected
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_one_collector_is_shared_by_preprocessing_and_prediction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
+        assert (
+            run["raw_calls"][0]["diagnostics"]
+            is _StubAncestryModel.predict_calls[0]["diagnostics"]
+        )
+        assert run["result"]["diagnostics"]["pc_drift"]["pc"] == ["PC1"]
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_the_self_test_is_opt_in(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
+        assert _StubAncestryModel.self_test_calls == []
+
+        self._run(
+            tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, self_test=True)
+        )
+        assert len(_StubAncestryModel.self_test_calls) == 1
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_the_self_test_result_reaches_the_report(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        run = self._run(
+            tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, self_test=True)
+        )
+        assert run["result"]["diagnostics"]["self_test"]["n_samples"] == 1
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_plots_are_opt_in_and_get_the_decisions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
+        assert run["plot_calls"] == []
+
+        run = self._run(
+            tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, write_plots=True)
+        )
+        (call,) = run["plot_calls"]
+        assert call["out_prefix"] == str(run["out"])
+        assert list(call["decisions"]["label_pre_admixture"]) == ["EUR"]
+        assert run["result"]["diagnostics"]["plots"] == ["/tmp/plot.png"]
+
+    @pytest.mark.parametrize("mode", ["training", "inference"])
+    def test_diagnostics_reach_the_json_report(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        from genotools.cli.output import PipelineOutput
+
+        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
+        output = PipelineOutput()
+        output._process_ancestry_result(run["result"])
+        assert "ancestry_diagnostics" in output.to_dict()

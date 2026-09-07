@@ -41,6 +41,25 @@ from typing import Optional, Tuple
 from genotools.core.config import BaseConfig, ThresholdConfig
 
 
+#: How `get_raw_files` fills a model SNP the cohort does not carry.
+#:
+#: ``ref-mean`` (the default) writes NaN, which `PCAReducer.transform` then
+#: fills with the *reference panel's* mean for that SNP -- the same treatment
+#: the matrix already gives a genuinely missing call at a SNP the cohort does
+#: carry, since `plink2 --recode A` writes those as NA. A filled SNP therefore
+#: contributes nothing to the projection instead of pulling it.
+#:
+#: ``constant`` writes dosage 2, which is what 1.x and 2.0 up to this round
+#: did. Dosage 2 is not neutral: it is one end of the range, applied
+#: identically to every sample, so a cohort missing much of the model's SNP
+#: list gets a large shared offset in PC space and lands somewhere no reference
+#: sample sits. Kept as an escape hatch for reproducing an older run.
+MISSING_FILL_STRATEGIES = ("ref-mean", "constant")
+
+#: The dosage the ``constant`` strategy fills with (1.x's behaviour).
+LEGACY_FILL_VALUE = 2
+
+
 class InferenceMode(Enum):
     """Ancestry inference execution modes.
 

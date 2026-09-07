@@ -243,6 +243,36 @@ per-group pipeline structurally cannot see, and borderline first-degree pairs ca
 be pushed over 0.354 by running KING on a mixed-ancestry cohort. Compare old
 against new, not against the release.
 
+### Single-variable comparators
+
+Three scripts isolate one variable each and delegate the movement table to
+`compare_ancestry_run.py`, so a number means the same thing in all of them:
+
+| Script | Holds constant | Varies |
+|---|---|---|
+| `compare_umap_versions.py` | the source tree | the installed libraries (round 16) |
+| `compare_snp_matching.py` | the libraries | the source tree, via `cwd` (round 17) |
+| `compare_missing_fill.py` | both — one process, one loaded model | the missing-SNP fill strategy (round 18) |
+
+The third needs neither a second venv nor a second checkout, because both fill
+strategies are reachable from one tree through `--ancestry-missing-fill`. It is
+also the fastest first thing to run against a cohort whose prediction looks
+wrong: the header it prints is how much of the model's SNP list that cohort
+actually carried, which decides whether anything else is worth investigating.
+
+```bash
+.venv/bin/python tests/scripts/compare_missing_fill.py \
+    --geno ~/parity_data/GP2_r12_subset10k \
+    --ref-panel ~/.genotools/ref/ref_panel/ref_panel_gp2_prune_rm_underperform_pos_update \
+    --ref-labels ~/.genotools/ref/ref_panel/ref_panel_ancestry_updated.txt \
+    --model ~/parity_data/models/new_ancestry_ancestry_model \
+    --work /tmp/missing-fill-compare
+```
+
+Run it with `python -u`: its findings go to stdout while the pipeline's own
+logging goes to stderr, so a redirect without `-u` buffers the findings behind
+every log line.
+
 ---
 
 ## 6. Decision B: GWAS/PCA region exclusion
