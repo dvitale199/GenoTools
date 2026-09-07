@@ -1,12 +1,24 @@
-# Migrating to GenoTools 2.0
+# Migrating to GenoTools 2.x
 
-GenoTools 2.0 is the refactor release. QC and ancestry **results** are unchanged
-— see [Verification](#verification) — but the **CLI spelling** and parts of the
-**JSON report schema** changed, and two long-standing flag bugs were fixed in
+**2.1.0 is the first published 2.x release.** 2.0.0 and 2.0.1 were development
+versions and never reached PyPI, so if you are upgrading you are coming from
+**1.3.6**, and this whole document applies to you. Everything below describes
+the difference between 1.3.6 and 2.1.0.
+
+2.x is the refactor release. QC **results** are unchanged — see
+[Verification](#verification) — but the **CLI spelling** and parts of the
+**JSON report schema** changed, and several long-standing bugs were fixed in
 ways that alter behavior.
 
+The QC path is the safe part: same pruning, same defaults, same counts. **The
+ancestry path is where the real changes are.** Four independent fixes land here
+— the training race, the dosage-2 fill, palindromic SNP matching, and the umap
+unpin — and three of them can move ancestry calls. If you predict ancestry,
+read [Behavior changes](#behavior-changes) before upgrading; if you only run
+QC, the flag spellings are most of what matters to you.
+
 ```bash
-pip install --upgrade the_real_genotools     # 2.0.0
+pip install --upgrade the_real_genotools     # 2.1.0
 pip install 'the_real_genotools<2.0'         # stay on 1.3.6 while you migrate
 ```
 
@@ -87,12 +99,12 @@ Not a rename — a different flag with different reach. Both spellings
 
 ```
 $ genotools ... --all-sample --amr-het
-ERROR: --amr-het was removed in GenoTools 2.0.1. Use '--het-ancestry AMR sd'
+ERROR: --amr-het was removed in GenoTools 2.0. Use '--het-ancestry AMR sd'
 instead, which also works in a flat run (--amr-het silently did nothing
 without --ancestry). See MIGRATION_2.0.md.
 ```
 
-| 1.x / 2.0.0 | 2.0.1 |
+| 1.x | 2.x |
 |---|---|
 | `--ancestry --all-sample --amr_het` | `--ancestry --all-sample --het-ancestry AMR sd` |
 
@@ -185,7 +197,7 @@ What changes for you:
   cheap k-NN and nearest-centroid baselines, and the attempt table.
 
 **Audit models you already have.** The defect is present in every 1.x and
-pre-2.0.2 model, so a saved model may be collapsed:
+pre-2.1.0 model, so a saved model may be collapsed:
 
 ```bash
 python tests/scripts/check_model_health.py <model dir or 1.x .pkl>
@@ -195,10 +207,55 @@ It reports `|coef|`, `|intercept|` and the distinct-class count, and exits
 non-zero if any model checked has diverged. A healthy GP2 model measures
 `|coef| 1.03 / |intercept| 4.24`; a collapsed one measured `5.32 / 2.0e15`.
 
-It also says which side of the fix a model was trained on: every pre-2.0.2
+It also says which side of the fix a model was trained on: every pre-2.1.0
 model pickled `learning_rate=None`, because the field was never passed. A
 converged pre-fix model is still evidence about luck rather than about the
 process, so retrain when you next can.
+
+### Retraining moves about 1.3% of ancestry labels — and that is retraining, not the fix
+
+If you retrain an ancestry model after upgrading and compare its calls against
+labels a 1.x model produced, expect roughly **1.3% of samples to change group**.
+Measured on the full GP2 release 12 (129,831 samples) against the released 1.x
+labels: **1,695 samples moved, 1.306%**.
+
+**This is not caused by the determinism fix, and it is not evidence that the
+new labels are better or worse.** Three independent measurements say so:
+
+- Holding the training data fixed and changing only the code, old-vs-new moves
+  **0.08%** — not 1.3%.
+- All three determinism arms (as-shipped, fixed, and the coordinate-descent
+  alternative) label the cohort **identically**.
+- **1.3.6 pays the same ~1.3%** when retrained against those released labels.
+  The old code has the property too.
+
+What actually moves the labels is **retraining itself**. Two compounding causes,
+both measured:
+
+- **The hyperparameter grid's top is a plateau.** 48 of 216 candidates score
+  within one fold-to-fold standard deviation of the winner, and five tie to ten
+  decimal places. At full scale the search won by 0.000667 over the candidate a
+  10,000-sample run picked, while its own fold-to-fold std was 0.014178 — **21×
+  the gap**. Selection among near-equals is decided by noise. The substantive
+  parameters did reproduce (`n_components=25`, `n_neighbors=5`,
+  `lambda=0.001`); only the UMAP `a`/`b` shape pair moved.
+- **The common-SNP list depends on the cohort.** `--geno 0.1` and the
+  lowest-missingness tie-break both read per-variant missingness, so a different
+  cohort yields a slightly different SNP list. One variant differed between a
+  10,000-sample run and the full release — enough to reshuffle an argmax on a
+  plateau that flat.
+
+**Neither labeling is demonstrably more correct.** A model-free nearest-centroid
+arbiter cannot rank them: 31.8% of the moved samples match the released label,
+33.0% the new one, 35.2% neither — because at cohort scale that baseline agrees
+with *either* labeling only ~87% of the time. Do not report the upgrade as
+having improved ancestry calls; there is no measurement supporting that.
+
+**What to do about it.** If you need labels stable across releases, do not
+retrain — keep predicting with your existing model, which is unaffected. If you
+do retrain, treat it as a new model with its own labels rather than an update to
+the old ones, and expect ~1% of a large cohort to move at every retrain,
+including retrains that change nothing but the cohort.
 
 ### `ClassifierConfig` lost two fields
 
@@ -395,7 +452,7 @@ embedding would be expected to tip samples across a boundary — but 1.2% is a
 real change to your results, not rounding.
 
 **Reproducing prior results.** Nothing already produced is altered by
-upgrading. A model trained by 2.0.2 or later ships a `requirements.txt` beside
+upgrading. A model trained by 2.1.0 or later ships a `requirements.txt` beside
 `pipeline.pkl` recording the exact environment it was fitted under; recreate it
 with `pip install -r <model_dir>/requirements.txt` to get the original calls
 back. For models predating that, `requirements-lock.txt` in the repo root
@@ -515,8 +572,11 @@ unintuitively; the values themselves are identical.
 
 ## Verification
 
-2.0 was validated against 1.3.6 on a 10,000-sample subset of GP2 release 12,
-run as `--ancestry --all-sample --all-variant`:
+2.x was validated against 1.3.6 twice: a full differential comparison on a
+10,000-sample subset, and a production-scale run on the whole release.
+
+**Differential parity, 10,000-sample subset of GP2 release 12**, run as
+`--ancestry --all-sample --all-variant`:
 
 - **All 11 ancestry groups produced byte-identical genotypes and sample/variant
   IDs** (verified with `plink2 --pgen-diff` plus allele-coding comparison)
@@ -527,6 +587,30 @@ run as `--ancestry --all-sample --all-variant`:
   with identical disagreement patterns
 
 Reproduce with `tests/scripts/compare_ancestry_run.py`.
+
+**Production scale, the full GP2 release 12** — 129,831 samples, 4h50m, run
+with the production configuration:
+
+- **All 88 QC steps passed across all 11 ancestry groups**
+- The trained model is healthy and converged (max abs coefficient 0.866,
+  intercept 0.676, all 10 labels predicted), with none of the collapse
+  signature the fix removes
+- **Bit-identical across 20 repeated fits** — the determinism claim holds at
+  full scale, not just on the small panels it was found on
+- QC reproduces the release almost exactly: callrate 2,906 vs 2,906 with
+  perfect per-sample agreement, sex 1,910 vs 1,909. The one real difference,
+  heterozygosity, is a *threshold* difference and not a code difference — the
+  release gave AMR `sd`-derived bounds where the comparison run used the base
+  fixed window, and rebuilding that group reproduces the release's counts
+  exactly under the release's own setting
+- Labels moved 1.306% against the released 1.x labels, for the reasons in
+  [Retraining moves about 1.3% of ancestry labels](#retraining-moves-about-13-of-ancestry-labels--and-that-is-retraining-not-the-fix)
+
+**Memory note.** Predicting a cohort this size currently needs a high-memory
+machine: the preprocessing step materializes the cohort as a dense 8-byte
+matrix and peaks near 187 GiB at 129,831 samples. This is not new in 2.x — 1.x
+has the identical code path — but plan hardware accordingly for full-release
+prediction. Tracked as REFACTOR.md item 40.
 
 Known issue carried over from 1.x: `het` pruning fails on very small ancestry
 groups (observed on a 12-sample FIN group in both versions). It is reported as a

@@ -333,7 +333,7 @@ python -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); \
   print([i.filename for i in z.infolist() if not i.filename.endswith('.py')])"
 ```
 
-A healthy 2.0.0 wheel is ~0.46 MB and its only non-`.py` entries are the
+A healthy 2.1.0 wheel is ~0.62 MB and its only non-`.py` entries are the
 dist-info files plus `container/Dockerfile` and `container/requirements.txt`.
 If you see `container/*.pkl` in there, the wheel is 2.57 MB and shipping two
 1.x ancestry models that the code cannot load.

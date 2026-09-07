@@ -41,11 +41,20 @@ To download specific references/models, you can run the download with the follow
 genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1 --destination /path/to/download_directory/
 ```
 
-Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. Available models are `nba_v1` for the NeuroBooster array and `neurochip_v1` for the NeuroChip Array and both are in GRCh38. If using a different array, we would suggest training a new model by running the standard command below. Please ensure the reference panel and your genotypes are in the same build. If you're using our reference panel, your genotypes must be in GRCh38.
+Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. Available models are `nba_v1` and `nba_v2` for the NeuroBooster array and `neurochip_v1` for the NeuroChip Array, all in GRCh38. **All three are 1.x models and cannot be loaded by GenoTools 2.x** — see the upgrade note below. If using a different array, we would suggest training a new model by running the standard command below. Please ensure the reference panel and your genotypes are in the same build. If you're using our reference panel, your genotypes must be in GRCh38.
 
-> **Upgrading from 1.x?** Flags moved from `underscore_style` to `hyphen-style`
-> in 2.0. The old spellings still work but warn, and two behaviors changed. See
-> [MIGRATION_2.0.md](MIGRATION_2.0.md).
+> **Upgrading from 1.x?** 2.1.0 is the first published 2.x release, so you are
+> coming from 1.3.6. Flags moved from `underscore_style` to `hyphen-style` (the
+> old spellings still work but warn), the JSON report gained fields, and several
+> ancestry fixes can move predicted labels. Read
+> [MIGRATION_2.0.md](MIGRATION_2.0.md) before upgrading, and
+> [CHANGELOG.md](CHANGELOG.md) for the summary.
+>
+> **2.x cannot load 1.x ancestry models.** The models served by
+> `genotools-download` (`nba_v1`, `nba_v2`, `neurochip_v1`) were trained by 1.x
+> and are rejected with an explanatory error. Until 2.x-format models are
+> published, train your own by dropping `--model` and passing
+> `--ref-panel`/`--ref-labels`, as in the standard command below.
 
 Modify the paths in the following command to run the standard GP2 pipeline:
 ```
