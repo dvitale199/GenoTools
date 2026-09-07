@@ -205,6 +205,13 @@ class UMAPReducer:
         return cls(config=config)
 
 
+def _pc_names(frame: pd.DataFrame) -> list:
+    """PC columns of `frame` in numeric order, or empty if it names none."""
+    from genotools.ancestry.diagnostics import pc_columns
+
+    return pc_columns(frame)
+
+
 def run_umap(
     ref_pca: pd.DataFrame,
     new_pca: pd.DataFrame,
@@ -234,14 +241,27 @@ def run_umap(
             - new_umap: DataFrame with new samples UMAP + labels + dataset='predicted'
             - total_umap: DataFrame with combined ref + new UMAP
     """
+    # Select the PCs by name rather than by dropping the columns we know
+    # about. Dropping treats anything unrecognised as a feature, so a single
+    # extra column written into `_projected_new_pca.txt` -- a distance, a
+    # second label, anything a later diagnostic wants to record -- would enter
+    # the embedding silently and move every point. Falls back to the old
+    # behaviour for a frame that names its components something else.
+    ref_features = _pc_names(ref_pca) or [
+        c for c in ref_pca.columns if c not in ("FID", "IID", "label")
+    ]
+    new_features = _pc_names(new_pca) or [
+        c for c in new_pca.columns if c not in ("FID", "IID", "label")
+    ]
+
     # Get reference data without IDs and labels
     ref_labels = ref_pca["label"].values
     ref_ids = ref_pca[["FID", "IID"]]
-    X_ref = ref_pca.drop(columns=["FID", "IID", "label"]).values
+    X_ref = ref_pca[ref_features].values
 
     # Get new sample data without IDs
     new_ids = new_pca[["FID", "IID"]]
-    X_new = new_pca.drop(columns=["FID", "IID", "label"], errors="ignore").values
+    X_new = new_pca[new_features].values
 
     # Create reducer
     if params is not None:
