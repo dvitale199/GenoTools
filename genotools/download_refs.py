@@ -41,7 +41,7 @@ MODELS = {
     "nba_v2": ("7618cd9be74a6f8da96ae99016851cce", "1.x", "NeuroBooster array"),
     "neurochip_v1": ("8825d8b490bab62d91752ba64e960c2d", "1.x", "NeuroChip array"),
     "nba_gp2_r12": (
-        "1626381e3f9f54fc141758fc7b95838b",
+        "8972607acae64f3147959281cc097dc9",
         "2.x",
         "NeuroBooster array, trained on GP2 release 12 (43,173 SNPs, 10 labels)",
     ),

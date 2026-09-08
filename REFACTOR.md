@@ -1735,6 +1735,31 @@ plateau, which is exactly why an argmax there is not a decision. Train accuracy
 moved 0.9371 -> 0.9588. Model verdict CONVERGED, max abs coef 0.924, intercept
 1.146, 10 classes.
 
+**The venv drift was six packages, not one, and only an end-to-end check found
+the other five.** After the umap refit, installing the built wheel into a clean
+venv and loading the downloaded model still warned -- on `scikit-learn`
+1.8.0 -> 1.9.0, `xgboost` 3.1.3 -> 3.2.0, `numpy` 2.3.5 -> 2.4.6, `pandas`
+2.3.3 -> **3.0.5** and `scipy` 1.17.0 -> 1.17.1, plus four of sklearn's own
+`InconsistentVersionWarning`s, which state that cross-version unpickling risks
+"breaking code or invalid results". `pip check` had flagged only umap, because
+umap was the only package whose `setup.py` floor the stale venv actually
+violated; the other five satisfied their `>=` floors while sitting years
+behind. `requirements-lock.txt` pinned the correct versions for all six the
+whole time.
+
+The lesson is about the check, not the versions: a model's recorded environment
+can only be validated against *a fresh install of the release that ships it*,
+which is a different question from "does it load here". Refitting under the
+synced stack produces a model that loads with no warning of any kind.
+
+That second refit also produced the strongest form of the item-41 plateau
+result. Across a full stack change -- a umap major-version step, sklearn 1.8 to
+1.9, and pandas 2 to 3 -- the selection came back **identical**
+(`a=0.75, b=0.5, n_components=25, n_neighbors=5, lambda=0.001`), and held-out
+accuracy landed on 0.983791 for the third consecutive fit. So the plateau's top
+is stable in the dimensions that matter and indifferent in `a`/`b`, which is
+the sharpest statement of why an argmax there decides nothing.
+
 **A stale cached archive was an unrecoverable dead end**, found by re-publishing
 the artifact. `download_data_from_gcs` returned early whenever the destination
 existed, and the caller only reaches it *because* validation failed -- so
