@@ -98,3 +98,58 @@ class TestCatalogue:
     def test_a_2x_model_is_offered_at_all(self) -> None:
         """Serving only 1.x models would leave 2.x users with no model."""
         assert any(fmt == "2.x" for _, fmt, _ in MODELS.values())
+
+
+class TestStaleArchive:
+    """Re-publishing an artifact must not strand whoever holds the old one.
+
+    `download_data_from_gcs` returns early when the destination exists, and the
+    caller only reaches it *because* validation failed -- so before `force`, a
+    stale archive meant re-fetching the same bad bytes, failing the checksum,
+    and exiting 1 forever, with an error that never named the cached file. This
+    became reachable the moment `nba_gp2_r12` was rebuilt against a newer umap.
+    """
+
+    def _fake_response(self, payload: bytes):
+        class _Response:
+            status_code = 200
+            headers = {"content-length": str(len(payload))}
+
+            def iter_content(self, chunk_size: int = 1024):
+                yield payload
+
+            def raise_for_status(self) -> None:  # pragma: no cover
+                raise AssertionError("should not be called on a 200")
+
+        return _Response()
+
+    def test_force_replaces_a_stale_file(self, tmp_path, monkeypatch) -> None:
+        from genotools import download_refs
+
+        dest = tmp_path / "nba_gp2_r12.zip"
+        dest.write_bytes(b"bytes from the previous publish")
+        monkeypatch.setattr(
+            download_refs.requests, "get", lambda *a, **k: self._fake_response(b"new")
+        )
+
+        download_refs.download_data_from_gcs("https://x/y.zip", str(dest), force=True)
+
+        assert dest.read_bytes() == b"new"
+
+    def test_without_force_an_existing_file_is_left_alone(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The cache still works: a valid local copy is not re-fetched."""
+        from genotools import download_refs
+
+        dest = tmp_path / "nba_gp2_r12.zip"
+        dest.write_bytes(b"already here")
+
+        def _boom(*args, **kwargs):  # pragma: no cover
+            raise AssertionError("must not hit the network for a cached file")
+
+        monkeypatch.setattr(download_refs.requests, "get", _boom)
+
+        download_refs.download_data_from_gcs("https://x/y.zip", str(dest))
+
+        assert dest.read_bytes() == b"already here"

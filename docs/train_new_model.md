@@ -24,11 +24,12 @@ genotools \
     --pfile /path/to/genotypes/for/ancestry/prediction \
     --out /path/to/ancestry/prediction/output \
     --ancestry \
-    --ref_panel /path/to/downloaded/reference/panel \
-    --ref_labels /path/to/downloaded/reference/ancestry/labels \
+    --ref-panel /path/to/downloaded/reference/panel \
+    --ref-labels /path/to/downloaded/reference/ancestry/labels
 ```
-This command will train a model and render predictions for the provided genotypes. Please note that currently model training takes ~5 hours so this process is best done on HPC with a batch job submission system.
-The model will be saved to: `{out}_umap_linearsvc_ancestry_model.pkl` and the SNPs used to train the model will be saved to `{out}_umap_linearsvc_ancestry_model.common_snps`. Please save these files and keep them in the same directory for future use on your genotypes!
+This command trains a model and predicts ancestry for the provided genotypes. On a full release-scale cohort it takes several hours, and the preprocessing step needs a high-memory machine (see the memory note below), so it is best run as a batch job.
+
+The model is saved to a **directory**, `{out}_ancestry_model/`, holding `pipeline.pkl`, `common_snps.txt`, `metadata.json` and `requirements.txt`. Keep the directory intact and pass it to `--model` for future runs. (1.x wrote a single `{out}_umap_linearsvc_ancestry_model.pkl` plus a sibling `.common_snps`; 2.x cannot load that format.)
 
 ---
 
@@ -41,8 +42,41 @@ genotools \
     --pfile /path/to/genotypes/for/ancestry/prediction \
     --out /path/to/ancestry/prediction/output \
     --ancestry \
-    --ref_panel /path/to/created/reference/panel \
-    --ref_labels /path/to/created/reference/ancestry/labels \
+    --ref-panel /path/to/created/reference/panel \
+    --ref-labels /path/to/created/reference/ancestry/labels
 ```
-This command will train a model and render predictions for the provided genotypes. Please note that currently model training takes ~5 hours so this process is best done on HPC with a batch job submission system.
-The model will be saved to: `{out}_umap_linearsvc_ancestry_model.pkl` and the SNPs used to train the model will be saved to `{out}_umap_linearsvc_ancestry_model.common_snps`. Please save these files and keep them in the same directory for future use on your genotypes!
+Same output layout and the same caveats as above.
+
+---
+
+### 3. Refitting an existing model under new libraries
+
+Training normally derives its SNP list from the intersection of the panel and
+your cohort, which is why it needs the cohort at all. When the SNP list is
+already fixed and is not what you want to change — the usual reason being a
+library upgrade, since ancestry calls move with umap/sklearn versions — the
+cohort is not needed, and the refit takes minutes rather than hours:
+
+```
+python tests/scripts/retrain_reference_model.py \
+    --ref-panel /path/to/reference/panel \
+    --ref-labels /path/to/reference/ancestry/labels \
+    --snplist /path/to/existing/model/common_snps.txt \
+    --out /path/to/new/model
+```
+
+Measured on the GP2 panel (4,008 samples x 43,173 SNPs): **8 minutes** with the
+grid search parallelised. The refit produces no predictions and no per-cohort
+diagnostics — validate it against a cohort separately — and it is not
+bit-identical to the model it replaces, because the hyperparameter grid's top
+is a plateau. Expect the substantive parameters to reproduce and the UMAP shape
+pair to move.
+
+---
+
+### Memory
+
+Ancestry preprocessing materializes the cohort as a dense 8-byte matrix, which
+peaks near 187 GiB at 130,000 samples x 43,000 SNPs. Full-release *training* or
+*prediction* therefore needs a high-memory machine. This is not new in 2.x —
+1.x shares the code path. Tracked as REFACTOR.md item 40.

@@ -41,7 +41,7 @@ MODELS = {
     "nba_v2": ("7618cd9be74a6f8da96ae99016851cce", "1.x", "NeuroBooster array"),
     "neurochip_v1": ("8825d8b490bab62d91752ba64e960c2d", "1.x", "NeuroChip array"),
     "nba_gp2_r12": (
-        "2ff0af5218cc7f93bad737b821924438",
+        "1626381e3f9f54fc141758fc7b95838b",
         "2.x",
         "NeuroBooster array, trained on GP2 release 12 (43,173 SNPs, 10 labels)",
     ),
@@ -76,8 +76,8 @@ def validate_checksum(file_path, checksum):
     calculated_checksum = compute_checksum(file_path)
     return calculated_checksum == checksum
 
-def download_data_from_gcs(url, destination_file_path):
-    if os.path.exists(destination_file_path):
+def download_data_from_gcs(url, destination_file_path, force=False):
+    if os.path.exists(destination_file_path) and not force:
         print(f"File already exists at {destination_file_path}")
         return
 
@@ -130,9 +130,18 @@ def handle_download():
         if os.path.exists(destination_file_path) and validate_checksum(destination_file_path, checksum):
             print(f"Reference panel already downloaded and validated: {destination_file_path}")
         else:
-            download_data_from_gcs(url, destination_file_path)
+            # force=True: reaching here means either there is no local copy or
+            # the one there failed validation, and a stale copy that keeps
+            # failing is not worth preserving. Without this, re-publishing an
+            # artifact strands everyone holding the previous one.
+            download_data_from_gcs(url, destination_file_path, force=True)
             if not validate_checksum(destination_file_path, checksum):
-                print("Error: Checksum validation failed for reference panel.")
+                print(
+                    f"Error: checksum mismatch for {destination_file_path}. "
+                    f"Expected {checksum}. Delete that file and retry; if it "
+                    f"persists, the published artifact and this version of "
+                    f"GenoTools disagree."
+                )
                 sys.exit(1)
             unzip_file(destination_file_path, ref_panel_path)
 
@@ -154,9 +163,18 @@ def handle_download():
         if os.path.exists(destination_file_path) and validate_checksum(destination_file_path, checksum):
             print(f"Model already downloaded and validated: {destination_file_path}")
         else:
-            download_data_from_gcs(url, destination_file_path)
+            # force=True: reaching here means either there is no local copy or
+            # the one there failed validation, and a stale copy that keeps
+            # failing is not worth preserving. Without this, re-publishing an
+            # artifact strands everyone holding the previous one.
+            download_data_from_gcs(url, destination_file_path, force=True)
             if not validate_checksum(destination_file_path, checksum):
-                print("Error: Checksum validation failed for model.")
+                print(
+                    f"Error: checksum mismatch for {destination_file_path}. "
+                    f"Expected {checksum}. Delete that file and retry; if it "
+                    f"persists, the published artifact and this version of "
+                    f"GenoTools disagree."
+                )
                 sys.exit(1)
             unzip_file(destination_file_path, model_path)
 
