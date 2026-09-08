@@ -2087,3 +2087,24 @@ Priority order for making the refactor mergeable to `main`:
     directory format (`pipeline.pkl`, `common_snps.txt`, `metadata.json`)
     already exists locally from the round-19 work; publishing it is a decision
     about what GP2 wants to distribute, not an engineering task.
+
+43. **`python_requires='>=3.8'` is wrong in two directions.** Rounds 5 and 6
+    both recorded a non-blocking follow-up to raise it to >=3.10, to match the
+    PEP-604 annotations the refactor uses. It was never done, and the reason is
+    now stronger than annotations: as of the 2.1.0 release the resolved
+    dependency stack needs **3.11** -- `pandas 3.0.5` and `scikit-learn 1.9.0`
+    both declare `requires_python >=3.11`. So on 3.8-3.10 pip either backtracks
+    to years-old pandas/sklearn or fails outright, and neither is a supported
+    configuration; CI tests 3.11 only. `README.md` compounds it with badges
+    advertising 3.8, 3.9 and 3.10 and none for 3.11. Fixing needs a release,
+    since `python_requires` is baked into the published metadata.
+
+44. **There is no `--version` flag.** The only ways to ask which GenoTools is
+    installed are `pip show the_real_genotools` and
+    `importlib.metadata.version(...)`. The obvious `import genotools;
+    genotools.__version__` is actively misleading: from any directory holding a
+    `genotools/` package it reports the *source tree* rather than the installed
+    distribution (the `sys.path` trap in CLAUDE.md), and 1.x never defined the
+    attribute at all, so on a real 1.3.6 install it raises `AttributeError`
+    instead of answering. A few lines, but it cannot reach users without a
+    release.
