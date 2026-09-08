@@ -62,7 +62,9 @@ reasons that are not the fixes; see the note under Known behavior.
 - **GWAS p-values shift slightly.** PCA now excludes high-LD and MHC regions
   that 1.x left in. Genomic-inflation lambda is unchanged within 0.05 and the
   tested-variant set is identical.
-- **1.x ancestry models cannot be loaded.** Retrain, or stay on 1.3.6.
+- **1.x ancestry models cannot be loaded.** Download `nba_gp2_r12` (the new
+  default) for the NeuroBooster array, retrain against your own reference
+  panel, or stay on 1.3.6.
 - Logging redesigned: one consolidated run log with per-step sections and
   inlined PLINK output, plus per-step raw logs that persist regardless of
   `--full-output`.
@@ -88,6 +90,13 @@ reasons that are not the fixes; see the note under Known behavior.
   naming each external tool's resolved path and version.
 - `tests/scripts/check_model_health.py` — reports whether a saved model, 1.x or
   2.x, is collapsed.
+- **`nba_gp2_r12`, a 2.x-format ancestry model** for the NeuroBooster array,
+  trained on GP2 release 12 (43,173 SNPs, 10 labels) through the fixed
+  deterministic path. Now the `genotools-download` default, since the three 1.x
+  models it used to serve cannot be loaded by 2.x. Asking for one of those now
+  warns instead of failing later at load time, and an unknown name lists what
+  is available rather than raising `KeyError`. `--model default` /
+  `--ref default` now work, as the help text has always claimed.
 
 ### Removed
 

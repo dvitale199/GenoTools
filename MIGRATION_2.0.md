@@ -382,9 +382,20 @@ directory written by 2.0, or retrain by dropping --model and passing
 --ref-panel/--ref-labels.
 ```
 
-Retrain once against your reference panel and reuse the resulting directory.
-(1.x's `--model` also required a sibling `.common_snps` file; 2.0 keeps
-`common_snps.txt` inside the model directory instead.)
+Two ways forward. For the NeuroBooster array, download the 2.x model:
+
+```bash
+genotools-download --model nba_gp2_r12
+```
+
+`nba_gp2_r12` is trained on GP2 release 12 (43,173 SNPs, 10 ancestry labels)
+and is the `genotools-download` default. The 1.x models (`nba_v1`, `nba_v2`,
+`neurochip_v1`) remain available for anyone still on 1.x, and asking for one
+now prints a warning saying it will not load in 2.x.
+
+Otherwise retrain once against your reference panel and reuse the resulting
+directory. (1.x's `--model` also required a sibling `.common_snps` file; 2.x
+keeps `common_snps.txt` inside the model directory instead.)
 
 ### A model records the libraries it was fitted under
 

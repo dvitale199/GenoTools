@@ -22,6 +22,49 @@ import requests
 import zipfile
 from tqdm import tqdm
 
+# Downloadable artifacts, keyed by the name users pass to --ref / --model. The
+# value is the md5 of `{url_base}/{kind}/{name}.zip`, checked after download.
+#
+# Ancestry models come in two mutually incompatible formats. A 1.x model is a
+# bare sklearn Pipeline pickle; 2.x writes a directory (pipeline.pkl,
+# common_snps.txt, metadata.json, requirements.txt) and rejects a 1.x model by
+# design. Serving both means a name alone cannot tell you whether the model
+# will load, so the format is recorded here and reported at download time.
+REF_PANELS = {
+    "1kg_30x_hgdp_ashk_ref_panel": "6cf0764ae6e99f60127e42b12b4af5d7",
+}
+DEFAULT_REF = "1kg_30x_hgdp_ashk_ref_panel"
+
+MODELS = {
+    # name: (md5, format, description)
+    "nba_v1": ("755042b6a1e600a06b10352d42c57d20", "1.x", "NeuroBooster array"),
+    "nba_v2": ("7618cd9be74a6f8da96ae99016851cce", "1.x", "NeuroBooster array"),
+    "neurochip_v1": ("8825d8b490bab62d91752ba64e960c2d", "1.x", "NeuroChip array"),
+    "nba_gp2_r12": (
+        "2ff0af5218cc7f93bad737b821924438",
+        "2.x",
+        "NeuroBooster array, trained on GP2 release 12 (43,173 SNPs, 10 labels)",
+    ),
+}
+DEFAULT_MODEL = "nba_gp2_r12"
+
+
+def resolve_name(requested, catalogue, default, kind):
+    """Map a user-supplied artifact name to a key in `catalogue`.
+
+    `default` (and the literal string "default", which the CLI help has always
+    advertised) resolve to the default artifact. An unknown name raises with the
+    available names, rather than the bare KeyError this used to produce.
+    """
+    name = default if requested in (None, "default") else requested
+    if name not in catalogue:
+        available = ", ".join(sorted(catalogue))
+        raise SystemExit(
+            f"Unknown {kind} {name!r}. Available: {available}."
+        )
+    return name
+
+
 def compute_checksum(file_path):
     hash_md5 = hashlib.md5()
     with open(file_path, "rb") as file:
@@ -66,8 +109,8 @@ def handle_download():
     parser = argparse.ArgumentParser(description="Download, validate, and unzip reference data")
     default_destination = os.path.expanduser("~/.genotools/ref")
     parser.add_argument('--destination', type=str, default=default_destination, help="Local destination directory for the download (default: ~/.genotools/refs)")
-    parser.add_argument('--model', type=str, help="Version of the model to use (provide 'default' for default model)")
-    parser.add_argument('--ref', type=str, help="Version of the reference panel to use (provide 'default' for default reference panel)")
+    parser.add_argument('--model', type=str, help=f"Ancestry model to download (default: {DEFAULT_MODEL}). Available: {', '.join(sorted(MODELS))}. Only 2.x-format models load in GenoTools 2.x")
+    parser.add_argument('--ref', type=str, help=f"Reference panel to download (default: {DEFAULT_REF}). Available: {', '.join(sorted(REF_PANELS))}")
 
     args = parser.parse_args()
 
@@ -76,13 +119,9 @@ def handle_download():
     download_model = args.model is not None or (args.model is None and args.ref is None)
 
     if download_ref:
-        checksums_dict = {
-            "1kg_30x_hgdp_ashk_ref_panel": "6cf0764ae6e99f60127e42b12b4af5d7"
-        }
-
-        ref = args.ref if args.ref else "1kg_30x_hgdp_ashk_ref_panel"
+        ref = resolve_name(args.ref, REF_PANELS, DEFAULT_REF, "reference panel")
         url = f"{url_base}/ref_panel/{ref}.zip"
-        checksum = checksums_dict[ref]
+        checksum = REF_PANELS[ref]
         ref_panel_path = f'{args.destination}/ref_panel'
         print(f'Pulling reference panel {ref}')
         os.makedirs(ref_panel_path, exist_ok=True)
@@ -98,15 +137,15 @@ def handle_download():
             unzip_file(destination_file_path, ref_panel_path)
 
     if download_model:
-        checksums_dict = {
-            'nba_v1': '755042b6a1e600a06b10352d42c57d20',
-            'nba_v2': '7618cd9be74a6f8da96ae99016851cce',
-            'neurochip_v1': '8825d8b490bab62d91752ba64e960c2d'
-        }
-
-        model = args.model if args.model else "nba_v2"
+        model = resolve_name(args.model, MODELS, DEFAULT_MODEL, "model")
+        checksum, model_format, description = MODELS[model]
         url = f"{url_base}/models/{model}.zip"
-        checksum = checksums_dict[model]
+        if model_format == "1.x":
+            print(
+                f"Warning: {model} is a GenoTools 1.x model ({description}) and "
+                f"cannot be loaded by 2.x. Pass --model {DEFAULT_MODEL} for the "
+                f"2.x model, or train your own with --ref-panel/--ref-labels."
+            )
         model_path = f'{args.destination}/models'
         print(f'Pulling model: {model}')
         os.makedirs(model_path, exist_ok=True)

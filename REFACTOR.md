@@ -1972,7 +1972,20 @@ Priority order for making the refactor mergeable to `main`:
     released vs 33.0% T3 on 50 PCs, 35.2% neither), because at cohort scale
     that baseline agrees with either labeling on only ~87%. Related: item 33
     on uncalibrated thresholds, item 38 on persisting `cv_results_`.
-42. **No pretrained model that 2.x can load is published.**
+42. ✅ **No pretrained model that 2.x can load is published** — RESOLVED in
+    **round 20**, pending the upload. `nba_gp2_r12` (the full-GP2-r12 model from
+    round 19's T3 run, post-fix: `n_estimators=200`, `n_jobs=1`, 43,173 SNPs, 10
+    labels) is packaged, checksummed and wired in as the `genotools-download`
+    default. Two things the round found while doing it: `--model default` raised
+    `KeyError('default')` despite the help text advertising it, and an unknown
+    name did the same instead of listing what exists. Both fixed, and asking for
+    a 1.x model now warns that it will not load in 2.x rather than failing later
+    inside `AncestryModel.load`. **Not closed until the archive is actually
+    uploaded to `gs://genotools_refs/models/nba_gp2_r12.zip`** — the md5 in
+    `download_refs.MODELS` pins a specific archive, and a name in that dict with
+    no object behind it fails at download time. Superseded note follows.
+
+    Original: **No pretrained model that 2.x can load is published.**
     `genotools-download` serves `nba_v1`, `nba_v2` and `neurochip_v1`; all three
     are 1.x pickles, and `AncestryModel.load` rejects a 1.x model by design with
     an explanatory error. So the README's getting-started path — download a

@@ -44,14 +44,19 @@ Then confirm the paperwork matches the code:
 - [ ] Any behavior that moves scientific results is stated plainly in both
       `CHANGELOG.md` and `MIGRATION_2.0.md`, including the ones that are
       *not* improvements
-- [ ] **A pretrained model the released code can actually load is available**,
-      and `README.md` names it correctly. `genotools-download` serves models
-      from `https://storage.googleapis.com/genotools_refs/models/`, and the
-      ones published there (`nba_v1`, `nba_v2`, `neurochip_v1`) are 1.x
-      pickles that 2.x rejects by design. Until a 2.x-format model is published
-      there, the documented getting-started path ends in a load error and the
-      docs must say so, directing users to train their own with
-      `--ref-panel`/`--ref-labels`
+- [ ] **Every model named in `download_refs.MODELS` is actually uploaded**, and
+      its recorded md5 matches the object in the bucket. The names are keys in
+      that dict; the objects live at
+      `gs://genotools_refs/models/<name>.zip`, and each archive must contain a
+      single top-level directory matching its name, because `unzip_file` does a
+      plain `extractall` into `<destination>/models`. A name in the dict with no
+      object behind it fails at download; an object whose md5 has drifted fails
+      checksum validation and exits 1. Verify with:
+
+      ```bash
+      python -c "from genotools.download_refs import MODELS; print(MODELS)"
+      gsutil ls -L gs://genotools_refs/models/
+      ```
 
 That last point is the one that costs users. A release note that says results
 changed without saying whether the new results are better is honest; one that
