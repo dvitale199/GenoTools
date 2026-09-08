@@ -99,11 +99,16 @@ reasons that are not the fixes; see the note under Known behavior.
   2.x, is collapsed.
 - **`nba_gp2_r12`, a 2.x-format ancestry model** for the NeuroBooster array,
   trained on GP2 release 12 (43,173 SNPs, 10 labels) through the fixed
-  deterministic path. Now the `genotools-download` default, since the three 1.x
+  deterministic path, and fitted under the library versions this release
+  requires — so it loads without a drift warning rather than one on first use. Now the `genotools-download` default, since the three 1.x
   models it used to serve cannot be loaded by 2.x. Asking for one of those now
   warns instead of failing later at load time, and an unknown name lists what
   is available rather than raising `KeyError`. `--model default` /
-  `--ref default` now work, as the help text has always claimed.
+  `--ref default` now work, as the help text has always claimed. A cached
+  archive that fails checksum validation is now re-downloaded instead of
+  failing forever: `download_data_from_gcs` returned early whenever the
+  destination existed, so re-publishing an artifact stranded anyone holding the
+  previous copy, and the error never named the file to delete.
 
 ### Removed
 

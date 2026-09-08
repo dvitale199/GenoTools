@@ -1707,6 +1707,46 @@ move alongside it. Deliberately not treated as harmless — 2.x's SNP tie-break
 and absent-SNP fill both changed ancestry behaviour — but the changelog is the
 authority on that, not a version comparison. Both new tests revert-checked.
 
+**The model that fell out of that had to be retrained, and the reason is
+item 16.** The packaged model recorded `umap-learn 0.5.3`, while `setup.py`
+requires `>=0.5.5` and `requirements-lock.txt` pins `0.5.12` -- both correct;
+only the development `.venv` had drifted, which `pip check` reports in one
+line. So the model destined to be every user's default was fitted under a
+version the package forbids, its own `requirements.txt` remedy
+(`umap-learn==0.5.3`, `setuptools<82`) contradicted that floor, and a fresh
+install of 2.1.0 resolves umap to 0.5.12 -- meaning the *genuine* library-drift
+warning, worth ~1.2% of calls (round 16), on first use of the shipped model.
+
+Refit on the panel alone, which is the cheap operation nothing had written
+down: the model trains on the *panel's* labels and the cohort enters only
+through the common-SNP intersection, so with the SNP list already fixed the
+cohort is not needed at all. `tests/scripts/retrain_reference_model.py` does
+it -- **8 minutes** on 4,008 panel samples x 43,173 SNPs with the grid
+parallelised, against the 4h50m and ~187 GiB a cohort run costs.
+
+The result is the cleanest evidence yet for item 41's plateau claim. The
+substantive parameters reproduced exactly (`n_components=25`, `n_neighbors=5`,
+`lambda=0.001`, `learning_rate=0.1`); only the UMAP shape pair moved, `a`/`b`
+1.0/0.75 -> 0.75/0.5, which is the direction the plateau is flattest in. And
+held-out accuracy is **identical to six decimal places** (0.983791, the same
+789 of 802 test samples) across a umap major-version change and a different
+`a`/`b` -- so the two are genuinely interchangeable at the top of that
+plateau, which is exactly why an argmax there is not a decision. Train accuracy
+moved 0.9371 -> 0.9588. Model verdict CONVERGED, max abs coef 0.924, intercept
+1.146, 10 classes.
+
+**A stale cached archive was an unrecoverable dead end**, found by re-publishing
+the artifact. `download_data_from_gcs` returned early whenever the destination
+existed, and the caller only reaches it *because* validation failed -- so
+anyone holding a superseded copy re-validated the same bad bytes and exited 1
+forever, with an error that never named the file to delete. Fixed with a
+`force` flag on that path plus an error naming the file and the expected
+checksum. Reachable in practice the moment `nba_gp2_r12` was rebuilt.
+
+`docs/train_new_model.md` was also found describing 1.x: underscore flags and
+the single-`.pkl` model layout 2.x rejects. Corrected, with the panel-only
+refit documented as a third case.
+
 Suites green on the bumped tree: `tests/unit` 903, `tests/regression` 77. The
 goldens embed `run_info.version`, but nothing asserts on it, so the bump needed
 no regeneration. Wheel builds clean at 0.62 MB with no `.pkl` entries; the

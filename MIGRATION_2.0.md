@@ -389,7 +389,10 @@ genotools-download --model nba_gp2_r12
 ```
 
 `nba_gp2_r12` is trained on GP2 release 12 (43,173 SNPs, 10 ancestry labels)
-and is the `genotools-download` default. The 1.x models (`nba_v1`, `nba_v2`,
+and is the `genotools-download` default. It was fitted under the library
+versions 2.1.0 itself requires, so it loads without a drift warning; when those
+libraries later move, the warning it then emits is the real thing and worth
+reading. The 1.x models (`nba_v1`, `nba_v2`,
 `neurochip_v1`) remain available for anyone still on 1.x, and asking for one
 now prints a warning saying it will not load in 2.x.
 
