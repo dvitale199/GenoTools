@@ -9,6 +9,20 @@ The version has one source of truth: `__version__` in `genotools/__init__.py`.
 
 ---
 
+## Order of operations
+
+Three publishes have to happen in this order, because each one is visible to
+users the moment it lands:
+
+1. **The model archive to GCS** (§2a). The released code's default is
+   `nba_gp2_r12`; if PyPI goes first, every `genotools-download` between the two
+   fails.
+2. **The git tag** (§3), so the tag exists for the GitHub release and for
+   `setup_stable_venv.sh` to resolve later.
+3. **PyPI** (§4), last — it is the only irreversible step.
+
+---
+
 ## 1. Preflight
 
 Run from a clean checkout of `main` with the release commit merged.
@@ -66,25 +80,36 @@ implies an improvement nobody measured is not.
 
 ## 2. Build and inspect the artifact
 
-Full detail, including why `build/` must be removed first, is in
+PyPI expects **both** a wheel and an sdist — every 1.x release shipped both — so
+build with `build`, not `pip wheel`, which produces only the wheel. Full detail
+on why `build/` must be removed first is in
 [TESTING.md §8](../TESTING.md#8-building-a-release-artifact).
 
 ```bash
 rm -rf build dist *.egg-info        # not optional
-python -m pip wheel --no-deps -w dist .
+python -m pip install --upgrade build
+python -m build                     # -> dist/*.whl and dist/*.tar.gz
 ```
 
-Inspect before uploading:
+Inspect both before uploading:
 
 ```bash
-python -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('dist/*.whl')[0]); \
-  print(sum(i.file_size for i in z.infolist())/1024/1024, 'MB'); \
-  print([i.filename for i in z.infolist() if not i.filename.endswith('.py')])"
+python - <<'EOF'
+import glob, tarfile, zipfile
+z = zipfile.ZipFile(glob.glob("dist/*.whl")[0])
+print("wheel uncompressed:", round(sum(i.file_size for i in z.infolist())/1024/1024, 2), "MB")
+print("wheel non-.py:", [i.filename for i in z.infolist() if not i.filename.endswith(".py")])
+t = tarfile.open(glob.glob("dist/*.tar.gz")[0])
+print("sdist entries:", len(t.getnames()))
+print("pickles:", [n for n in z.namelist() + t.getnames() if n.endswith(".pkl")] or "none")
+EOF
 ```
 
-A healthy 2.1.0 wheel is ~0.62 MB. If it is ~2.57 MB, it is shipping two 1.x
-ancestry model pickles that the code cannot load — the `build/` directory was
-stale.
+A healthy 2.1.0 wheel is ~0.62 MB uncompressed (~208 KB on disk) and the sdist
+has ~78 entries. **Neither may contain a `.pkl`.** A ~2.57 MB wheel is shipping
+two 1.x ancestry model pickles the code cannot load — the `build/` directory was
+stale. Note the project has no `MANIFEST.in`, so the sdist's contents come from
+setuptools' defaults plus `package_data`.
 
 Install it into a throwaway environment and check the version it reports:
 
@@ -96,6 +121,30 @@ python -m venv /tmp/relcheck && /tmp/relcheck/bin/pip install -q dist/*.whl
 
 (There is no `genotools --version` flag; the import above is the check. Adding
 one would be a reasonable small change.)
+
+---
+
+## 2a. Upload the model archive
+
+Any model named in `download_refs.MODELS` must exist in the bucket with the
+recorded md5:
+
+```bash
+gsutil cp nba_gp2_r12.zip gs://genotools_refs/models/
+gsutil ls -l gs://genotools_refs/models/
+```
+
+Each archive must contain a single top-level directory matching its name —
+`unzip_file` does a plain `extractall` into `<destination>/models`. Verify the
+round trip before releasing:
+
+```bash
+genotools-download --model nba_gp2_r12 --destination /tmp/dlcheck
+python -c "
+from genotools.ancestry import AncestryModel
+m = AncestryModel.load('/tmp/dlcheck/models/nba_gp2_r12')
+print(len(m.common_snps), 'SNPs', list(m.label_encoder.classes_))"
+```
 
 ---
 
@@ -115,13 +164,40 @@ job resolve the baseline by tag name (`v1.3.6`).
 
 ## 4. Publish
 
+**A PyPI upload is final.** A version number can never be reused, even after
+deleting the release — if `2.1.0` goes up wrong, the only fix is `2.1.1`. Do
+every check above first.
+
+Credentials are an **API token**, not a password. On
+[pypi.org](https://pypi.org) → *Account settings* → *API tokens*, create one
+scoped to the `the-real-genotools` project; it is shown once and starts with
+`pypi-`. The username is the literal string `__token__`.
+
 ```bash
 python -m pip install --upgrade twine
-twine check dist/*
-twine upload dist/*                 # PyPI credentials required
+twine check dist/*                  # metadata renders; run before every upload
+twine upload dist/*                 # username: __token__   password: pypi-...
 ```
 
-Then verify from outside:
+To avoid pasting the token each time, put it in `~/.pypirc` (mode 600):
+
+```ini
+[pypi]
+  username = __token__
+  password = pypi-AgEIcHlwaS5vcmc...
+```
+
+**Rehearse on TestPyPI first** if you want the upload path exercised without
+consequences. It is a separate site with its own account and token, and it burns
+the version number there too:
+
+```bash
+twine upload --repository testpypi dist/*
+pip install --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple the_real_genotools==2.1.0
+```
+
+Then verify the real thing from outside the machine that built it:
 
 ```bash
 pip download --no-deps -d /tmp/pypicheck the_real_genotools==2.1.0
