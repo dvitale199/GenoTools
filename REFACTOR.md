@@ -1622,6 +1622,96 @@ scripts take `--out` for exactly this reason.
 
 ---
 
+### Round 20 (shipping it: 2.1.0 is the first published 2.x)
+
+Nineteen rounds of work were sitting on `main` reaching nobody. PyPI's latest
+release is **1.3.6**; there is no `v2.0.0` or `v2.0.1` tag, no publish
+workflow, and no changelog. `__version__` had been bumped to `2.0.1` once (in
+round 13) and never tagged or uploaded, so the 2.0 line existed only as a
+string in `genotools/__init__.py`.
+
+That reframes the release. It is not `2.0.1 -> 2.1.0`, a minor bump covering
+rounds 18 and 19; publicly it is **1.3.6 -> 2.1.0**, and the notes have to
+carry the entire 2.x change set. `MIGRATION_2.0.md` was already an unusually
+complete migration guide, so the work was correcting what it said about
+versions, adding what it was missing, and building the release machinery around
+it.
+
+**Version and the references that named unpublished versions.** `__version__`
+-> `2.1.0`. `cli/parser.py:1327` told users a flag "was removed in GenoTools
+2.0.1" — a version no one can install; now `2.0`. `MIGRATION_2.0.md` named
+`2.0.0`, `2.0.1` and `2.0.2` in six places, including a `pip install` comment
+and the model-provenance section promising behaviour from "2.0.2 or later".
+Retitled to *Migrating to GenoTools 2.x* and opened by stating that 2.1.0 is
+the first published 2.x, so a reader arriving from 1.3.6 knows the whole
+document applies to them.
+
+**The one thing the guide was missing was the thing most likely to be
+misread.** Round 19 measured that retraining after the upgrade moves ~1.3% of
+ancestry labels, and that this is a property of retraining rather than of the
+fix — triangulated three ways (0.08% old-vs-new with training data held fixed,
+all three determinism arms labelling identically, and 1.3.6 paying the same
+~1.3% against the released labels). Written up as its own section, stating the
+two mechanisms (a hyperparameter plateau 48 candidates wide, a cohort-dependent
+common-SNP list), and stating explicitly that a model-free arbiter cannot rank
+the two labelings, so the upgrade must not be reported as improving ancestry
+calls. Without that, "1.3% of labels changed" in a release note reads as an
+effect of the round-19 PR, which it is not.
+
+**Verification updated to the full-scale evidence.** The guide cited only the
+10k differential run; it now also carries the 129,831-sample production run —
+88/88 QC steps across 11 groups, bit-identical across 20 repeated fits, QC
+reproducing the release (callrate 2,906 vs 2,906), and the AMR het difference
+identified as a threshold difference rather than a code difference. Plus the
+187 GiB preprocessing peak as a hardware note, flagged as shared with 1.x
+rather than new.
+
+**New: `CHANGELOG.md`** (there was none) and **`docs/releasing.md`** — the
+preflight, build, tag, publish and post-publish sequence, including the two
+traps that already cost time: `PYTHONPATH` breaking the parity baseline, and a
+stale `build/` re-shipping the 1.x model pickles.
+
+**Found while writing it: the documented getting-started path is broken on
+2.x.** `genotools-download` serves `nba_v1`, `nba_v2` and `neurochip_v1` from
+`storage.googleapis.com/genotools_refs/models/`, all 1.x pickles, and 2.x
+rejects a 1.x model by design (`download_refs.py:102-107`). README told users
+to download one. Not a code defect — no 2.x-format model has been published —
+but a new user following the README hits a load error. README now says so and
+directs them to train against `--ref-panel`/`--ref-labels`; the release
+checklist has a preflight item for it. Publishing a 2.x model alongside the
+release would close it properly. Remaining-work item 42.
+
+**A distributed model exposed a warning-fatigue defect.** Round trip the
+packaged model through the real download path and it loads with
+`Model version drift: genotools 2.0.1 -> 2.1.0 ... ancestry calls may not match
+what this model was validated on`. So the model GenoTools itself ships warns on
+first use under the release that ships it. `version_drift` compares GenoTools'
+own version by design (`provenance.py:126-136` says so), and GenoTools' version
+moves on *every* release — so every distributed model warns after every
+release, including a docs-only one. That is the surest way to train users past
+the warning, which exists for the umap case that genuinely moves ~1.2% of calls.
+
+Checked whether the warning was earned: it was not. Diffing the fit commit
+(`0788e23`) against `HEAD` over `ancestry/` and `runner.py`, everything that
+landed since is prediction-side — `_predict_admixed`'s decision table,
+diagnostics, `self_test` — plus `_check_overlap`, which returns early on
+healthy data. `fit`, `_prepare_training_data` and `_train_classifier` are
+untouched, and the `run_umap` change is the plotting embedding, not the
+pipeline's. The model is what 2.1.0's training code produces; only the version
+string differs.
+
+Fixed by holding GenoTools apart from the embedding-drift comparison: a
+GenoTools-only difference reports as provenance at `INFO` and points at the
+changelog, while library drift warns exactly as before and names the GenoTools
+move alongside it. Deliberately not treated as harmless — 2.x's SNP tie-break
+and absent-SNP fill both changed ancestry behaviour — but the changelog is the
+authority on that, not a version comparison. Both new tests revert-checked.
+
+Suites green on the bumped tree: `tests/unit` 903, `tests/regression` 77. The
+goldens embed `run_info.version`, but nothing asserts on it, so the bump needed
+no regeneration. Wheel builds clean at 0.62 MB with no `.pkl` entries; the
+0.46 MB figure in `TESTING.md` predated rounds 18-19 and was corrected.
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -1908,3 +1998,27 @@ Priority order for making the refactor mergeable to `main`:
     released vs 33.0% T3 on 50 PCs, 35.2% neither), because at cohort scale
     that baseline agrees with either labeling on only ~87%. Related: item 33
     on uncalibrated thresholds, item 38 on persisting `cv_results_`.
+42. ✅ **No pretrained model that 2.x can load is published** — RESOLVED in
+    **round 20**, pending the upload. `nba_gp2_r12` (the full-GP2-r12 model from
+    round 19's T3 run, post-fix: `n_estimators=200`, `n_jobs=1`, 43,173 SNPs, 10
+    labels) is packaged, checksummed and wired in as the `genotools-download`
+    default. Two things the round found while doing it: `--model default` raised
+    `KeyError('default')` despite the help text advertising it, and an unknown
+    name did the same instead of listing what exists. Both fixed, and asking for
+    a 1.x model now warns that it will not load in 2.x rather than failing later
+    inside `AncestryModel.load`. **Not closed until the archive is actually
+    uploaded to `gs://genotools_refs/models/nba_gp2_r12.zip`** — the md5 in
+    `download_refs.MODELS` pins a specific archive, and a name in that dict with
+    no object behind it fails at download time. Superseded note follows.
+
+    Original: **No pretrained model that 2.x can load is published.**
+    `genotools-download` serves `nba_v1`, `nba_v2` and `neurochip_v1`; all three
+    are 1.x pickles, and `AncestryModel.load` rejects a 1.x model by design with
+    an explanatory error. So the README's getting-started path — download a
+    model, pass `--model` — cannot work on 2.x, and the only supported route is
+    training against `--ref-panel`/`--ref-labels`. Documented in README and in
+    the release checklist as of round 20, but the real fix is publishing a
+    2.x-format model to the same bucket. A trained GP2 model in the 2.x
+    directory format (`pipeline.pkl`, `common_snps.txt`, `metadata.json`)
+    already exists locally from the round-19 work; publishing it is a decision
+    about what GP2 wants to distribute, not an engineering task.

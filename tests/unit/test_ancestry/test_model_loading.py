@@ -242,3 +242,59 @@ def test_fit_is_what_records_the_versions() -> None:
         "fit() no longer records versions; every model trained from here on "
         "would load with unknown provenance"
     )
+
+
+def _infos(caplog: "pytest.LogCaptureFixture") -> str:
+    return "\n".join(r.getMessage() for r in caplog.records if r.levelname == "INFO")
+
+
+def test_a_genotools_only_difference_is_not_reported_as_drift(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """GenoTools' own version moves on every release, including releases that
+    change nothing numerical. Warning on it alone means every distributed model
+    warns after every release -- and the model GenoTools itself ships would warn
+    on first use, which is the fastest way to teach users to skip the warning
+    that actually matters.
+    """
+    from genotools.core.provenance import package_versions
+
+    versions = dict(package_versions())
+    versions["genotools"] = "0.0.1-earlier"
+    path = _model_with_versions(tmp_path, versions)
+
+    with caplog.at_level("INFO", logger="genotools"):
+        AncestryModel.load(path)
+
+    assert "drift" not in _warnings(caplog).lower(), (
+        "a GenoTools version bump alone must not read as library drift"
+    )
+    info = _infos(caplog)
+    assert "0.0.1-earlier" in info, "still say which version fitted the model"
+    assert "changelog" in info.lower(), (
+        "name the authority on whether that release moved ancestry calls"
+    )
+
+
+def test_library_drift_still_warns_and_mentions_genotools_too(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Holding GenoTools apart must not swallow real drift reported alongside
+    it: a model fitted under an older umap *and* an older GenoTools is still
+    the umap case, and that is what moves the embedding."""
+    from genotools.core.provenance import package_versions
+
+    versions = dict(package_versions())
+    versions["umap-learn"] = "0.0.1-ancient"
+    versions["genotools"] = "0.0.1-earlier"
+    path = _model_with_versions(tmp_path, versions)
+
+    with caplog.at_level("WARNING", logger="genotools"):
+        AncestryModel.load(path)
+
+    message = _warnings(caplog)
+    assert "umap-learn" in message and "0.0.1-ancient" in message
+    assert "ancestry calls" in message.lower()
+    assert "0.0.1-earlier" in message, (
+        "the GenoTools move is context for the drift, not something to drop"
+    )

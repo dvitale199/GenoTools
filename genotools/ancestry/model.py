@@ -129,18 +129,44 @@ def _warn_on_version_drift(
     if not drift:
         return
 
-    changes = "; ".join(f"{name} {was} -> {now}" for name, was, now in drift)
+    # GenoTools' own version is held apart from the rest. It moves on *every*
+    # release, including a release that changes nothing numerical, so on its
+    # own it is provenance rather than evidence the embedding moved -- and a
+    # warning that fires for every model after every release is one users learn
+    # to skip, which costs exactly the umap-drift case this exists to catch.
+    # It is not nothing either: a release can change ancestry behaviour (the
+    # 2.x SNP tie-break and absent-SNP fill both did). The authority on whether
+    # a given release did is that release's changelog, so point there instead
+    # of claiming the calls moved.
+    library_drift = [entry for entry in drift if entry[0] != "genotools"]
+    genotools_drift = [entry for entry in drift if entry[0] == "genotools"]
+
+    if not library_drift:
+        _, was, now = genotools_drift[0]
+        logger.info(
+            f"Model provenance: fitted under GenoTools {was}, running {now}. "
+            f"The libraries that determine the embedding are unchanged, so "
+            f"this is not library drift. Check that release's changelog if it "
+            f"changed ancestry behaviour."
+        )
+        return
+
+    changes = "; ".join(f"{name} {was} -> {now}" for name, was, now in library_drift)
     how = "Reinstall the recorded versions, or retrain, to reproduce them."
     if path is not None and (Path(path) / "requirements.txt").exists():
         how = (
             f"To reproduce the original calls: "
             f"pip install -r {Path(path) / 'requirements.txt'} -- or retrain."
         )
+    also = ""
+    if genotools_drift:
+        _, was, now = genotools_drift[0]
+        also = f" (GenoTools itself moved {was} -> {now}.)"
     logger.warning(
         f"Model version drift: {changes}. This model was fitted under the "
         f"recorded versions, and the embedding can differ under different "
         f"ones, so ancestry calls may not match what this model was validated "
-        f"on. {how}"
+        f"on. {how}{also}"
     )
 
 

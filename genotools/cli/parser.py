@@ -1324,7 +1324,7 @@ def _reject_removed_flags(args: Optional[Sequence[str]] = None) -> None:
     used = {tok.split("=", 1)[0] for tok in argv if tok.startswith("--")}
     for flag in sorted(used & set(_REMOVED_FLAGS)):
         raise ValueError(
-            f"{flag} was removed in GenoTools 2.0.1. {_REMOVED_FLAGS[flag]}"
+            f"{flag} was removed in GenoTools 2.0. {_REMOVED_FLAGS[flag]}"
         )
 
 
