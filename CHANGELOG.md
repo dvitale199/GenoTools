@@ -68,6 +68,13 @@ reasons that are not the fixes; see the note under Known behavior.
 - Logging redesigned: one consolidated run log with per-step sections and
   inlined PLINK output, plus per-step raw logs that persist regardless of
   `--full-output`.
+- **A model's recorded GenoTools version no longer counts as library drift.**
+  It changes on every release, so comparing it meant every distributed model
+  warned that its ancestry calls might have moved after every release —
+  including the model GenoTools ships, on first use. A GenoTools-only
+  difference is now reported as provenance at `INFO` and points at the
+  changelog; drift in the libraries that determine the embedding warns exactly
+  as before, and names the GenoTools move alongside it.
 - Internals: the `SampleQC`/`VariantQC`/`Ancestry` classes were replaced by
   pure functions over frozen config dataclasses. Anything importing those
   classes directly will need updating; the CLI is unaffected.

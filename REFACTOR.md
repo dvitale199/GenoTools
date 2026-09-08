@@ -1681,7 +1681,33 @@ directs them to train against `--ref-panel`/`--ref-labels`; the release
 checklist has a preflight item for it. Publishing a 2.x model alongside the
 release would close it properly. Remaining-work item 42.
 
-Suites green on the bumped tree: `tests/unit` 888, `tests/regression` 77. The
+**A distributed model exposed a warning-fatigue defect.** Round trip the
+packaged model through the real download path and it loads with
+`Model version drift: genotools 2.0.1 -> 2.1.0 ... ancestry calls may not match
+what this model was validated on`. So the model GenoTools itself ships warns on
+first use under the release that ships it. `version_drift` compares GenoTools'
+own version by design (`provenance.py:126-136` says so), and GenoTools' version
+moves on *every* release — so every distributed model warns after every
+release, including a docs-only one. That is the surest way to train users past
+the warning, which exists for the umap case that genuinely moves ~1.2% of calls.
+
+Checked whether the warning was earned: it was not. Diffing the fit commit
+(`0788e23`) against `HEAD` over `ancestry/` and `runner.py`, everything that
+landed since is prediction-side — `_predict_admixed`'s decision table,
+diagnostics, `self_test` — plus `_check_overlap`, which returns early on
+healthy data. `fit`, `_prepare_training_data` and `_train_classifier` are
+untouched, and the `run_umap` change is the plotting embedding, not the
+pipeline's. The model is what 2.1.0's training code produces; only the version
+string differs.
+
+Fixed by holding GenoTools apart from the embedding-drift comparison: a
+GenoTools-only difference reports as provenance at `INFO` and points at the
+changelog, while library drift warns exactly as before and names the GenoTools
+move alongside it. Deliberately not treated as harmless — 2.x's SNP tie-break
+and absent-SNP fill both changed ancestry behaviour — but the changelog is the
+authority on that, not a version comparison. Both new tests revert-checked.
+
+Suites green on the bumped tree: `tests/unit` 903, `tests/regression` 77. The
 goldens embed `run_info.version`, but nothing asserts on it, so the bump needed
 no regeneration. Wheel builds clean at 0.62 MB with no `.pkl` entries; the
 0.46 MB figure in `TESTING.md` predated rounds 18-19 and was corrected.

@@ -416,6 +416,22 @@ because the failure it describes is otherwise silent: a model fitted under one
 umap and loaded under another unpickles cleanly and embeds differently, so the
 run finishes with no error and different ancestry calls.
 
+**GenoTools' own version is held apart from that check.** It moves on every
+release, including one that changes nothing numerical, so a GenoTools-only
+difference is reported as provenance at `INFO` rather than as drift:
+
+```
+Model provenance: fitted under GenoTools 2.0.1, running 2.1.0. The libraries
+that determine the embedding are unchanged, so this is not library drift. Check
+that release's changelog if it changed ancestry behaviour.
+```
+
+It is not treated as harmless — a release *can* change ancestry behaviour, and
+2.x's SNP tie-break and absent-SNP fill both did — but the changelog is the
+authority on whether a given one did, and a warning that fires for every model
+after every release is one users learn to skip. When a library moved too, the
+drift warning fires as normal and names the GenoTools move alongside it.
+
 A model trained before this block existed loads with a *provenance unknown*
 warning instead, since "cannot tell" and "no drift" are different answers.
 Retrain to record it.
