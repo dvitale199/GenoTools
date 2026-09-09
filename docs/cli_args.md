@@ -52,6 +52,22 @@ over `--bfile`, which wins over `--vcf`.
 
 ### Output and Logging Arguments
 
+- **`--version`**
+  - *Type*: `flag`
+  - *Description*: Print the installed GenoTools version and exit. Reports the
+    version pip recorded for the `the_real_genotools` distribution, which is a
+    different question from `genotools.__version__`: from any directory holding
+    a `genotools/` package the import picks up the *source tree* instead of the
+    install. If no distribution is installed at all, it reports the imported
+    package's version and says it came from a source tree. Added in 2.1.1 — on
+    an older install the flag is unrecognized, so `pip show the_real_genotools`
+    is the version check that works everywhere.
+  - *In a development checkout*: under `pip install -e .` this reports the
+    version recorded when the editable install was made, not the current
+    source, and from a directory holding a freshly built `*.egg-info` it can
+    report that instead. Both are the installed-distribution answer, which is
+    the question the flag asks.
+
 - **`--full-output`**
   - *Type*: `flag`
   - *Default*: `False`

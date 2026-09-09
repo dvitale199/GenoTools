@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..ancestry.config import MISSING_FILL_STRATEGIES
 from ..ancestry.diagnostics import DEFAULT_MAX_FILL_FRACTION
+from ..core.version import version_string
 from ..qc.config import (
     CallrateConfig,
     SexConfig,
@@ -660,6 +661,16 @@ Examples:
             --ref-panel refs/panel --ref-labels refs/labels.txt \\
             --all-sample --all-variant
         """,
+    )
+
+    # Answers "which GenoTools is this?" from the installed distribution's
+    # metadata, not from the imported package -- see core/version.py for why
+    # those differ.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=version_string(),
+        help="Show the installed GenoTools version and exit",
     )
 
     # Input file group
