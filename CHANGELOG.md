@@ -3,6 +3,31 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## 2.1.1
+
+A packaging and diagnostics patch. No QC, ancestry or report behavior changes.
+
+### Fixed
+
+- **`python_requires` was `>=3.8`, which no install could satisfy.** The
+  resolved dependency stack needs **3.11** — `pandas` and `scikit-learn` both
+  declare `requires_python >=3.11` — so on 3.8-3.10 pip either backtracked to
+  years-old versions of both or failed with an unhelpful resolution error,
+  rather than saying the interpreter was too old. The floor is now `>=3.11`,
+  matching what CI tests. `README.md` advertised 3.8/3.9/3.10 badges and none
+  for 3.11; it now shows 3.11+.
+
+### Added
+
+- **`genotools --version`.** Previously the only ways to ask which GenoTools was
+  installed were `pip show the_real_genotools` and `importlib.metadata`. The
+  obvious `genotools.__version__` is misleading: from any directory holding a
+  `genotools/` package it reports the source tree rather than the installed
+  distribution, and 1.x never defined the attribute, so on a real 1.3.6 install
+  it raises `AttributeError` instead of answering. The flag reads the installed
+  distribution's metadata, and falls back to the package version — labeled as
+  coming from a source tree — when nothing is installed.
+
 ## 2.1.0
 
 **The first published 2.x release.** 2.0.0 and 2.0.1 were development versions

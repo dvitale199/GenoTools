@@ -8,13 +8,20 @@
 
 
 > [!IMPORTANT]
-> **2.1.0 is the first 2.x release and supersedes 1.3.6.** Upgrading requires
-> `--upgrade`; a plain `pip install` leaves an existing install on 1.3.6.
+> **The 2.x line supersedes 1.3.6.** Upgrading requires `--upgrade`; a plain
+> `pip install` leaves an existing install on 1.3.6.
 >
 > ```bash
 > pip install --upgrade the_real_genotools
-> pip show the_real_genotools          # confirm 2.1.0
+> pip show the_real_genotools          # confirm 2.x; works on 1.x too
 > ```
+>
+> From 2.1.1 on, `genotools --version` answers the same question. On an install
+> that did not move it reports 1.x's argparse error instead, which is why the
+> `pip show` above is the check that works either way.
+>
+> 2.x requires **Python 3.11 or newer** — pandas and scikit-learn both set that
+> floor.
 >
 > This is a breaking upgrade: flags moved from `underscore_style` to
 > `hyphen-style` (old spellings still work but warn), the JSON report gained

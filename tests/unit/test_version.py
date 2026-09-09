@@ -21,13 +21,18 @@ import found, which from a repo checkout is the source tree rather than the
 install. These tests pin the distinction rather than the value.
 """
 
+import re
 from importlib import metadata
+from pathlib import Path
 
 import pytest
 
 from genotools import __version__
 from genotools.cli.parser import parse_args
 from genotools.core.version import DISTRIBUTION, resolve_version, version_string
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class TestResolveVersion:
     """`resolve_version` reads the install, not the import."""
@@ -78,3 +83,25 @@ class TestVersionFlag:
         with pytest.raises(SystemExit) as exc:
             parse_args(["--version"])
         assert exc.value.code == 0
+
+
+class TestReleaseMetadata:
+    """Metadata that has to be bumped together, and silently isn't."""
+
+    def test_changelog_leads_with_the_current_version(self):
+        """The top `## x.y.z` section matches `__version__`."""
+        changelog = (REPO_ROOT / "CHANGELOG.md").read_text()
+        first = re.search(r"^## (\d+\.\d+\.\d+)", changelog, re.MULTILINE)
+        assert first is not None, "CHANGELOG.md has no version section"
+        assert first.group(1) == __version__
+
+    def test_python_requires_matches_the_ci_interpreter(self):
+        """The declared floor is the interpreter CI actually tests."""
+        setup = (REPO_ROOT / "setup.py").read_text()
+        floor = re.search(r"python_requires='>=(\d+\.\d+)'", setup)
+        assert floor is not None, "setup.py declares no python_requires"
+
+        ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+        tested = set(re.findall(r'python-version: "(\d+\.\d+)"', ci))
+        assert tested, "CI declares no python-version"
+        assert floor.group(1) == min(tested, key=lambda v: tuple(map(int, v.split("."))))

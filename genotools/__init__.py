@@ -16,4 +16,4 @@
 # Single source of truth for the package version: setup.py parses this string
 # rather than carrying its own copy, and the JSON report's "run_info" records
 # it so a report says which build produced it.
-__version__ = "2.1.0"
+__version__ = "2.1.1"

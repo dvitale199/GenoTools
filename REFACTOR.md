@@ -1777,6 +1777,62 @@ goldens embed `run_info.version`, but nothing asserts on it, so the bump needed
 no regeneration. Wheel builds clean at 0.62 MB with no `.pkl` entries; the
 0.46 MB figure in `TESTING.md` predated rounds 18-19 and was corrected.
 
+### Round 21 (the two things that could only reach users through a release)
+
+Items 43 and 44 came out of verifying the 2.1.0 release and share a property
+that kept them out of it: both are metadata, so neither can reach a user
+without publishing. 2.1.1 is that publish. No QC, ancestry or report behaviour
+changes.
+
+**`python_requires='>=3.8'` was wrong in a way pip could not report well.**
+Rounds 5 and 6 both recorded raising it to `>=3.10` for the PEP-604
+annotations, and neither did. By 2.1.0 the reason had outgrown the annotations:
+the resolved stack needs **3.11** — `pandas` and `scikit-learn` both declare
+`requires_python >=3.11`. The declared floor therefore promised a
+configuration that cannot exist. On 3.8-3.10 pip does not say "too old"; it
+backtracks, resolving years-old pandas and sklearn that satisfy the floors, and
+installs something nothing tests. Raised to `>=3.11`, matching CI, with
+`3.11`/`3.12` classifiers added. `README.md` had compounded it with badges for
+3.8, 3.9 and 3.10 and none for 3.11.
+
+**`--version` did not exist, and the obvious substitute lies.**
+`genotools.__version__` reports whichever `genotools/` package the import
+found, which from any directory holding one — the repo root above all, via the
+`sys.path` trap — is the *source tree* rather than the install. On a real 1.3.6
+install it raises `AttributeError`, since 1.x never defined the attribute. So
+the two people most likely to ask (someone in a checkout, someone who thinks
+they upgraded) got the two worst answers. `core/version.py` reads the installed
+distribution's metadata by name, and falls back to the package version
+*labeled as coming from a source tree* when no distribution is installed at
+all. Verified rather than assumed, which turned up two cases worth writing
+down: an editable install reports the version recorded when `pip install -e .`
+ran, so it lags the source until reinstalled; and a directory holding a
+freshly built `*.egg-info` is itself a discoverable distribution, so from the
+repo root after `python -m build` the lookup finds the checkout's metadata
+ahead of site-packages. Both are the installed-distribution answer, so both
+are correct — but the first draft of the docstring claimed immunity to cwd,
+which is not true, and now says so.
+
+**The README's upgrade banner could not use it.** The banner exists because a
+plain `pip install` leaves a 1.3.6 install alone; its confirmation step has to
+work on the install that did not move, where `--version` is an unrecognized
+flag. `pip show` stays the check, with `--version` named beside it. The same
+correction applies in reverse to `docs/releasing.md`, which said no such flag
+existed and now uses it for the post-build check — where it is the better of
+the two, since it goes through the console script and cannot be answered by a
+stray source tree.
+
+**Two release-metadata guards, because both of these bugs were "someone
+forgets".** `tests/unit/test_version.py` pins `CHANGELOG.md`'s leading section
+to `__version__`, and `setup.py`'s floor to the lowest interpreter in
+`.github/workflows/ci.yml` — so a floor that drifts from what CI tests fails
+in CI rather than in a user's resolver. All eight new tests were revert-checked
+against a broken production site: removing the flag, making `resolve_version`
+return the import, restoring `>=3.8`, and leaving the changelog at 2.1.0 each
+fail the test that claims to cover it.
+
+Suites green: `tests/unit` 913 (905 + 8).
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -2088,7 +2144,11 @@ Priority order for making the refactor mergeable to `main`:
     already exists locally from the round-19 work; publishing it is a decision
     about what GP2 wants to distribute, not an engineering task.
 
-43. **`python_requires='>=3.8'` is wrong in two directions.** Rounds 5 and 6
+43. ✅ **`python_requires='>=3.8'` is wrong in two directions** — RESOLVED in
+    **round 21**: raised to `>=3.11` with matching classifiers and README badges,
+    and pinned to CI's interpreter by a test. Original follows.
+
+    Original: **`python_requires='>=3.8'` is wrong in two directions.** Rounds 5 and 6
     both recorded a non-blocking follow-up to raise it to >=3.10, to match the
     PEP-604 annotations the refactor uses. It was never done, and the reason is
     now stronger than annotations: as of the 2.1.0 release the resolved
@@ -2099,7 +2159,10 @@ Priority order for making the refactor mergeable to `main`:
     advertising 3.8, 3.9 and 3.10 and none for 3.11. Fixing needs a release,
     since `python_requires` is baked into the published metadata.
 
-44. **There is no `--version` flag.** The only ways to ask which GenoTools is
+44. ✅ **There is no `--version` flag** — RESOLVED in **round 21**: added, reading
+    the installed distribution rather than the imported package. Original follows.
+
+    Original: **There is no `--version` flag.** The only ways to ask which GenoTools is
     installed are `pip show the_real_genotools` and
     `importlib.metadata.version(...)`. The obvious `import genotools;
     genotools.__version__` is actively misleading: from any directory holding a
