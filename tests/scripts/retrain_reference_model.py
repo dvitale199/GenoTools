@@ -50,7 +50,7 @@ Usage:
         --ref-panel ~/.genotools/ref/ref_panel/<panel prefix> \\
         --ref-labels ~/.genotools/ref/ref_panel/ref_panel_ancestry_updated.txt \\
         --snplist <old model>/common_snps.txt \\
-        --out ~/retrained/nba_gp2_r12
+        --out ~/genotools-work/runs/retrained/nba_gp2_r12
 
 Compare against the model it replaces with:
 

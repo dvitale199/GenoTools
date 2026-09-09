@@ -35,10 +35,10 @@ worth investigating:
 Usage
 -----
     python tests/scripts/compare_missing_fill.py \\
-        --geno ~/parity_data/GP2_r12_subset10k \\
+        --geno ~/genotools-work/data/parity_data/GP2_r12_subset10k \\
         --ref-panel ~/.genotools/ref/ref_panel/ref_panel_gp2_prune_rm_underperform_pos_update \\
         --ref-labels ~/.genotools/ref/ref_panel/ref_panel_ancestry_updated.txt \\
-        --model ~/parity_data/models/new_ancestry_ancestry_model \\
+        --model ~/genotools-work/data/parity_data/models/new_ancestry_ancestry_model \\
         --work /tmp/missing-fill-compare
 
 Requires a pre-trained model: the point is to hold the model fixed. Run from the

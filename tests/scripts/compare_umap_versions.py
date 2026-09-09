@@ -44,7 +44,7 @@ Usage
     python tests/scripts/compare_umap_versions.py \\
         --baseline-python .venv/bin/python \\
         --candidate-python .venv-next/bin/python \\
-        --geno ~/parity_data/GP2_r12_subset10k \\
+        --geno ~/genotools-work/data/parity_data/GP2_r12_subset10k \\
         --ref-panel ~/.genotools/ref/ref_panel/ref_panel_gp2_prune_rm_underperform_pos_update \\
         --ref-labels ~/.genotools/ref/ref_panel/ref_panel_ancestry_updated.txt \\
         --work /tmp/umap-compare
