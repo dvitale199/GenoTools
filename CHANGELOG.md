@@ -9,11 +9,12 @@ A packaging and diagnostics patch. No QC, ancestry or report behavior changes.
 
 ### Fixed
 
-- **`python_requires` was `>=3.8`, which no install could satisfy.** The
-  resolved dependency stack needs **3.11** — `pandas` and `scikit-learn` both
-  declare `requires_python >=3.11` — so on 3.8-3.10 pip either backtracked to
-  years-old versions of both or failed with an unhelpful resolution error,
-  rather than saying the interpreter was too old. The floor is now `>=3.11`,
+- **`python_requires` was `>=3.8`, three minor versions below what the stack
+  needs.** `pandas` and `scikit-learn` both declare `requires_python >=3.11`,
+  so the floor admitted interpreters the dependencies do not support. On
+  3.8-3.10 pip does not report an unsupported interpreter: it backtracks,
+  resolving years-old pandas and sklearn that satisfy their own floors, and
+  installs a combination nothing tests. The floor is now `>=3.11`,
   matching what CI tests. `README.md` advertised 3.8/3.9/3.10 badges and none
   for 3.11; it now shows 3.11+.
 
