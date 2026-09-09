@@ -115,12 +115,15 @@ Install it into a throwaway environment and check the version it reports:
 
 ```bash
 python -m venv /tmp/relcheck && /tmp/relcheck/bin/pip install -q dist/*.whl
-/tmp/relcheck/bin/python -c "import genotools; print(genotools.__version__)"
+/tmp/relcheck/bin/genotools --version
 /tmp/relcheck/bin/genotools --help > /dev/null && echo "entry point ok"
 ```
 
-(There is no `genotools --version` flag; the import above is the check. Adding
-one would be a reasonable small change.)
+`--version` (2.1.1 and later) is the better check of the two available: it goes
+through the console script and reports the *installed distribution*, so it
+cannot be answered by a stray source tree the way
+`python -c "import genotools; print(genotools.__version__)"` can. Run it from a
+directory that holds no `genotools/` package either way.
 
 ---
 

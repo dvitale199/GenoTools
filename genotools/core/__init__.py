@@ -27,6 +27,8 @@ from .genotypes import GenotypeData
 # Input validation
 from .validation import validate_input
 
+from .version import resolve_version, version_string
+
 # Exception hierarchy
 from .exceptions import (
     GenoToolsError,
@@ -80,6 +82,9 @@ __all__ = [
     "GenotypeData",
     # Validation
     "validate_input",
+    # Version
+    "resolve_version",
+    "version_string",
     # Exceptions
     "GenoToolsError",
     "ValidationError",

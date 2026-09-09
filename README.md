@@ -4,19 +4,24 @@
 [![PyPI version](https://badge.fury.io/py/the-real-genotools.svg)](https://badge.fury.io/py/the-real-genotools)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 ![GitHub License](https://img.shields.io/github/license/dvitale199/GenoTools)
-![Python](https://img.shields.io/badge/python-3.8-blue.svg)
-![Python](https://img.shields.io/badge/python-3.9-blue.svg)
-![Python](https://img.shields.io/badge/python-3.10-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 
 
 > [!IMPORTANT]
-> **2.1.0 is the first 2.x release and supersedes 1.3.6.** Upgrading requires
-> `--upgrade`; a plain `pip install` leaves an existing install on 1.3.6.
+> **The 2.x line supersedes 1.3.6.** Upgrading requires `--upgrade`; a plain
+> `pip install` leaves an existing install on 1.3.6.
 >
 > ```bash
 > pip install --upgrade the_real_genotools
-> pip show the_real_genotools          # confirm 2.1.0
+> pip show the_real_genotools          # confirm 2.x; works on 1.x too
 > ```
+>
+> From 2.1.1 on, `genotools --version` answers the same question. On an install
+> that did not move it reports 1.x's argparse error instead, which is why the
+> `pip show` above is the check that works either way.
+>
+> 2.x requires **Python 3.11 or newer** — pandas and scikit-learn both set that
+> floor.
 >
 > This is a breaking upgrade: flags moved from `underscore_style` to
 > `hyphen-style` (old spellings still work but warn), the JSON report gained

@@ -18,7 +18,7 @@ read [Behavior changes](#behavior-changes) before upgrading; if you only run
 QC, the flag spellings are most of what matters to you.
 
 ```bash
-pip install --upgrade the_real_genotools     # 2.1.0
+pip install --upgrade the_real_genotools     # 2.1.1 or newer
 pip install 'the_real_genotools<2.0'         # stay on 1.3.6 while you migrate
 ```
 

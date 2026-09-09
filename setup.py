@@ -41,9 +41,15 @@ setup(
     license='Apache License 2.0',
     classifiers=[
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.8',
+    # The resolved dependency stack sets this floor, not the source: pandas
+    # and scikit-learn both declare requires_python >=3.11. On 3.10 pip would
+    # otherwise backtrack to years-old versions of both -- a configuration
+    # nothing tests -- instead of saying plainly that the interpreter is too old.
+    python_requires='>=3.11',
     extras_require={
         'dev': [
             'pytest>=3.7',
