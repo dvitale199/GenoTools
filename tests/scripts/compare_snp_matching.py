@@ -56,10 +56,10 @@ Usage
     python tests/scripts/compare_snp_matching.py \\
         --python .venv/bin/python \\
         --baseline-repo /path/to/worktree/at/main \\
-        --geno ~/parity_data/GP2_r12_subset10k \\
+        --geno ~/genotools-work/data/parity_data/GP2_r12_subset10k \\
         --ref-panel ~/.genotools/ref/ref_panel/ref_panel_gp2_prune_rm_underperform_pos_update \\
         --ref-labels ~/.genotools/ref/ref_panel/ref_panel_ancestry_updated.txt \\
-        --model ~/parity_data/models/new_ancestry_ancestry_model \\
+        --model ~/genotools-work/data/parity_data/models/new_ancestry_ancestry_model \\
         --work /tmp/snp-matching-compare
 
 Create the baseline tree with ``git worktree add <dir> <commit>``; it must be a
