@@ -73,7 +73,11 @@ over `--bfile`, which wins over `--vcf`.
   - *Default*: `False`
   - *Description*: Keep every intermediate pfile instead of only the final
     output. Does **not** affect logs — the consolidated and per-step logs are
-    always written.
+    always written. This is the **only** switch governing disk retention: at
+    defaults each step's input pfile is deleted once the step has passed and
+    written its own output, so peak disk is roughly one working copy rather
+    than one per step. A failed step's input is never deleted, whatever the
+    flags.
 
 - **`--skip-fails`**
   - *Type*: `flag`
@@ -89,7 +93,23 @@ over `--bfile`, which wins over `--vcf`.
   - *Default*: `False` (warn-and-continue is the default behavior)
   - *Description*: Stop the pipeline at the first failing step. Without this
     flag, a failing step is recorded as failed and the pipeline continues from
-    the last step that passed.
+    the last step that passed. Failure policy only — it has no effect on which
+    files are kept. (Before 2.2.0 it silently did both: cleanup ran *only*
+    under `--no-warn`, so reclaiming disk meant giving up warn-and-continue.)
+
+**Disk retention vs. failure policy.** These are two switches and they no
+longer interfere (they did before 2.2.0, when cleanup ran only under
+`--no-warn`):
+
+| | intermediates | on a failing step |
+|---|---|---|
+| *(default)* | deleted as the run progresses | recorded, run continues |
+| `--full-output` | all kept | recorded, run continues |
+| `--no-warn` | deleted as the run progresses | run stops |
+| `--no-warn --full-output` | all kept | run stops |
+
+A failed step's input pfile is kept in every column, so a broken run can be
+examined whatever the flags.
 
 - **`--quiet`**
   - *Type*: `flag`

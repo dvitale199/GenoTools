@@ -17,6 +17,7 @@
 
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -33,7 +34,7 @@ from genotools.cli.parser import (
     PipelineArgs,
     SampleQCArgs,
 )
-from genotools.cli.runner import PipelineRunner, PipelineState
+from genotools.cli.runner import PassFailRecord, PipelineRunner, PipelineState
 from genotools.ancestry.diagnostics import AncestryDiagnostics
 
 SYNTHETIC = (
@@ -2392,3 +2393,178 @@ class TestAncestryDiagnosticsWiring:
         output = PipelineOutput()
         output._process_ancestry_result(run["result"])
         assert "ancestry_diagnostics" in output.to_dict()
+
+
+def _cleanup_runner(
+    tmp_path: Path, *, warn_only: bool = True, full_output: bool = False
+) -> tuple[PipelineRunner, Path, Path]:
+    """Build a runner with cleanup enabled (unlike _make_runner's full_output)."""
+    geno = tmp_path / "geno"
+    out = tmp_path / "out"
+    _touch_pfiles(geno)
+
+    args = PipelineArgs(
+        input=InputArgs(pfile=geno),
+        output=OutputArgs(
+            out_path=out, warn_only=warn_only, full_output=full_output
+        ),
+    )
+    runner = PipelineRunner(args)
+    # A real working directory: without --full-output the pipeline stages every
+    # step inside tmp_dir, which is also why every pre-existing runner test set
+    # full_output=True -- and why none of them covered cleanup at defaults.
+    tmp_dir = tempfile.TemporaryDirectory(dir=tmp_path)
+    runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=tmp_dir)
+    return runner, geno, out
+
+
+class TestIntermediateCleanupIsNotWeldedToWarnMode:
+    """Regression (item 39): disk retention and failure policy were one switch.
+
+    `_cleanup_intermediate_files` opened with a blanket `if warn_only: return`,
+    and `warn_only` defaults True -- so at defaults no intermediate pfile was
+    ever deleted, and the only way to reclaim the disk was `--no-warn`, which
+    also switches the pipeline from warn-and-continue to fail-fast. The
+    round-19 full-GP2 run wrote ~98 GiB against a ~50 GiB peak with cleanup on.
+    """
+
+    def _call(
+        self, runner: PipelineRunner, step: str, scratch: Path, out: Path,
+        geno: Path, passed: bool = True,
+    ) -> None:
+        runner._cleanup_intermediate_files(
+            step=step,
+            pass_fail={
+                step: PassFailRecord(
+                    status=passed, input_path=str(scratch), output_path=str(out)
+                )
+            },
+            out_dict={step: {"pass": passed}},
+            out_path=str(out),
+            geno_path=str(geno),
+        )
+
+    def test_default_run_deletes_a_passed_steps_input(self, tmp_path: Path) -> None:
+        """The defect: at defaults (warn-and-continue) nothing was ever deleted."""
+        runner, geno, out = _cleanup_runner(tmp_path)
+        scratch = tmp_path / "scratch"
+        _touch_pfiles(scratch)
+
+        self._call(runner, "callrate", scratch, out, geno)
+
+        assert not (tmp_path / "scratch.pgen").exists()
+        assert not (tmp_path / "scratch.psam").exists()
+        assert not (tmp_path / "scratch.pvar").exists()
+
+    def test_full_output_still_keeps_everything(self, tmp_path: Path) -> None:
+        """`--full-output` is the retention switch, and still is."""
+        runner, geno, out = _cleanup_runner(tmp_path, full_output=True)
+        scratch = tmp_path / "scratch"
+        _touch_pfiles(scratch)
+
+        self._call(runner, "callrate", scratch, out, geno)
+
+        assert (tmp_path / "scratch.pgen").exists()
+
+    def test_a_failed_step_never_reaches_cleanup_at_all(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The invariant that replaces the old unreachable guard.
+
+        `_cleanup_intermediate_files` has no failure check, and does not need
+        one: every path that records `pass: False` continues before the call,
+        and the only dict that reaches it is `FilterResult.to_dict()`, which
+        hardcodes `pass: True`. Pinned here rather than in the helper, because
+        the protection lives in the call site.
+        """
+        runner, geno, out = _cleanup_runner(tmp_path)
+        seen: List[str] = []
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("sex"))
+        real_cleanup = runner._cleanup_intermediate_files
+
+        def spy(step: str, **kwargs: Any) -> None:
+            seen.append(step)
+            return real_cleanup(step=step, **kwargs)
+
+        monkeypatch.setattr(runner, "_cleanup_intermediate_files", spy)
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+
+        assert out_dict["pass_fail"]["sex"]["status"] is False
+        assert "sex" not in seen, "cleanup ran for a failed step"
+        assert seen == ["callrate", "het"]
+
+    @pytest.mark.parametrize("step", ["assoc", "ancestry", "kinship_check"])
+    def test_report_only_steps_are_never_cleaned(
+        self, tmp_path: Path, step: str
+    ) -> None:
+        """These consume a pfile the chain still needs downstream."""
+        runner, geno, out = _cleanup_runner(tmp_path)
+        scratch = tmp_path / "scratch"
+        _touch_pfiles(scratch)
+
+        self._call(runner, step, scratch, out, geno)
+
+        assert (tmp_path / "scratch.pgen").exists()
+
+    def test_never_deletes_the_original_input_or_the_final_output(
+        self, tmp_path: Path
+    ) -> None:
+        """Cleanup targets scratch prefixes only, never the run's endpoints."""
+        runner, geno, out = _cleanup_runner(tmp_path)
+        _touch_pfiles(out)
+
+        self._call(runner, "callrate", geno, out, geno)
+        assert (tmp_path / "geno.pgen").exists()
+
+        self._call(runner, "callrate", out, out, geno)
+        assert (tmp_path / "out.pgen").exists()
+
+    def test_cleanup_is_reached_from_a_default_pipeline_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Through `_run_qc_pipeline`, not just the helper.
+
+        The bug lived in a branch the pipeline reaches at defaults, so a test
+        that only drives the helper would have passed against the broken code.
+        """
+        runner, geno, out = _cleanup_runner(tmp_path)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory(""))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+
+        intermediates = sorted(
+            p.name for p in tmp_path.rglob("*.pgen")
+            if p.name not in ("geno.pgen", "out.pgen")
+        )
+        assert intermediates == [], f"left behind: {intermediates}"
+        assert (tmp_path / "geno.pgen").exists()
+
+    def test_warn_mode_final_step_failure_still_finds_its_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cleanup must not delete what `_handle_final_step_failure` copies.
+
+        Under warn-and-continue a failing final step promotes the last passed
+        step's output to the final prefix. That file is the failed step's
+        input -- precisely what cleanup would otherwise remove.
+        """
+        runner, geno, out = _cleanup_runner(tmp_path)
+        monkeypatch.setattr(runner, "_run_single_step", _traceable_step_factory("het"))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"],
+            geno_path=str(geno),
+            out_path=str(out),
+        )
+
+        assert (tmp_path / "out.pgen").exists()
+        assert "sex" in (tmp_path / "out.pgen").read_text()

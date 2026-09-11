@@ -1618,7 +1618,29 @@ class PipelineRunner:
         out_path: str,
         geno_path: str,
     ) -> None:
-        """Clean up intermediate pfiles if not needed.
+        """Delete the pfile a passed step consumed, unless something needs it.
+
+        Disk retention is ``--full-output``'s job and failure policy is
+        ``--no-warn``'s, and these used to be the same switch: a blanket
+        ``if warn_only: return`` sat here, and ``warn_only`` defaults to True,
+        so at defaults *no* intermediate was ever deleted. The only way to get
+        cleanup was ``--no-warn``, which also turns warn-and-continue into
+        fail-fast -- a bad trade on a long run, where not losing hours to one
+        recoverable step is the whole point. That coupling is why the round-19
+        full-GP2 run wrote ~98 GiB against a ~50 GiB peak with cleanup on.
+
+        A failed step's files are safe without a guard here, because a failure
+        never reaches this function: all three paths that record ``pass: False``
+        (a data-driven skip, a pre-flight failure, a raising step) ``continue``
+        before the call, and the only dict that gets this far is
+        ``FilterResult.to_dict()``, which hardcodes ``pass: True``. The old
+        ``if warn_only and not ...["pass"]`` guard below the blanket return was
+        written for 1.x, where a step returned its status instead of raising;
+        under 2.x semantics it could not fire, so it is gone rather than
+        preserved as reachable-looking code. What it was protecting still
+        holds: under warn-and-continue a failed final step falls back to the
+        last passed step's output (``_handle_final_step_failure``), and that
+        file survives because no later step ran to consume it.
 
         Args:
             step: Current step name.
@@ -1629,17 +1651,7 @@ class PipelineRunner:
         """
         if self.args.full_output:
             return
-        if self.args.warn_only:
-            return
         if step in ("assoc", "ancestry", "kinship_check"):
-            return
-
-        # Don't remove if step failed with warn mode
-        if (
-            self.args.warn_only
-            and "pass" in out_dict.get(step, {})
-            and not out_dict[step]["pass"]
-        ):
             return
 
         remove_path = pass_fail[step].input_path

@@ -3,6 +3,46 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## Unreleased — next release is 2.2.0
+
+A **minor** version, not a patch: the change below alters what a default run
+leaves on disk. Nothing about your results, final outputs or logs changes, but
+a default that deletes files users previously got to keep is more than a patch.
+
+### Changed
+
+- **Intermediate pfiles are now deleted as the run progresses, at defaults.**
+
+  Each QC step reads a genotype file and writes a new one — callrate reads your
+  input and writes `…_callrate`, sex reads that and writes `…_sex`, and so on —
+  so a ten-step run creates ten copies of your data. At GP2 release scale each
+  copy is tens of GiB.
+
+  Cleanup used to be skipped whenever `warn_only` was set, and warn-and-continue
+  is the **default**, so at defaults every copy survived for the whole run. The
+  only way to reclaim the disk was `--no-warn`, which also turns
+  warn-and-continue into fail-fast — so you could not have both. That is a bad
+  trade on a long run, where warn-and-continue exists precisely so an eight-hour
+  job does not die on one recoverable step.
+
+  The two flags no longer interfere:
+
+  | | before | now |
+  |---|---|---|
+  | *(default)* | keeps every copy | **deletes each copy once the next is written** |
+  | `--full-output` | keeps every copy | keeps every copy |
+  | `--no-warn` | deletes + fail-fast | fail-fast only |
+  | `--no-warn --full-output` | keeps + fail-fast | keeps + fail-fast |
+
+  `--full-output` is now the only switch governing retention; `--no-warn` is
+  purely failure policy. Peak disk during a run drops from roughly one working
+  copy per step to one overall — on the round-19 full-GP2 run, ~98 GiB written
+  against a ~50 GiB peak.
+
+  **If you relied on the old default to inspect intermediates, pass
+  `--full-output`** — it reproduces the previous behavior exactly. A **failed**
+  step's input is still kept either way, so a broken run can still be examined.
+
 ## 2.1.1
 
 A packaging and diagnostics patch. No QC, ancestry or report behavior changes.
