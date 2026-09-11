@@ -3,7 +3,7 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
-## Unreleased — next release is 2.2.0
+## 2.2.0
 
 A **minor** version, not a patch: the change below alters what a default run
 leaves on disk. Nothing about your results, final outputs or logs changes, but
