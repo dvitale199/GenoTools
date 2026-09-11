@@ -1833,6 +1833,61 @@ fail the test that claims to cover it.
 
 Suites green: `tests/unit` 913 (905 + 8).
 
+### Round 22 (disk hygiene, and a guard that was never reachable)
+
+Item 39. `_cleanup_intermediate_files` opened with a blanket
+`if self.args.warn_only: return`, and `warn_only` defaults **True**
+(`parser.py`, `warn_only=not ns.no_warn`) -- so at defaults no intermediate
+pfile was ever deleted. The only way to reclaim disk was `--no-warn`, which
+also switches the pipeline from warn-and-continue to fail-fast: a bad trade on
+a long run, where not losing hours to one recoverable step is the whole point
+of warn-and-continue. That coupling is what made the round-19 full-GP2 run
+marginal -- ~98 GiB of writes at defaults against a ~50 GiB peak with cleanup
+on. Deleting the blanket return separates the two switches: `--full-output`
+owns retention, `--no-warn` owns failure policy.
+
+**The recorded fix was half wrong, and checking it is what found the other
+half.** Item 39 said the blanket return made the per-step guard below it
+unreachable, and that the guard -- keep intermediates only for the step that
+actually failed -- was the intent the blanket return should have had. Reviving
+it looked right, and the first draft of this change kept it and wrote a
+docstring explaining why it mattered. Then a mutation test refused to fail:
+deleting the guard broke nothing at the pipeline level.
+
+The reason is that **a failure never reaches this function at all**. All three
+paths that record `pass: False` -- a data-driven skip, a pre-flight failure, a
+raising step -- `continue` before the cleanup call, and the only dict that gets
+that far is `FilterResult.to_dict()`, which hardcodes `"pass": True` ("if
+FilterResult exists, step passed"). The guard was written for 1.x, where a step
+returned its status instead of raising. Under 2.x semantics it cannot fire in
+any run. So it is deleted rather than preserved as reachable-looking code, and
+the invariant that actually protects a failed step's files -- the call site's
+`continue` -- is pinned by a test that spies on which steps reach cleanup.
+
+What the guard was protecting still holds, by a different mechanism: under
+warn-and-continue a failed final step promotes the last passed step's output
+(`_handle_final_step_failure`), and that file survives because no later step
+ran to consume it. Tested directly, with traceable pfile contents.
+
+**Every pre-existing runner test set `full_output=True`,** which is why none of
+them covered this: without it the pipeline stages into a `tmp_dir` the test
+fixtures did not create, so the cheapest way to write a runner test was also
+the way that disabled the code path the bug lived in. The new fixture builds a
+real working directory.
+
+Nine tests, both mutations caught: restoring the blanket return fails the
+default-run and pipeline-level tests; letting cleanup run for a report-only
+step fails the `assoc` case. Suites: `tests/unit` 922, `tests/regression` 77.
+
+User-visible, so this lands as **2.2.0** rather than a patch: results, final
+outputs and logs are untouched, but a default that deletes files users
+previously got to keep is a minor-version change. `CHANGELOG.md` carries it
+under Unreleased with the flag matrix and the remedy (`--full-output`) stated,
+and `docs/cli_args.md` gains the same matrix beside the two flags.
+`__version__` stays at 2.1.1 until the release commit, per `docs/releasing.md`
+-- bumping it early is what left 2.0.0 and 2.0.1 as strings that never
+shipped.
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -2054,7 +2109,14 @@ Priority order for making the refactor mergeable to `main`:
     writes it out. With the race removed it is a genuine record of model
     selection; before the fix it would have exposed a 50%-noisy grid at a
     glance.
-39. **Disk hygiene is welded to the failure policy.**
+39. ✅ **Disk hygiene is welded to the failure policy** — RESOLVED in **round
+    22**: the blanket `warn_only` return is gone, so `--full-output` owns
+    retention and `--no-warn` owns failure policy. The per-step guard this item
+    proposed reviving was found to be unreachable under 2.x semantics (failures
+    `continue` before the call; `to_dict()` hardcodes `pass: True`) and was
+    deleted instead. Original follows.
+
+    Original: **Disk hygiene is welded to the failure policy.**
     `_cleanup_intermediate_files` (`cli/runner.py:1584`) returns early on
     `if self.args.warn_only:`, and `warn_only` defaults **True**
     (`parser.py:385`, `warn_only=not ns.no_warn`), so at defaults *no*
