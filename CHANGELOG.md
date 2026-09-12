@@ -3,6 +3,31 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## Unreleased — next release is 2.2.1
+
+### Fixed
+
+- **Ancestry prediction uses about a third less memory.**
+
+  Predicting ancestry scales the genotype matrix before projecting it through
+  PCA. That scaling step built three full-size copies of the matrix — one to
+  select the variants to keep, one for the subtraction, one for the division —
+  and all three could be resident at once, on top of the copies the caller was
+  already holding. At GP2 release scale each copy is 41.7 GiB.
+
+  Two of the three are now gone: the scale is applied in place, and the variant
+  selection is skipped entirely when it would keep every variant, which is the
+  usual case. Peak memory for a 10,000-sample ancestry run drops from
+  **26.8 GiB to 18.0 GiB**; run time is unchanged.
+
+  **Results are bit-identical** — the same arithmetic in the same order, not an
+  approximation. Verified on a 10,000-sample cohort: every sample got the same
+  label, and every output file is byte-for-byte the same as before.
+
+  If you call `flashpca_scale` directly, it is unchanged by default; it takes a
+  new `copy=False` if you want the in-place behavior and have no further use for
+  the array you pass in.
+
 ## 2.2.0
 
 A **minor** version, not a patch: the change below alters what a default run
