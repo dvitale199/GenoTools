@@ -78,6 +78,87 @@ class TestFlashPCAScale:
         with pytest.raises(ValueError, match="mean and sd must be provided"):
             flashpca_scale(data, compute_stats=False)
 
+    @staticmethod
+    def _reference_scale(
+        data: np.ndarray,  # type: ignore[type-arg]
+        mean: np.ndarray,  # type: ignore[type-arg]
+        sd: np.ndarray,  # type: ignore[type-arg]
+        eps: float = 1e-12,
+    ) -> np.ndarray:  # type: ignore[type-arg]
+        """The pre-round-23 expression, kept as an independent oracle.
+
+        flashpca_scale now skips the all-true fancy index and scales in place
+        to avoid three full-size copies of the genotype matrix. The values it
+        returns must not move by a single bit.
+        """
+        keep_mask = sd > eps
+        data_filtered = data[:, keep_mask]
+        return (data_filtered - mean[keep_mask]) / sd[keep_mask]
+
+    @pytest.mark.parametrize("zero_sd_cols", [False, True])
+    def test_matches_reference_expression(self, zero_sd_cols: bool) -> None:
+        """In-place scaling is bit-identical to (x - mean) / sd.
+
+        Parametrized over both mask regimes because they take different
+        branches: an all-true mask skips the fancy index entirely, a mask with
+        drops still goes through it.
+        """
+        rng = np.random.default_rng(23)
+        data = rng.choice([0, 1, 2], size=(120, 60), p=[0.25, 0.5, 0.25]).astype(float)
+        if zero_sd_cols:
+            data[:, ::11] = 0.0
+
+        _, mean, sd, keep_mask = flashpca_scale(data.copy(), compute_stats=True)
+        assert keep_mask.all() is not zero_sd_cols
+
+        expected = self._reference_scale(data, mean, sd)
+        for copy in (True, False):
+            scaled, _, _, _ = flashpca_scale(
+                data.copy(), mean=mean, sd=sd, compute_stats=False, copy=copy
+            )
+            assert scaled.shape == expected.shape
+            assert np.array_equal(scaled, expected), f"copy={copy} moved the values"
+
+    def test_default_does_not_mutate_input(self) -> None:
+        """The exported default must leave the caller's array alone.
+
+        flashpca_scale is part of the public ancestry API, so a caller that
+        reuses its input after the call cannot be broken by the in-place path.
+        """
+        rng = np.random.default_rng(23)
+        data = rng.choice([0, 1, 2], size=(40, 30), p=[0.25, 0.5, 0.25]).astype(float)
+        untouched = data.copy()
+
+        flashpca_scale(data, compute_stats=True)
+
+        assert np.array_equal(data, untouched)
+
+    def test_copy_false_consumes_input(self) -> None:
+        """copy=False is allowed to scale in place -- that is the whole point.
+
+        If this ever passes while the values are also preserved, the opt-in is
+        silently doing nothing and the memory win has been lost.
+        """
+        rng = np.random.default_rng(23)
+        data = rng.choice([0, 1, 2], size=(40, 30), p=[0.25, 0.5, 0.25]).astype(float)
+        untouched = data.copy()
+
+        flashpca_scale(data, compute_stats=True, copy=False)
+
+        assert not np.array_equal(data, untouched)
+
+    def test_integer_input_is_converted_not_scaled_in_place(self) -> None:
+        """Genotype counts cannot be scaled in place; int input must survive."""
+        rng = np.random.default_rng(23)
+        data = rng.choice([0, 1, 2], size=(40, 30), p=[0.25, 0.5, 0.25])
+        assert data.dtype.kind == "i"
+        untouched = data.copy()
+
+        scaled, _, _, _ = flashpca_scale(data, compute_stats=True, copy=False)
+
+        assert scaled.dtype == np.float64
+        assert np.array_equal(data, untouched)
+
 
 class TestPCAReducer:
     """Tests for PCAReducer class."""
@@ -406,3 +487,75 @@ def test_run_umap_falls_back_when_components_are_not_named_pc(monkeypatch):
     })
     umap_reducer.run_umap(ref_pca=frame, new_pca=frame.copy(), new_labels=frame["label"])
     assert {width for _, width in _RecordingReducer.widths} == {2}
+
+
+class TestPCAReducerMemoryContract:
+    """The reducer must actually take the in-place path.
+
+    flashpca_scale defaults to copy=True for the benefit of external callers,
+    so the memory win exists only where PCAReducer opts in. A call site that
+    silently drops copy=False leaves the three full-size copies in place and
+    nothing else in the suite would notice -- round 23 measured them at 6.78x
+    the genotype matrix, which is the difference between an r12 run fitting in
+    memory and not.
+    """
+
+    @pytest.fixture
+    def genotypes(self) -> np.ndarray:  # type: ignore[type-arg]
+        rng = np.random.default_rng(23)
+        return rng.choice([0, 1, 2], size=(80, 120), p=[0.25, 0.5, 0.25]).astype(float)
+
+    @staticmethod
+    def _record_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        from genotools.ancestry.reducers import pca as pca_mod
+
+        calls: list[dict[str, Any]] = []
+        real = pca_mod.flashpca_scale
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(pca_mod, "flashpca_scale", spy)
+        return calls
+
+    def test_fit_scales_in_place(
+        self, genotypes: np.ndarray, monkeypatch: pytest.MonkeyPatch  # type: ignore[type-arg]
+    ) -> None:
+        """PCAReducer.fit hands its imputed array over to be consumed."""
+        calls = self._record_calls(monkeypatch)
+
+        PCAReducer(config=PCAConfig(n_components=5)).fit(genotypes)
+
+        assert calls, "flashpca_scale was not called"
+        assert calls[0].get("copy") is False
+
+    def test_transform_scales_in_place(
+        self, genotypes: np.ndarray, monkeypatch: pytest.MonkeyPatch  # type: ignore[type-arg]
+    ) -> None:
+        """PCAReducer.transform does too."""
+        reducer = PCAReducer(config=PCAConfig(n_components=5)).fit(genotypes)
+        calls = self._record_calls(monkeypatch)
+
+        reducer.transform(genotypes)
+
+        assert calls, "flashpca_scale was not called"
+        assert calls[-1].get("copy") is False
+
+    def test_transform_does_not_corrupt_caller_data(
+        self, genotypes: np.ndarray  # type: ignore[type-arg]
+    ) -> None:
+        """Consuming the imputed array must not reach the caller's matrix.
+
+        transform passes copy=False, which is only safe because the imputer
+        returns a fresh array. If SimpleImputer ever starts aliasing its input,
+        the caller's genotypes would be scaled out from under them and every
+        subsequent prediction would be wrong.
+        """
+        reducer = PCAReducer(config=PCAConfig(n_components=5)).fit(genotypes)
+        untouched = genotypes.copy()
+
+        first = reducer.transform(genotypes)
+
+        assert np.array_equal(genotypes, untouched)
+        assert np.array_equal(reducer.transform(genotypes), first)

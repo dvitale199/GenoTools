@@ -52,6 +52,7 @@ def flashpca_scale(
     sd: Optional[np.ndarray] = None,  # type: ignore[type-arg]
     compute_stats: bool = False,
     eps: float = 1e-12,
+    copy: bool = True,
 ) -> Tuple[
     np.ndarray,  # type: ignore[type-arg]
     np.ndarray,  # type: ignore[type-arg]
@@ -74,6 +75,13 @@ def flashpca_scale(
             computed using flashPCA formula.
         compute_stats: If True, compute mean and sd from data.
         eps: Small value to avoid division by zero. Default is 1e-12.
+        copy: If False, scale in place and let ``data`` be consumed -- the
+            caller is promising it has no further use for the array. Saves two
+            full-size copies of the genotype matrix, which at cohort scale is
+            the difference between fitting in memory and not. Default True,
+            because this function is exported and a caller that reuses its
+            input must keep the old behaviour. An int input is converted to
+            float regardless, since genotype counts cannot be scaled in place.
 
     Returns:
         Tuple of:
@@ -97,13 +105,22 @@ def flashpca_scale(
     # Create mask for non-zero SD variants
     keep_mask = sd > eps
 
-    # Filter data and stats to kept variants
-    data_filtered = data[:, keep_mask]
+    # Filter stats to kept variants
     mean_filtered = mean[keep_mask]
     sd_filtered = sd[keep_mask]
 
-    # Scale data
-    scaled_data = (data_filtered - mean_filtered) / sd_filtered
+    # Filter data to kept variants. When the mask keeps everything -- the
+    # common case, since zero-SD variants are rare -- ``data[:, keep_mask]``
+    # would copy the whole matrix to drop nothing, so take the array itself.
+    if keep_mask.all():
+        scaled_data = np.array(data, dtype=np.float64, copy=True if copy else None)
+    else:
+        scaled_data = np.asarray(data[:, keep_mask], dtype=np.float64)
+
+    # Scale in place. ``(x - mean) / sd`` would allocate a temporary for the
+    # subtraction and a second array for the division, both full size.
+    scaled_data -= mean_filtered
+    scaled_data /= sd_filtered
 
     return scaled_data, mean, sd, keep_mask
 
@@ -204,8 +221,10 @@ class PCAReducer:
         X_imputed = self.imputer.fit_transform(X)
 
         # Apply flashPCA scaling
+        # copy=False: X_imputed is the imputer's own fresh output and is not
+        # read again after this call.
         X_scaled, self.mean, self.sd, self.keep_mask = flashpca_scale(
-            X_imputed, compute_stats=True
+            X_imputed, compute_stats=True, copy=False
         )
 
         # Check we still have enough variants after filtering
@@ -257,11 +276,13 @@ class PCAReducer:
         X_imputed = self.imputer.transform(X)
 
         # Apply flashPCA scaling using fitted parameters
+        # copy=False: as in fit -- X_imputed is not read again below.
         X_scaled, _, _, _ = flashpca_scale(
             X_imputed,
             mean=self.mean,
             sd=self.sd,
             compute_stats=False,
+            copy=False,
         )
 
         # Apply keep_mask (filter to same variants as training)

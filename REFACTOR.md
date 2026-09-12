@@ -1888,6 +1888,89 @@ and `docs/cli_args.md` gains the same matrix beside the two flags.
 -- bumping it early is what left 2.0.0 and 2.0.1 as strings that never
 shipped.
 
+### Round 23 (item 40: the memory blowup was never where it was recorded)
+
+Item 40 said `get_raw_files` holds several copies of the genotype matrix and
+peaks at **4.48x** its size. Reproducing that before changing anything --
+which is the whole reason step 1 existed -- showed both halves of the claim
+had moved.
+
+**The 4.48x is a pandas 2 number.** The round-19 probe, re-run unchanged
+against a regenerated synthetic `.raw`, reproduces 5.19 / 6.71 / 8.64 GiB
+exactly under `.venv-stable` (pandas 2.3.3). Under `.venv` (pandas 3.0.5,
+which is what `requirements-lock.txt` pins) the same probe is flat at
+**2.69x**: pandas 3 makes Copy-on-Write the default and stores the frame
+column-wise, so the `drop` returns a view (`np.shares_memory` is now `True`)
+and the `concat` does not rebuild a slab. The recorded fix -- `usecols` and
+index alignment instead of drop-then-concat -- is already done by the library
+on the version we ship against. `setup.py` floors at `pandas>=2.0.3` with no
+ceiling, so both regimes are live in the field.
+
+**And preprocessing was never the peak.** `dense_frame_probe.py` stops at the
+end of `get_raw_files`, so nothing had measured what a prediction does after
+it. A second probe carried the same synthetic frame through
+`model.py:884` -> `pca.py:257` -> `pca.py:260` -> `pca.py:271`, sampling RSS
+off-thread because `ru_maxrss` is monotonic and `read_csv`'s high-water mark
+hides every later phase. The peak is **`flashpca_scale` at 6.78x** (7.57x on
+pandas 2) -- two and a half times what preprocessing costs:
+
+| phase | peak | mult |
+|---|---|---|
+| `get_raw_files` | 5.27 GiB | 2.73x |
+| `model.py:884` `[snp_cols].values` | 5.37 GiB | 2.78x |
+| `pca.py:257` `imputer.transform` | 7.79 GiB | 4.04x |
+| `pca.py:260` `flashpca_scale` | **13.09 GiB** | **6.78x** |
+| `pca.py:271` `pca.transform` | 9.30 GiB | 4.82x |
+
+`flashpca_scale` allocated three full-size float64 arrays that can coexist:
+`data[:, keep_mask]`, the subtraction temporary, and the division result.
+7.31 -> 13.09 GiB is 3 x 1.93 GiB almost exactly. The mask kept **43,173 of
+43,173** variants, so the fancy index copied the entire matrix in order to
+drop nothing.
+
+**The fix.** `flashpca_scale` gains `copy: bool = True`; it skips the fancy
+index when the mask keeps everything, and scales in place with `-=` and `/=`.
+`PCAReducer.fit` and `.transform` pass `copy=False`, which is safe because
+both hand over the imputer's own fresh output and never read it again --
+`SimpleImputer` defaults to `copy=True` and was checked not to alias. The
+default stays `copy=True` because `flashpca_scale` is exported from
+`genotools.ancestry` and an external caller may reuse its input.
+
+Same float64 operations in the same order, so the values are exact, not
+approximate -- verified against the old expression as an oracle over both mask
+regimes and both `compute_stats` paths. Eight new tests, revert-checked
+against five mutations (drop `copy=False` from either call site, ignore
+`copy=True`, take the fast path unconditionally, swap the order of `-=` and
+`/=`); each was caught.
+
+| | before | after |
+|---|---|---|
+| pandas 3.0.5 probe | 6.78x (283 GiB at r12) | **4.01x (167 GiB)** |
+| pandas 2.3.3 probe | 7.57x (316 GiB at r12) | **4.60x (192 GiB)** |
+| real 10k ancestry run, peak RSS | 26.84 GiB | **18.03 GiB** |
+
+`flashpca_scale` now enters and leaves at 7.25 GiB: zero growth.
+
+**Validated identical, not similar.** `GP2_r12_subset10k` predicted twice
+against the same model and venv, the arms differing only in source tree (a
+worktree at HEAD vs the working tree; `python -m genotools` puts the cwd first
+on `sys.path`, which is what selects the implementation). All 10,000 samples
+got the same label; counts, test accuracy and confusion matrix identical;
+every section of the JSON byte-equal except `run_info.invocation`; all 33
+split pfiles and `out_decisions.txt` byte-identical. Suites: `tests/unit`
+**930**, `tests/regression` **77**.
+
+**What this leaves.** The peak is now `imputer.transform`, which promotes
+int64 to float64 unconditionally -- so the int8 idea in item 40 cannot survive
+contact with it and is worth much less than recorded. Both remaining
+directions are in "Remaining work" as item 45: the `.values` handover at
+`model.py:884`, which copies on both pandas versions while the frame stays
+alive, and row-chunked prediction, still the only change that bounds the peak
+independent of cohort size.
+
+Evidence: `~/genotools-work/runs/round23-evidence/`.
+
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -2132,8 +2215,23 @@ Priority order for making the refactor mergeable to `main`:
     step that actually failed — is dead code, and reads like the intent the
     blanket return was meant to have. Disk retention wants its own switch
     (or that revived per-step guard), independent of `--no-warn`.
-40. **Ancestry preprocessing materializes the whole cohort as a dense 8-byte
-    frame, with a measured 4.5x peak multiplier.** `get_raw_files`
+40. ✅ **Ancestry preprocessing materializes the whole cohort as a dense
+    8-byte frame, with a measured 4.5x peak multiplier** — RESOLVED in
+    **round 23**, but not as recorded. Two corrections. The 4.48x is a
+    **pandas 2** number: under pandas 3.0, which `requirements-lock.txt`
+    pins, Copy-on-Write and column-wise storage already remove the copies
+    and the same probe is flat at 2.69x, so the `usecols`/index-alignment
+    fix the item asks for is done by the library. And `get_raw_files` was
+    **never the peak** — extending the probe past it put the high-water mark
+    at `flashpca_scale` (`pca.py:98-107`) at 6.78x, which allocated three
+    full-size float64 arrays and fancy-indexed the whole matrix to drop none
+    of it. Fixed there instead: 6.78x → **4.01x**, and 26.84 → **18.03 GiB**
+    on a real 10k run, with predictions bit-identical. The int8 half of the
+    item is worth much less than recorded, because `imputer.transform`
+    promotes to float64 unconditionally. Successor work is item 45. See
+    round 23 above. Original text follows.
+
+    `get_raw_files`
     (`ancestry/preprocessing.py:267-283`) reads the `--recode A` `.raw` into
     pandas, drops the six leading columns, and concatenates the FID/IID frame
     back on. At GP2 r12 scale that matrix is 129,630 x 43,173 = 5.6e9 cells,
@@ -2233,3 +2331,28 @@ Priority order for making the refactor mergeable to `main`:
     attribute at all, so on a real 1.3.6 install it raises `AttributeError`
     instead of answering. A few lines, but it cannot reach users without a
     release.
+45. **The ancestry predict path still holds three full-size copies, and
+    nothing bounds the peak.** Round 23 removed `flashpca_scale`'s three
+    allocations, which moved the peak from 6.78x the genotype matrix to
+    **4.01x** (167 GiB extrapolated to GP2 r12, from 283). What is left, in
+    the order the measurements put them:
+    - **`model.py:884`** — `X_new = raw_geno_data[snp_cols].values` copies on
+      both pandas versions (`np.shares_memory` is `False`), and
+      `raw_geno_data` stays alive through the whole predict because
+      `geno_ids` is used again at `model.py:895`. So the frame and the matrix
+      are both resident, not handed over.
+    - **`pca.py:257`** — `imputer.transform` promotes int64 to float64
+      unconditionally and is now the peak phase (4.01x). This is what caps
+      the int8 idea inherited from item 40: any dtype win upstream is erased
+      here. int8 would still shrink `read_csv` and the `.values` slab, and so
+      shrink what is held alive *alongside* the peak, but it cannot move the
+      peak itself.
+    - **Row-chunked prediction** is the only one of these that bounds the
+      peak independent of cohort size. Everything else is a constant factor
+      on a number that scales with sample count, so the next cohort larger
+      than r12 re-opens this. It is also the biggest design change: the
+      admixture and diagnostics code downstream currently sees one frame.
+
+    Measurements and both probes: `~/genotools-work/runs/round23-evidence/`.
+    Acceptance bar is the one round 23 used — predictions bit-identical on
+    `GP2_r12_subset10k`, not merely similar.
