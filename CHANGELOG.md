@@ -5,6 +5,20 @@ history and the GitHub releases page.
 
 ## Unreleased — next release is 2.2.1
 
+### Removed
+
+- **The 1.x ancestry models are retired.** `nba_v1`, `nba_v2` and
+  `neurochip_v1` are 1.x-format pickles that GenoTools 2.x rejects by design —
+  downloading one could never lead anywhere. `genotools-download` no longer
+  serves them by name; asking for one now tells you to use `nba_gp2_r12` (the
+  default) or to train your own, instead of handing you a model that will not
+  load.
+
+  **The archives are not deleted.** They moved to
+  `https://storage.googleapis.com/genotools_refs/models/archive/`, so an
+  analysis pinned to GenoTools 1.x can still be reproduced — the retirement
+  error gives you that URL.
+
 ### Fixed
 
 - **Ancestry prediction uses about a third less memory.**

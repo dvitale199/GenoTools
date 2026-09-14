@@ -15,11 +15,16 @@
 
 """Tests for the downloadable-artifact catalogue.
 
-The catalogue serves two mutually incompatible ancestry model formats, so the
-thing worth pinning is not the resolver's mechanics but the invariant behind it:
-whatever `genotools-download` hands a user by default has to be loadable by the
-GenoTools that shipped it. That invariant was broken before 2.1.0 -- the default
-was a 1.x model that 2.x rejects.
+The catalogue once served two mutually incompatible ancestry model formats, so
+the thing worth pinning is not the resolver's mechanics but the invariant behind
+it: whatever `genotools-download` hands a user by default has to be loadable by
+the GenoTools that shipped it. That invariant was broken before 2.1.0 -- the
+default was a 1.x model that 2.x rejects.
+
+The 1.x names are now retired rather than served, so the invariant is stronger:
+nothing in the catalogue is unloadable. What needs pinning alongside it is that
+retiring a name stayed a *redirect* and not a dead end -- a user who asks for
+`nba_v2` must be told where it went, not handed a bare "Unknown model".
 """
 
 import re
@@ -27,9 +32,11 @@ import re
 import pytest
 
 from genotools.download_refs import (
+    ARCHIVE_URL_BASE,
     DEFAULT_MODEL,
     DEFAULT_REF,
     MODELS,
+    RETIRED_MODELS,
     REF_PANELS,
     resolve_name,
 )
@@ -50,7 +57,9 @@ class TestResolveName:
         assert resolve_name("default", MODELS, DEFAULT_MODEL, "model") == DEFAULT_MODEL
 
     def test_explicit_name_is_returned(self) -> None:
-        assert resolve_name("nba_v1", MODELS, DEFAULT_MODEL, "model") == "nba_v1"
+        assert resolve_name(
+            DEFAULT_MODEL, MODELS, DEFAULT_MODEL, "model"
+        ) == DEFAULT_MODEL
 
     def test_unknown_name_lists_what_is_available(self) -> None:
         with pytest.raises(SystemExit) as excinfo:
@@ -88,7 +97,7 @@ class TestCatalogue:
     def test_model_entries_are_well_formed(self, name: str) -> None:
         checksum, model_format, description = MODELS[name]
         assert re.fullmatch(r"[0-9a-f]{32}", checksum), "md5 expected"
-        assert model_format in ("1.x", "2.x")
+        assert model_format == "2.x", "1.x models are retired, not served"
         assert description
 
     @pytest.mark.parametrize("name", sorted(REF_PANELS))
@@ -96,8 +105,70 @@ class TestCatalogue:
         assert re.fullmatch(r"[0-9a-f]{32}", REF_PANELS[name])
 
     def test_a_2x_model_is_offered_at_all(self) -> None:
-        """Serving only 1.x models would leave 2.x users with no model."""
+        """An empty or all-retired catalogue would leave 2.x users with no model."""
         assert any(fmt == "2.x" for _, fmt, _ in MODELS.values())
+
+    def test_retired_names_are_not_served(self) -> None:
+        """A retired name must be gone from the catalogue, not merely flagged."""
+        assert not (set(RETIRED_MODELS) & set(MODELS))
+
+    def test_no_1x_model_is_served(self) -> None:
+        """The catalogue cannot offer a download that 2.x is unable to load."""
+        assert all(fmt == "2.x" for _, fmt, _ in MODELS.values())
+
+
+class TestRetiredModels:
+    """Retiring a name has to redirect, not dead-end.
+
+    `nba_v1`/`nba_v2`/`neurochip_v1` were served for the whole 1.x line and are
+    in pinned scripts and published methods sections. Dropping them from MODELS
+    without saying where they went would turn every one of those into an
+    unexplained "Unknown model", which is the failure `_REMOVED_FLAGS` exists to
+    avoid on the CLI side.
+    """
+
+    @pytest.mark.parametrize("name", sorted(RETIRED_MODELS))
+    def test_retired_name_gets_a_targeted_error(self, name: str) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            resolve_name(name, MODELS, DEFAULT_MODEL, "model")
+        message = str(excinfo.value)
+
+        assert "retired" in message.lower()
+        assert DEFAULT_MODEL in message, "must name the replacement"
+        assert name in message
+
+    @pytest.mark.parametrize("name", sorted(RETIRED_MODELS))
+    def test_retired_name_points_at_the_archive(self, name: str) -> None:
+        """The archives still exist; the error has to say where.
+
+        They were moved to `models/archive/` rather than deleted so an analysis
+        pinned to GenoTools 1.x stays reproducible. That is only true if a user
+        can find them.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            resolve_name(name, MODELS, DEFAULT_MODEL, "model")
+        message = str(excinfo.value)
+
+        assert ARCHIVE_URL_BASE in message
+        assert f"{name}.zip" in message
+
+    def test_unknown_name_is_not_treated_as_retired(self) -> None:
+        """A typo must still get the plain error, not the retirement story."""
+        with pytest.raises(SystemExit) as excinfo:
+            resolve_name("nba_v9", MODELS, DEFAULT_MODEL, "model")
+
+        assert "retired" not in str(excinfo.value).lower()
+
+    def test_retirement_message_is_model_only(self) -> None:
+        """A reference panel sharing a retired model's name is not a model.
+
+        `resolve_name` is shared with `--ref`, so the retirement branch has to
+        be scoped by kind or a ref panel could inherit a message about models.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            resolve_name("nba_v2", REF_PANELS, DEFAULT_REF, "reference panel")
+
+        assert "retired" not in str(excinfo.value).lower()
 
 
 class TestStaleArchive:
