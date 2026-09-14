@@ -392,9 +392,11 @@ genotools-download --model nba_gp2_r12
 and is the `genotools-download` default. It was fitted under the library
 versions 2.1.0 itself requires, so it loads without a drift warning; when those
 libraries later move, the warning it then emits is the real thing and worth
-reading. The 1.x models (`nba_v1`, `nba_v2`,
-`neurochip_v1`) remain available for anyone still on 1.x, and asking for one
-now prints a warning saying it will not load in 2.x.
+reading. The 1.x models (`nba_v1`, `nba_v2`, `neurochip_v1`) are **retired**:
+2.x cannot load that format, so they are no longer served by name, and asking
+for one now names `nba_gp2_r12` as the replacement. Their archives stay
+published under `models/archive/` for anyone reproducing an analysis pinned to
+1.x.
 
 Otherwise retrain once against your reference panel and reuse the resulting
 directory. (1.x's `--model` also required a sibling `.common_snps` file; 2.x

@@ -1971,6 +1971,53 @@ independent of cohort size.
 Evidence: `~/genotools-work/runs/round23-evidence/`.
 
 
+### Round 24 (retiring the 1.x models)
+
+`genotools-download` served four ancestry models, three of which GenoTools 2.x
+**cannot load**: `nba_v1`, `nba_v2` and `neurochip_v1` are bare sklearn Pipeline
+pickles, and `AncestryModel.load` rejects that format by design. Round 20 added
+a warning when one was requested, which is the right stopgap but still offers a
+download that cannot work. They also predate `core.provenance` and so record no
+library versions — the exact silent drift provenance exists to catch, and the
+reason `new_ancestry_ancestry_model` (fitted under scikit-learn 1.8.0, now
+loaded under 1.9.0) warns in round 23's validation runs.
+
+**Precondition checked first.** Item 42 was marked resolved "pending the
+upload", and a pinned md5 with no object behind it fails at download time. The
+archive is there: `gs://genotools_refs/models/nba_gp2_r12.zip`, 20,033,845
+bytes, uploaded 2026-09-08, md5 `8972607acae64f3147959281cc097dc9` — matching
+what `download_refs.MODELS` pins. Item 42 is now fully closed, and retiring the
+other three leaves users with a working default rather than nothing.
+
+**The retirement is a redirect, not a deletion.** The three names are gone from
+`MODELS` and listed in a new `RETIRED_MODELS` dict; asking for one raises a
+message naming `nba_gp2_r12` as the replacement *and* the archive URL, in the
+shape `_REMOVED_FLAGS` uses for removed CLI flags. The archives themselves were
+moved to `models/archive/` in the same bucket rather than deleted, so an
+analysis pinned to a 1.x GenoTools stays reproducible — a name that has been
+served for the whole 1.x line is in pinned scripts and published methods
+sections, and turning those into a bare "Unknown model" would be the failure
+mode, not the fix.
+
+The `if model_format == "1.x"` warning in `handle_download` went with them.
+With no 1.x name in the catalogue it could never fire, and round 22's lesson is
+that a guard which cannot fire reads as protection it is not providing. The
+format is still printed at download time, since a name alone does not tell you
+whether a model will load.
+
+**What this does to item 31.** The item asked for an audit of models in
+production because a collapsed fit predicts one label for nearly every sample.
+That signature is visible in the *outputs*, without the model: the released GP2
+r12 `ancestry_counts` spans 11 labels from EUR 89,734 down to FIN 190, which is
+not a collapse. So the frightening version of 31 — that published r12 labels
+came from a collapsed model — is already falsified, from data on disk. 31 is
+rescoped to that cheap output-side check over any other released cohort.
+
+Five tests, revert-checked against five mutations (drop the retirement branch;
+omit the archive URL; omit the replacement name; drop the `kind == "model"`
+guard so `--ref` inherits a model message; put a 1.x model back in `MODELS`).
+Each was caught. `tests/unit` **937**.
+
 ## Remaining work (tracked, not yet done)
 
 Priority order for making the refactor mergeable to `main`:
@@ -2135,7 +2182,19 @@ Priority order for making the refactor mergeable to `main`:
     against a hand-built result dict. The same gap is why round 18 needed no
     golden regeneration; it is also why a change to that section's shape would
     not be caught.
-31. **Audit the ancestry models already in production.** The defect is present
+31. **Audit the ancestry labels already published** — rescoped in **round 24**,
+    and mostly answered. The original framing was to audit the *models*; the
+    cheaper and more direct question is whether any *released label set* shows
+    the collapse signature, since a collapsed model predicts one label for
+    nearly every sample and that is visible in the outputs without the model.
+    **GP2 r12 passes**: its released `ancestry_counts` spans 11 labels with a
+    plausible spread (EUR 89,734 down to FIN 190), which is not a collapse.
+    The three 1.x models that motivated the item are now retired (round 24), so
+    nothing unauditable is served any more. What is left is the same check
+    against any other released cohort, plus `check_model_health.py` on models
+    still in use that predate `core.provenance`. Original text follows.
+
+    The defect is present
     in 1.x and 2.0 alike, and `tests/scripts/check_model_health.py` gives a
     verdict for either format. Scope it by the round-19 measurement: dense-WGS
     cohorts first, where the collapse rate is 30-95%, array cohorts as a spot
@@ -2287,10 +2346,11 @@ Priority order for making the refactor mergeable to `main`:
     `KeyError('default')` despite the help text advertising it, and an unknown
     name did the same instead of listing what exists. Both fixed, and asking for
     a 1.x model now warns that it will not load in 2.x rather than failing later
-    inside `AncestryModel.load`. **Not closed until the archive is actually
-    uploaded to `gs://genotools_refs/models/nba_gp2_r12.zip`** — the md5 in
-    `download_refs.MODELS` pins a specific archive, and a name in that dict with
-    no object behind it fails at download time. Superseded note follows.
+    inside `AncestryModel.load`. **Upload confirmed 2026-09-14**:
+    `gs://genotools_refs/models/nba_gp2_r12.zip` exists (20,033,845 bytes,
+    uploaded 2026-09-08) and its md5 matches the
+    `8972607acae64f3147959281cc097dc9` pinned in `download_refs.MODELS`, so the
+    item is fully closed. Superseded note follows.
 
     Original: **No pretrained model that 2.x can load is published.**
     `genotools-download` serves `nba_v1`, `nba_v2` and `neurochip_v1`; all three

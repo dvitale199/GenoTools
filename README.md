@@ -59,7 +59,7 @@ By default, the reference panel will be downloaded to ~/.genotools/ref. but can 
 
 To download specific references/models, you can run the download with the following options:
 ```
-genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_v1 --destination /path/to/download_directory/
+genotools-download --ref 1kg_30x_hgdp_ashk_ref_panel --model nba_gp2_r12 --destination /path/to/download_directory/
 ```
 
 Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. Available models, all in GRCh38:
@@ -67,16 +67,18 @@ Currently, `1kg_30x_hgdp_ashk_ref_panel` is the only available reference panel. 
 | Model | Array | Format |
 |---|---|---|
 | `nba_gp2_r12` (default) | NeuroBooster, trained on GP2 release 12 | **2.x** |
-| `nba_v1`, `nba_v2` | NeuroBooster | 1.x only |
-| `neurochip_v1` | NeuroChip | 1.x only |
 
-The two formats are mutually incompatible: GenoTools 2.x loads only `nba_gp2_r12`, and 1.x loads only the other three. `genotools-download` warns if you ask for a 1.x model. If using a different array, we would suggest training a new model by running the standard command below. Please ensure the reference panel and your genotypes are in the same build. If you're using our reference panel, your genotypes must be in GRCh38.
+If using a different array, we would suggest training a new model by running the standard command below. Please ensure the reference panel and your genotypes are in the same build. If you're using our reference panel, your genotypes must be in GRCh38.
 
-> **2.x cannot load 1.x ancestry models.** `nba_v1`, `nba_v2` and
-> `neurochip_v1` were trained by 1.x and are rejected with an explanatory
-> error. Use `nba_gp2_r12`, the 2.x-format NeuroBooster model and now the
-> `genotools-download` default, or train your own with
-> `--ref-panel`/`--ref-labels` as in the standard command below.
+> **The 1.x models are retired.** `nba_v1`, `nba_v2` and `neurochip_v1` are
+> 1.x-format pickles that GenoTools 2.x rejects by design, so they are no
+> longer served by name — asking for one tells you what to use instead. Use
+> `nba_gp2_r12`, or train your own with `--ref-panel`/`--ref-labels` as in the
+> standard command below.
+>
+> They are archived rather than deleted, at
+> `https://storage.googleapis.com/genotools_refs/models/archive/`, so an
+> analysis pinned to GenoTools 1.x stays reproducible.
 >
 > **If you retrain a model, expect ~1.3% of ancestry labels to move.** That is
 > a property of retraining rather than of the fixes, and neither labeling is
@@ -106,7 +108,7 @@ genotools \
   --ref-labels /path/to/reference/ancestry/labels \
   --all-sample \
   --all-variant \
-  --model /path/to/nba_v1/model
+  --model /path/to/nba_gp2_r12/model
 ```
 
 Note: `--container`, `--singularity` and `--cloud` are **not supported in 2.0** and exit with an error if passed. Ancestry prediction runs locally, in process. 1.x's containerized prediction relied on a Docker image built around a 1.x model that 2.0 cannot load; `--cloud` was never implemented in any version. See [MIGRATION_2.0.md](MIGRATION_2.0.md).

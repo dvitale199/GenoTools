@@ -28,8 +28,7 @@ from tqdm import tqdm
 # Ancestry models come in two mutually incompatible formats. A 1.x model is a
 # bare sklearn Pipeline pickle; 2.x writes a directory (pipeline.pkl,
 # common_snps.txt, metadata.json, requirements.txt) and rejects a 1.x model by
-# design. Serving both means a name alone cannot tell you whether the model
-# will load, so the format is recorded here and reported at download time.
+# design. The format is recorded here and reported at download time.
 REF_PANELS = {
     "1kg_30x_hgdp_ashk_ref_panel": "6cf0764ae6e99f60127e42b12b4af5d7",
 }
@@ -37,9 +36,6 @@ DEFAULT_REF = "1kg_30x_hgdp_ashk_ref_panel"
 
 MODELS = {
     # name: (md5, format, description)
-    "nba_v1": ("755042b6a1e600a06b10352d42c57d20", "1.x", "NeuroBooster array"),
-    "nba_v2": ("7618cd9be74a6f8da96ae99016851cce", "1.x", "NeuroBooster array"),
-    "neurochip_v1": ("8825d8b490bab62d91752ba64e960c2d", "1.x", "NeuroChip array"),
     "nba_gp2_r12": (
         "8972607acae64f3147959281cc097dc9",
         "2.x",
@@ -47,6 +43,28 @@ MODELS = {
     ),
 }
 DEFAULT_MODEL = "nba_gp2_r12"
+
+URL_BASE = "https://storage.googleapis.com/genotools_refs"
+ARCHIVE_URL_BASE = f"{URL_BASE}/models/archive"
+
+# Retired names, and why. `nba_v1`, `nba_v2` and `neurochip_v1` are 1.x
+# pickles: `AncestryModel.load` rejects that format by design, so 2.x could
+# never load them and serving them only offered users a download that could
+# not work. They also predate `core.provenance`, so they record no library
+# versions -- and sklearn can change an estimator's behaviour between versions
+# without saying so, which is exactly the silent drift provenance exists to
+# catch.
+#
+# The archives are not deleted. They remain under `ARCHIVE_URL_BASE` so an
+# analysis pinned to a 1.x GenoTools can still be reproduced; they are simply
+# no longer served by name here. Asking for one gets the message in
+# `resolve_name` rather than a bare "Unknown model", matching how
+# `_REMOVED_FLAGS` treats removed CLI flags.
+RETIRED_MODELS = {
+    "nba_v1": "1.x pickle (NeuroBooster array)",
+    "nba_v2": "1.x pickle (NeuroBooster array)",
+    "neurochip_v1": "1.x pickle (NeuroChip array)",
+}
 
 
 def resolve_name(requested, catalogue, default, kind):
@@ -59,6 +77,15 @@ def resolve_name(requested, catalogue, default, kind):
     name = default if requested in (None, "default") else requested
     if name not in catalogue:
         available = ", ".join(sorted(catalogue))
+        if kind == "model" and name in RETIRED_MODELS:
+            raise SystemExit(
+                f"The {name!r} model has been retired -- it is a "
+                f"{RETIRED_MODELS[name]}, and GenoTools 2.x cannot load that "
+                f"format. Use {default!r} instead, or train your own with "
+                f"--ref-panel/--ref-labels. The archive is still available at "
+                f"{ARCHIVE_URL_BASE}/{name}.zip for reproducing an analysis "
+                f"pinned to GenoTools 1.x."
+            )
         raise SystemExit(
             f"Unknown {kind} {name!r}. Available: {available}."
         )
@@ -114,7 +141,7 @@ def handle_download():
 
     args = parser.parse_args()
 
-    url_base = "https://storage.googleapis.com/genotools_refs"
+    url_base = URL_BASE
     download_ref = args.ref is not None or (args.model is None and args.ref is None)
     download_model = args.model is not None or (args.model is None and args.ref is None)
 
@@ -149,14 +176,13 @@ def handle_download():
         model = resolve_name(args.model, MODELS, DEFAULT_MODEL, "model")
         checksum, model_format, description = MODELS[model]
         url = f"{url_base}/models/{model}.zip"
-        if model_format == "1.x":
-            print(
-                f"Warning: {model} is a GenoTools 1.x model ({description}) and "
-                f"cannot be loaded by 2.x. Pass --model {DEFAULT_MODEL} for the "
-                f"2.x model, or train your own with --ref-panel/--ref-labels."
-            )
         model_path = f'{args.destination}/models'
-        print(f'Pulling model: {model}')
+        # The 1.x warning that used to sit here is gone with the 1.x names:
+        # every served model is 2.x now, so the branch could never fire, and a
+        # guard that cannot fire reads as protection it is not providing
+        # (REFACTOR.md round 22). The format is still reported, because a name
+        # alone does not tell you whether a model will load.
+        print(f'Pulling model: {model} ({model_format} format, {description})')
         os.makedirs(model_path, exist_ok=True)
         destination_file_path = os.path.join(model_path, os.path.basename(url))
 
