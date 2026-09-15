@@ -1,3 +1,77 @@
+# GenoTools Refactor — Living Tracker (CLOSED)
+
+> **This tracker is closed and archived.** It ran from the start of the 2.0
+> refactor through round 24 and is kept for its decision record — why parity was
+> judged acceptable, which fixes were verified by breaking them, and which
+> recorded claims later turned out to be wrong. None of that is reconstructible
+> from `git log`.
+>
+> **Live work is tracked in [GitHub issues](https://github.com/dvitale199/GenoTools/issues).**
+> The 22 items that were still open at round 24 were migrated on 2026-09-15; the
+> mapping is below. Resolved items are left exactly as they were.
+>
+> Do not add to this file. Historical entries were never edited by convention,
+> and that convention outlives the tracker.
+
+## Item → issue mapping
+
+The 22 items open at the close of round 24, and where each one now lives.
+Anchors were re-checked against `main` during migration; where a cited
+`file:line` had drifted, the issue records the correction and this file does not.
+
+| Item | Issue | Title |
+|---|---|---|
+| 9 | [#272](https://github.com/dvitale199/GenoTools/issues/272) | Tier 2 — parallelize per-ancestry QC groups |
+| 10 | [#273](https://github.com/dvitale199/GenoTools/issues/273) | Tier 3 — automatic ancestry PCA cache |
+| 11 | [#274](https://github.com/dvitale199/GenoTools/issues/274) | Skips are decided before the chain runs |
+| 16 | [#213](https://github.com/dvitale199/GenoTools/issues/213) | Dependency-bound policy (folded into the existing `setup.py` issue) |
+| 20 | [#275](https://github.com/dvitale199/GenoTools/issues/275) | `--het-ancestry` / `--subset-ancestry` labels validated too late |
+| 21 | [#276](https://github.com/dvitale199/GenoTools/issues/276) | No separate sample floor for het `sd` mode |
+| 24 | [#277](https://github.com/dvitale199/GenoTools/issues/277) | `parameters` does not cover the non-QC settings |
+| 26 | [#278](https://github.com/dvitale199/GenoTools/issues/278) | JSON report records temp paths that no longer exist |
+| 27 | [#279](https://github.com/dvitale199/GenoTools/issues/279) | Training mode has no overlap report; width mismatch crashes it |
+| 28 | [#280](https://github.com/dvitale199/GenoTools/issues/280) | Diagnostic thresholds are reasoned, not calibrated |
+| 29 | [#281](https://github.com/dvitale199/GenoTools/issues/281) | The self-test measures a floor, not accuracy |
+| 30 | [#282](https://github.com/dvitale199/GenoTools/issues/282) | `ancestry_diagnostics` has no golden |
+| 31 | [#283](https://github.com/dvitale199/GenoTools/issues/283) | Audit released ancestry label sets for the collapse signature |
+| 32 | [#284](https://github.com/dvitale199/GenoTools/issues/284) | `updater="coord_descent"` — revisit only if XGBoost changes |
+| 33 | [#285](https://github.com/dvitale199/GenoTools/issues/285) | Fit-validation thresholds are reasoned, not calibrated |
+| 34 | [#286](https://github.com/dvitale199/GenoTools/issues/286) | `TrainingConfig.n_jobs` derives from machine RAM/CPU |
+| 35 | [#287](https://github.com/dvitale199/GenoTools/issues/287) | Does UMAP + gblinear earn its cost? |
+| 36 | [#288](https://github.com/dvitale199/GenoTools/issues/288) | Supervised UMAP is asymmetric |
+| 37 | [#289](https://github.com/dvitale199/GenoTools/issues/289) | Cache the UMAP fits |
+| 38 | [#290](https://github.com/dvitale199/GenoTools/issues/290) | Persist `cv_results_` |
+| 41 | [#291](https://github.com/dvitale199/GenoTools/issues/291) | Retraining moves ~1.3% of labels |
+| 45 | [#292](https://github.com/dvitale199/GenoTools/issues/292) | Predict path holds three full-size copies |
+
+Two issues were opened during the migration that were never tracker items, both
+found while triaging GitHub issue #202:
+[#293](https://github.com/dvitale199/GenoTools/issues/293) (`"CAS"` is hardcoded
+in the admixture step) and
+[#294](https://github.com/dvitale199/GenoTools/issues/294) (no test covers the
+empty-`CAS` guard).
+
+**Evidence paths in this file are local.** Items cite
+`~/genotools-work/runs/...` and, in older entries, `~/round19-evidence/...`.
+Those exist only on the maintainer's machine. The migrated issues inline the
+numbers each argument depends on.
+
+**`docs/superpowers/` paths in this file are dead.** Rounds 4-7 cite a plan and
+a design spec under `docs/superpowers/plans/` and `docs/superpowers/specs/`.
+That directory was removed on 2026-09-15 along with the workflow it belonged to;
+the eight files remain in git history if anyone needs them:
+
+```
+git log --diff-filter=D --name-only -- 'docs/superpowers/*'
+git show <commit>^:docs/superpowers/plans/<file>.md
+```
+
+The round entries themselves are left unedited, per the convention above.
+
+---
+
+## Original header
+
 # GenoTools Refactor — Living Tracker
 
 The single source of truth for **finishing and verifying** the `refactor/main`

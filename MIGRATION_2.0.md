@@ -563,7 +563,7 @@ entirely about the matrix handed to it at prediction time.
 
 PCA now prunes high-LD and MHC regions that 1.x left in, so association
 p-values differ marginally across the board. This is intentional (ratified as
-"decision B" in `REFACTOR.md`). Genomic-inflation lambda is unchanged within
+"decision B" in `docs/history/REFACTOR.md`). Genomic-inflation lambda is unchanged within
 0.05 and the tested-variant set is identical; do not expect bit-identical
 p-values against 1.x output.
 
@@ -638,11 +638,16 @@ with the production configuration:
 - Labels moved 1.306% against the released 1.x labels, for the reasons in
   [Retraining moves about 1.3% of ancestry labels](#retraining-moves-about-13-of-ancestry-labels--and-that-is-retraining-not-the-fix)
 
-**Memory note.** Predicting a cohort this size currently needs a high-memory
-machine: the preprocessing step materializes the cohort as a dense 8-byte
-matrix and peaks near 187 GiB at 129,831 samples. This is not new in 2.x — 1.x
-has the identical code path — but plan hardware accordingly for full-release
-prediction. Tracked as REFACTOR.md item 40.
+**Memory note.** Predicting a cohort this size needs a high-memory machine:
+the ancestry path materializes the cohort as a dense 8-byte matrix, and peak
+memory is about **4x** that matrix — roughly **167 GiB** at 129,831 samples x
+43,173 SNPs. Plan hardware accordingly for full-release prediction.
+
+2.2.0 improved this: the peak was 6.78x the matrix before, and a real 10k run
+went 26.84 -> 18.03 GiB with predictions bit-identical. 1.x still has the
+unimproved path, so it needs more. Nothing yet *bounds* the peak independent of
+cohort size — tracked as
+[#292](https://github.com/dvitale199/GenoTools/issues/292).
 
 Known issue carried over from 1.x: `het` pruning fails on very small ancestry
 groups (observed on a 12-sample FIN group in both versions). It is reported as a

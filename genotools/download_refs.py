@@ -180,8 +180,8 @@ def handle_download():
         # The 1.x warning that used to sit here is gone with the 1.x names:
         # every served model is 2.x now, so the branch could never fire, and a
         # guard that cannot fire reads as protection it is not providing
-        # (REFACTOR.md round 22). The format is still reported, because a name
-        # alone does not tell you whether a model will load.
+        # (docs/history/REFACTOR.md round 22). The format is still reported,
+        # because a name alone does not tell you whether a model will load.
         print(f'Pulling model: {model} ({model_format} format, {description})')
         os.makedirs(model_path, exist_ok=True)
         destination_file_path = os.path.join(model_path, os.path.basename(url))

@@ -79,7 +79,7 @@ they are re-classified as duplicates.
 GWAS parity is asserted at the tested-variant-set + genomic-inflation-lambda
 level, NOT per-variant p-value: the new PCA pruning intentionally excludes
 high-LD/MHC regions the old code left in (ratified "decision B" in
-REFACTOR.md), so every GWAS p-value differs slightly by design. The
+docs/history/REFACTOR.md), so every GWAS p-value differs slightly by design. The
 per-variant mismatch count is still reported, for information.
 
 Exit status is non-zero if any selected scenario fails its parity check.
