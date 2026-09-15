@@ -76,7 +76,12 @@ pair to move.
 
 ### Memory
 
-Ancestry preprocessing materializes the cohort as a dense 8-byte matrix, which
-peaks near 187 GiB at 130,000 samples x 43,000 SNPs. Full-release *training* or
-*prediction* therefore needs a high-memory machine. This is not new in 2.x —
-1.x shares the code path. Tracked as REFACTOR.md item 40.
+Ancestry preprocessing materializes the cohort as a dense 8-byte matrix, and
+peak memory is about **4x** that matrix — roughly **167 GiB** at 130,000 samples
+x 43,000 SNPs. Full-release *training* or *prediction* therefore needs a
+high-memory machine.
+
+2.2.0 cut the peak from 6.78x the matrix to 4.01x (a real 10k run went
+26.84 -> 18.03 GiB, predictions bit-identical); 1.x still has the unimproved
+path. Bounding the peak independent of cohort size is
+[#292](https://github.com/dvitale199/GenoTools/issues/292).

@@ -1585,7 +1585,8 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
     # (ancestry/preprocessing.py) and reading the labels TSV. Without this
     # check the missing path is stringified into a PLINK command and surfaces
     # as "Failed to open None.bed" / "No such file or directory: 'None.bim'" -
-    # naming neither the flag nor the reason. See REFACTOR.md item 23.
+    # naming neither the flag nor the reason.
+    # See docs/history/REFACTOR.md item 23.
     #
     # Deliberately after AncestryArgs is constructed: its __post_init__ rejects
     # --container/--singularity/--cloud, and a flag that can never work is more

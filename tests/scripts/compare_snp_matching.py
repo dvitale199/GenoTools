@@ -22,7 +22,7 @@ installed libraries, this one holds the libraries constant and varies the
 source. Both delegate to ``compare_ancestry_run.py``, so the movement table
 means the same thing in both.
 
-The change under measurement (REFACTOR.md item 13) has two halves:
+The change under measurement (docs/history/REFACTOR.md item 13) has two halves:
 
 palindromic sites are excluded
     Unreachable on a reference panel built per ``docs/prep_reference_panel.md``,
@@ -195,7 +195,7 @@ def main() -> int:
     if comparison.returncode != 0:
         print(
             "\nThe two source trees do NOT agree. Read the per-label movement "
-            "table above and record it in REFACTOR.md item 13."
+            "table above and record it in docs/history/REFACTOR.md item 13."
         )
     return comparison.returncode
 

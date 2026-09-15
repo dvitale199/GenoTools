@@ -9,7 +9,8 @@ pointer:
 | CLI flags and their semantics | `docs/cli_args.md` |
 | Test suite, parity harness, real-cohort runs | `TESTING.md` |
 | What changed in 2.0 and why | `MIGRATION_2.0.md` |
-| Refactor history, tracked remaining work | `REFACTOR.md` |
+| Tracked remaining work | [GitHub issues](https://github.com/dvitale199/GenoTools/issues) |
+| Refactor history (rounds 1-24, closed) | `docs/history/REFACTOR.md` |
 | JSON report shape | `docs/json_output_overview.md` |
 
 ---
@@ -159,12 +160,12 @@ Seven touch points. Miss one and the step silently never runs.
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests/unit -q        # ~25s, 616 tests
-.venv/bin/python -m pytest tests/regression -q  # ~7min, needs PLINK
+.venv/bin/python -m pytest tests/unit -q        # ~40s, 937 tests
+.venv/bin/python -m pytest tests/regression -q  # ~7min, 77 tests, needs PLINK
 ```
 
 - **Revert-check any test claiming to gate a fix.** Break the production call
-  site and confirm the test fails. `REFACTOR.md` item 17 records round-7 tests
+  site and confirm the test fails. `docs/history/REFACTOR.md` item 17 records round-7 tests
   that passed against the broken code because they drove a helper rather than
   the path the bug lived in.
 - **Test through the layer that owns the behaviour.** The parser has three
@@ -189,5 +190,6 @@ Seven touch points. Miss one and the step silently never runs.
   **Never** add `Co-Authored-By:` or any attribution trailer.
 - **PR descriptions:** markdown, `## Summary` + `## Test plan`, ready to paste
   into GitHub. **Never** include "Generated with Claude Code" or similar.
-- **`REFACTOR.md`:** append a *new* round entry; never edit historical ones.
-  Deferred work goes in "Remaining work" with a number.
+- **`docs/history/REFACTOR.md`:** closed as of 2026-09-15 and no longer
+  appended to. Remaining work moved to GitHub issues; the item -> issue mapping
+  is in that file's header. Open a new issue rather than a tracker item.
