@@ -193,3 +193,6 @@ Seven touch points. Miss one and the step silently never runs.
 - **`docs/history/REFACTOR.md`:** closed as of 2026-09-15 and no longer
   appended to. Remaining work moved to GitHub issues; the item -> issue mapping
   is in that file's header. Open a new issue rather than a tracker item.
+- **No `docs/superpowers/`.** The plan/spec workflow that wrote into it was
+  retired on 2026-09-15 and the directory deleted. Do not recreate it, and do
+  not write plan or design-spec files into the repo — the issue is the plan.

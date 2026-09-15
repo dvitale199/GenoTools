@@ -56,6 +56,18 @@ empty-`CAS` guard).
 Those exist only on the maintainer's machine. The migrated issues inline the
 numbers each argument depends on.
 
+**`docs/superpowers/` paths in this file are dead.** Rounds 4-7 cite a plan and
+a design spec under `docs/superpowers/plans/` and `docs/superpowers/specs/`.
+That directory was removed on 2026-09-15 along with the workflow it belonged to;
+the eight files remain in git history if anyone needs them:
+
+```
+git log --diff-filter=D --name-only -- 'docs/superpowers/*'
+git show <commit>^:docs/superpowers/plans/<file>.md
+```
+
+The round entries themselves are left unedited, per the convention above.
+
 ---
 
 ## Original header
