@@ -30,6 +30,10 @@
 > [MIGRATION_2.0.md](MIGRATION_2.0.md) before upgrading;
 > [CHANGELOG.md](CHANGELOG.md) has the summary.
 
+> [!WARNING]
+> **File names must not contain a period (`.`).** Use a name such as
+> `my_genotypes`, not `my.genotypes`; GenoTools adds file extensions itself.
+
 ## Documentation
 You can find the full documentation with the following links:
 - [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/cli_args.md)
