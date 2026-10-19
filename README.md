@@ -30,10 +30,6 @@
 > [MIGRATION_2.0.md](MIGRATION_2.0.md) before upgrading;
 > [CHANGELOG.md](CHANGELOG.md) has the summary.
 
-> [!WARNING]
-> **File names must not contain a period (`.`).** Use a name such as
-> `my_genotypes`, not `my.genotypes`; GenoTools adds file extensions itself.
-
 ## Documentation
 You can find the full documentation with the following links:
 - [GenoTools Command Line Arguments](https://github.com/dvitale199/GenoTools/blob/main/docs/cli_args.md)
@@ -90,6 +86,12 @@ If using a different array, we would suggest training a new model by running the
 > [MIGRATION_2.0.md](MIGRATION_2.0.md#retraining-moves-about-13-of-ancestry-labels--and-that-is-retraining-not-the-fix).
 
 Modify the paths in the following command to run the standard GP2 pipeline:
+
+> [!WARNING]
+> **File names must not contain a period (`.`).** Use names such as
+> `/path/to/genotypes/for/qc`, not `/path/to/genotypes.for.qc`; GenoTools adds
+> file extensions itself.
+
 ```
 genotools \
   --pfile /path/to/genotypes/for/qc \
