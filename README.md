@@ -88,9 +88,8 @@ If using a different array, we would suggest training a new model by running the
 Modify the paths in the following command to run the standard GP2 pipeline:
 
 > [!WARNING]
-> **File names must not contain a period (`.`).** Use names such as
-> `/path/to/genotypes/for/qc`, not `/path/to/genotypes.for.qc`; GenoTools adds
-> file extensions itself.
+> **File names must not contain a period (`.`).** Use `genotypes_for_qc`, not
+> `genotypes.for.qc`; GenoTools adds file extensions itself.
 
 ```
 genotools \
