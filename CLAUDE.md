@@ -124,7 +124,7 @@ boundary — this is how `--ancestry` without `--ref-panel` used to fail
 
 **A PLINK prefix is not a filename.** Never call `with_suffix` or `.stem` on
 one — they rewrite whatever follows the last period, so `cohort.v2` became
-`cohort.pgen` and every step silently ran on nothing (#296). Append:
+`cohort.pgen` and every step failed to find its input (#296). Append:
 `Path(f"{prefix}.pgen")`, or `data.pgen` on a `GenotypeData`.
 `tests/unit/test_path_hygiene.py` bans `.with_suffix(` from the pipeline
 packages.
