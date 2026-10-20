@@ -68,7 +68,7 @@ def filter_haplotype(
         p_threshold = config.p_threshold
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -102,7 +102,7 @@ def filter_haplotype(
             extra_args=["--maf", "0.05", "--test-mishap"],
         )
 
-        mishap_file = hap_tmp.with_suffix(".missing.hap")
+        mishap_file = Path(f"{hap_tmp}.missing.hap")
         if mishap_file.exists():
             # Read mishap file and identify variants to exclude
             mis_hap = pd.read_csv(mishap_file, sep=r"\s+")
@@ -119,7 +119,7 @@ def filter_haplotype(
             # Combine reference and flanking SNPs
             all_snps = ref_snps + flanking_snps
             snp_df = pd.DataFrame({"snp": all_snps})
-            exclude_file = hap_tmp.with_suffix(".exclude")
+            exclude_file = Path(f"{hap_tmp}.exclude")
             snp_df["snp"].to_csv(exclude_file, sep="\t", header=False, index=False)
 
             # Exclude variants and convert back to pfile
@@ -138,8 +138,8 @@ def filter_haplotype(
             for temp_file in [
                 exclude_file,
                 mishap_file,
-                hap_tmp.with_suffix(".hh"),
-                hap_tmp.with_suffix(".log"),
+                Path(f"{hap_tmp}.hh"),
+                Path(f"{hap_tmp}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -147,7 +147,7 @@ def filter_haplotype(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -171,7 +171,7 @@ def filter_haplotype(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 

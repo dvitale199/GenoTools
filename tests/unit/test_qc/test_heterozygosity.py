@@ -225,6 +225,10 @@ class _FakeGenotypeData:
         self.path = path
         self.sample_count = sample_count
 
+    @property
+    def pgen(self) -> Path:
+        return Path(f"{self.path}.pgen")
+
     @classmethod
     def from_path(cls, path: Path) -> "_FakeGenotypeData":
         return cls(Path(path), 92)
@@ -250,14 +254,14 @@ class TestDerivedBoundsAreReported:
             extra_args = extra_args or []
             out = Path(output_path)
             if "--indep-pairwise" in extra_args:
-                out.with_suffix(".prune.in").write_text("rs1\nrs2\n")
+                Path(f"{out}.prune.in").write_text("rs1\nrs2\n")
             elif "--het" in extra_args:
                 _het_frame(f_values).to_csv(
-                    out.with_suffix(".het"), sep="\t", index=False
+                    Path(f"{out}.het"), sep="\t", index=False
                 )
             else:
                 for ext in (".pgen", ".pvar", ".psam"):
-                    out.with_suffix(ext).write_text("")
+                    Path(f"{out}{ext}").write_text("")
 
         monkeypatch.setattr(het_mod, "run_plink2", fake_run_plink2)
         monkeypatch.setattr(het_mod, "GenotypeData", _FakeGenotypeData)
@@ -265,7 +269,7 @@ class TestDerivedBoundsAreReported:
     def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: HetConfig):
         geno = tmp_path / "geno"
         for ext in (".pgen", ".pvar", ".psam"):
-            geno.with_suffix(ext).write_text("")
+            Path(f"{geno}{ext}").write_text("")
         # 100 samples: two at +/-1.0 sit far outside any of these bounds.
         f_values = [0.0] * 98 + [-1.0, 1.0]
         self._stub_plink(monkeypatch, tmp_path, f_values)

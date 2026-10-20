@@ -42,6 +42,26 @@ history and the GitHub releases page.
   new `copy=False` if you want the in-place behavior and have no further use for
   the array you pass in.
 
+- **File names containing a period now work — they used to produce your
+  unfiltered input as the "cleaned" output.**
+
+  `--pfile`, `--bfile` and `--out` are PLINK prefixes: GenoTools adds `.pgen`,
+  `.json` and the rest itself. It built those names in a way that replaced
+  whatever followed the last period instead of appending to it, so
+  `genotools.test.v2` was looked up as `genotools.test.pgen`, and
+  `--out clean.v2` wrote its report to `clean.json`.
+
+  Every QC step then failed to find its input. Under the default
+  warn-and-continue the run still **exited 0** and copied your raw input out
+  under the output name — the run summary said `FAIL` for each step, but the
+  exit code and the files on disk looked like success.
+
+  Names are now always extended, never rewritten, so a period anywhere in a
+  name is safe. Names without a period resolve to exactly the same files as
+  before. A `--vcf` path is also handled more carefully: only its trailing
+  `.vcf` / `.vcf.gz` is removed, where before a directory with `.vcf` in its
+  name cut the path short.
+
 ## 2.2.0
 
 A **minor** version, not a patch: the change below alters what a default run

@@ -150,7 +150,7 @@ def filter_heterozygosity(
             )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -182,7 +182,7 @@ def filter_heterozygosity(
         )
 
         # Step 2: Extract pruned variants
-        prune_in_file = het_tmp.with_suffix(".prune.in")
+        prune_in_file = Path(f"{het_tmp}.prune.in")
         if not prune_in_file.exists():
             raise QCError(
                 f"LD pruning failed - {prune_in_file} not found. {RAW_LOG_HINT}"
@@ -205,7 +205,7 @@ def filter_heterozygosity(
         )
 
         # Process het file
-        het_file = het_tmp3.with_suffix(".het")
+        het_file = Path(f"{het_tmp3}.het")
         if het_file.exists():
             het = pd.read_csv(het_file, sep=r"\s+")
 
@@ -236,14 +236,14 @@ def filter_heterozygosity(
             # Cleanup temp files
             for temp_file in [
                 prune_in_file,
-                het_tmp.with_suffix(".prune.out"),
-                het_tmp.with_suffix(".log"),
-                het_tmp2.with_suffix(".pgen"),
-                het_tmp2.with_suffix(".pvar"),
-                het_tmp2.with_suffix(".psam"),
-                het_tmp2.with_suffix(".log"),
+                Path(f"{het_tmp}.prune.out"),
+                Path(f"{het_tmp}.log"),
+                Path(f"{het_tmp2}.pgen"),
+                Path(f"{het_tmp2}.pvar"),
+                Path(f"{het_tmp2}.psam"),
+                Path(f"{het_tmp2}.log"),
                 het_file,
-                het_tmp3.with_suffix(".log"),
+                Path(f"{het_tmp3}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()

@@ -66,6 +66,12 @@ class TestInputArgs:
         args = InputArgs(vcf=Path("/data/test.vcf.gz"))
         assert args.geno_path == Path("/data/test")
 
+    def test_vcf_dots_outside_extension_survive(self) -> None:
+        """Only the trailing .vcf[.gz] is stripped -- a dotted name or a
+        directory containing ".vcf" used to be cut at the first ".vcf"."""
+        args = InputArgs(vcf=Path("/data/my.vcf_files/cohort.r12.vcf.gz"))
+        assert args.geno_path == Path("/data/my.vcf_files/cohort.r12")
+
     def test_no_input_raises(self) -> None:
         """InputArgs raises without any input."""
         with pytest.raises(ValueError, match="At least one input"):

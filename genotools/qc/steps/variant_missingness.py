@@ -60,7 +60,7 @@ def filter_variant_missingness(
         logger.info(f"Filtering variants by missingness (geno={config.geno})")
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 

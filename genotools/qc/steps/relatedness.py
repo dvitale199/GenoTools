@@ -83,7 +83,7 @@ def filter_relatedness(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -94,7 +94,7 @@ def filter_relatedness(
         king1 = out_path.parent / f"{out_path.name}_related_king"
         king2 = out_path.parent / f"{out_path.name}_duplicated_king"
         related_pairs = out_path.parent / f"{out_path.name}_pairs"
-        related_out = related_pairs.with_suffix(".related")
+        related_out = Path(f"{related_pairs}.related")
         pruned_out: Path | None = out_path.parent / f"{out_path.name}.pruned"
 
         # Step 1: Create KING table with related pairs
@@ -140,7 +140,7 @@ def filter_relatedness(
         )
 
         # Check output files exist
-        kin0_file = related_pairs.with_suffix(".kin0")
+        kin0_file = Path(f"{related_pairs}.kin0")
         related_file = king1.with_name(f"{king1.name}.king.cutoff.out.id")
         duplicated_file = king2.with_name(f"{king2.name}.king.cutoff.out.id")
 
@@ -155,17 +155,17 @@ def filter_relatedness(
             kinship.to_csv(related_out, index=False)
 
             # Copy cutoff files
-            shutil.copy(related_file, king1.with_suffix(".related"))
-            related_count = sum(1 for _ in open(king1.with_suffix(".related"))) - 1
+            shutil.copy(related_file, Path(f"{king1}.related"))
+            related_count = sum(1 for _ in open(Path(f"{king1}.related"))) - 1
 
-            shutil.copy(duplicated_file, king2.with_suffix(".duplicated"))
-            duplicated_count = sum(1 for _ in open(king2.with_suffix(".duplicated"))) - 1
+            shutil.copy(duplicated_file, Path(f"{king2}.duplicated"))
+            duplicated_count = sum(1 for _ in open(Path(f"{king2}.duplicated"))) - 1
 
             # Adjust related count (duplicates are also counted as related)
             related_count = related_count - duplicated_count
 
             # Read duplicate samples
-            duplicated = pd.read_csv(king2.with_suffix(".duplicated"), sep=r"\s+")
+            duplicated = pd.read_csv(Path(f"{king2}.duplicated"), sep=r"\s+")
 
             # Determine which samples to remove based on config
             if config.prune_related and config.prune_duplicated:
@@ -177,7 +177,7 @@ def filter_relatedness(
                     extra_args=["--remove", str(related_file)],
                 )
 
-                related = pd.read_csv(king1.with_suffix(".related"), sep=r"\s+")
+                related = pd.read_csv(Path(f"{king1}.related"), sep=r"\s+")
                 grm_pruned = pd.concat([related, duplicated], ignore_index=True)
 
             elif config.prune_duplicated and not config.prune_related:
@@ -195,8 +195,8 @@ def filter_relatedness(
             else:
                 # No pruning - just copy files
                 for ext in ["pgen", "psam", "pvar"]:
-                    src = data.path.with_suffix(f".{ext}")
-                    dst = out_path.with_suffix(f".{ext}")
+                    src = Path(f"{data.path}.{ext}")
+                    dst = Path(f"{out_path}.{ext}")
                     shutil.copy(src, dst)
 
                 grm_pruned = pd.DataFrame()
@@ -223,16 +223,16 @@ def filter_relatedness(
             for temp_file in [
                 king1.with_name(f"{king1.name}.king.cutoff.in.id"),
                 related_file,
-                king1.with_suffix(".related"),
-                king1.with_suffix(".log"),
-                king2.with_suffix(".duplicated"),
+                Path(f"{king1}.related"),
+                Path(f"{king1}.log"),
+                Path(f"{king2}.duplicated"),
                 king2.with_name(f"{king2.name}.king.cutoff.in.id"),
                 duplicated_file,
-                king2.with_suffix(".log"),
-                related_pairs.with_suffix(".king.bin"),
-                related_pairs.with_suffix(".king.id"),
+                Path(f"{king2}.log"),
+                Path(f"{related_pairs}.king.bin"),
+                Path(f"{related_pairs}.king.id"),
                 kin0_file,
-                related_pairs.with_suffix(".log"),
+                Path(f"{related_pairs}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -312,7 +312,7 @@ def verify_kinship(
             )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -351,8 +351,8 @@ def verify_kinship(
         num_same_fid_unrelated = 0
         num_diff_fid_related = 0
 
-        kin0_file = temp.with_suffix(".kin0")
-        kin_file = temp.with_suffix(".kin")
+        kin0_file = Path(f"{temp}.kin0")
+        kin_file = Path(f"{temp}.kin")
 
         if kin0_file.exists() or kin_file.exists():
             # Different FID but related
@@ -370,10 +370,10 @@ def verify_kinship(
             # Cleanup temp files
             for temp_file in [
                 kin_file,
-                temp.with_suffix(".seg"),
+                Path(f"{temp}.seg"),
                 temp.parent / f"{temp.name}X.kin",
                 temp.parent / f"{temp.name}X.kin0",
-                temp.with_suffix(".segments.gz"),
+                Path(f"{temp}.segments.gz"),
                 temp.parent / f"{temp.name}allsegs.txt",
                 temp.parent / f"{temp.name}build.log",
                 temp.parent / f"{temp.name}updateids.txt",
@@ -385,7 +385,7 @@ def verify_kinship(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -411,7 +411,7 @@ def verify_kinship(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 

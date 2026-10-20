@@ -110,7 +110,7 @@ def run_pca_pruning(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -155,7 +155,7 @@ def run_pca_pruning(
         ]
         run_command(prune_cmd, tool_name="plink2")
 
-        prune_in_file = pruned_path.with_suffix(".prune.in")
+        prune_in_file = Path(f"{pruned_path}.prune.in")
         success = prune_in_file.exists()
 
         if success:
@@ -245,7 +245,7 @@ def run_pca(
         logger.info(f"Computing {config.n_pcs} principal components")
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -283,8 +283,8 @@ def run_pca(
         ]
         result = run_command(pca_cmd, tool_name="plink2")
 
-        eigenvec_path = out_path.with_suffix(".eigenvec")
-        eigenval_path = out_path.with_suffix(".eigenval")
+        eigenvec_path = Path(f"{out_path}.eigenvec")
+        eigenval_path = Path(f"{out_path}.eigenval")
 
         if eigenvec_path.exists():
             # Count samples in eigenvec file

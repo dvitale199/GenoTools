@@ -114,9 +114,7 @@ def main():
 
         result = run_pipeline(args)
 
-        # Save output JSON
-        out_path = args.output.out_path
-        result.save(out_path.with_suffix(".json"))
+        write_results(result, args.output.out_path)
     except (GenoToolsError, FileNotFoundError, ValueError, TypeError) as e:
         if debug:
             raise

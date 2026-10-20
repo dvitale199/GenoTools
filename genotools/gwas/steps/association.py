@@ -146,7 +146,7 @@ def _create_phenotype_file(data: GenotypeData, pheno_name: str) -> Path:
     Returns:
         Path to created phenotype file.
     """
-    psam_path = data.path.with_suffix(".psam")
+    psam_path = Path(f"{data.path}.psam")
     psam = pd.read_csv(psam_path, sep=r"\s+")
 
     pheno_path = data.path.parent / f"{data.path.name}.pheno"
@@ -168,7 +168,7 @@ def _get_case_control_counts(data: GenotypeData) -> tuple[int, int]:
     Returns:
         Tuple of (n_cases, n_controls).
     """
-    psam_path = data.path.with_suffix(".psam")
+    psam_path = Path(f"{data.path}.psam")
     psam = pd.read_csv(psam_path, sep=r"\s+", dtype={"PHENO1": str})
 
     counts = psam["PHENO1"].value_counts()
@@ -217,7 +217,7 @@ def run_gwas(
         logger.info(f"Running GWAS (phenotype={config.pheno_name})")
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 

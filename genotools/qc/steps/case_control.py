@@ -66,7 +66,7 @@ def filter_case_control(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -89,7 +89,7 @@ def filter_case_control(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -109,12 +109,12 @@ def filter_case_control(
             extra_args=["--test-missing"],
         )
 
-        missing_file = mis_tmp.with_suffix(".missing")
+        missing_file = Path(f"{mis_tmp}.missing")
         if missing_file.exists():
             # Read missing file and identify variants to exclude
             mis = pd.read_csv(missing_file, sep=r"\s+")
             exclude = mis[mis.P <= config.p_threshold].loc[:, "SNP"]
-            exclude_file = mis_tmp.with_suffix(".exclude")
+            exclude_file = Path(f"{mis_tmp}.exclude")
             exclude.to_csv(exclude_file, sep="\t", header=False, index=False)
 
             # Exclude variants and convert back to pfile
@@ -132,9 +132,9 @@ def filter_case_control(
             # Cleanup temp files
             for temp_file in [
                 exclude_file,
-                mis_tmp.with_suffix(".hh"),
+                Path(f"{mis_tmp}.hh"),
                 missing_file,
-                mis_tmp.with_suffix(".log"),
+                Path(f"{mis_tmp}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -142,7 +142,7 @@ def filter_case_control(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -166,7 +166,7 @@ def filter_case_control(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 

@@ -1,6 +1,7 @@
 """Unit tests for genotools.core module."""
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -568,6 +569,57 @@ class TestGenotypeData:
         assert (bfile_prefix.with_suffix(".pgen")).exists()
         assert result.sample_count == src.sample_count
         assert result.variant_count == src.variant_count
+
+    # A PLINK prefix may contain periods. Path.with_suffix on one rewrote the
+    # name (genotools.test.v2 -> genotools.test.pgen), so these all use a
+    # dotted prefix and build expected paths by appending.
+
+    @pytest.fixture
+    def dotted_prefix(self, test_data_path: Path, tmp_path: Path) -> Path:
+        """The synthetic pfiles copied to a prefix whose name has periods."""
+        prefix = tmp_path / "genotools.test.v2"
+        for ext in (".pgen", ".pvar", ".psam"):
+            shutil.copy2(f"{test_data_path}{ext}", f"{prefix}{ext}")
+        return prefix
+
+    def test_from_path_dotted_prefix(self, dotted_prefix: Path):
+        """from_path finds and counts files at a dotted prefix."""
+        data = GenotypeData.from_path(dotted_prefix)
+        assert data.format == "pfile"
+        assert data.path == dotted_prefix
+        assert data.sample_count == 500
+        assert data.variant_count == 40500
+        assert data.pgen == Path(f"{dotted_prefix}.pgen")
+        assert data.pvar == Path(f"{dotted_prefix}.pvar")
+        assert data.psam == Path(f"{dotted_prefix}.psam")
+
+    def test_ensure_bfile_keeps_dotted_name(self, dotted_prefix: Path, tmp_path: Path):
+        """The converted copy is named after the whole prefix, not its .stem."""
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        bfile_data = GenotypeData.from_path(dotted_prefix).ensure_bfile(work_dir)
+        assert bfile_data.path == work_dir / "genotools.test.v2_bfile"
+        assert bfile_data.format == "bfile"
+        assert bfile_data.sample_count == 500
+        assert bfile_data.variant_count == 40500
+
+    def test_from_vcf_dotted_name(self, test_data_path: Path, tmp_path: Path):
+        """from_vcf converts cohort.r12.vcf to the prefix cohort.r12."""
+        from genotools.core.executors import get_plink2
+        import subprocess
+        vcf_prefix = tmp_path / "cohort.r12"
+        subprocess.run(
+            [str(get_plink2()), "--pfile", str(test_data_path),
+             "--autosome", "--export", "vcf", "--out", str(vcf_prefix)],
+            check=True, capture_output=True,
+        )
+
+        data = GenotypeData.from_vcf(Path(f"{vcf_prefix}.vcf"))
+
+        assert data.path == vcf_prefix
+        assert data.format == "pfile"
+        assert Path(f"{vcf_prefix}.pgen").exists()
+        assert not Path(f"{vcf_prefix}.bed").exists()
 
 
 class TestConfig:

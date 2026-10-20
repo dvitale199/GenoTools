@@ -25,6 +25,7 @@ Usage:
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional, Tuple
+import re
 import subprocess
 
 from .exceptions import FileFormatError, ValidationError, ExternalToolError
@@ -38,6 +39,17 @@ BFILE_EXTENSIONS = (".bed", ".bim", ".fam")
 
 # CRITICAL: Always use this flag to preserve sample metadata in psam files
 PLINK2_PSAM_COLS = "psam-cols=fid,parents,sex,pheno1,phenos"
+
+
+def vcf_prefix(vcf_path: Path | str) -> Path:
+    """Return the PLINK prefix a VCF converts to: the path minus ``.vcf[.gz]``.
+
+    Strips ``.vcf`` plus at most one compression extension (``.gz``, ``.bgz``,
+    ``.zst``, ...) from the file name only, so a directory containing ".vcf"
+    or a dotted name like ``cohort.r12.vcf.gz`` keeps the rest of its path.
+    """
+    vcf_path = Path(vcf_path)
+    return vcf_path.with_name(re.sub(r"\.vcf(\.\w+)?$", "", vcf_path.name))
 
 
 @dataclass(frozen=True)
@@ -130,14 +142,13 @@ class GenotypeData:
         if plink2_path is None:
             plink2_path = get_plink2()
 
-        # Prefix = VCF path with .vcf/.vcf.gz stripped (matches legacy split('.vcf'))
-        prefix = Path(str(vcf_path).split(".vcf")[0])
+        prefix = vcf_prefix(vcf_path)
 
         run_command(
             f"{plink2_path} --vcf {vcf_path} --make-bed --out {prefix}",
             tool_name="plink2",
         )
-        if not prefix.with_suffix(".bed").is_file():
+        if not Path(f"{prefix}.bed").is_file():
             raise FileNotFoundError(
                 f"{prefix} bed/bim/fam files do not exist. Conversion from VCF failed"
             )
@@ -145,9 +156,9 @@ class GenotypeData:
         bfile = cls.from_path(prefix)
         pfile = bfile.to_pfile(prefix, plink2_path=plink2_path)
 
-        if prefix.with_suffix(".pgen").is_file():
+        if Path(f"{prefix}.pgen").is_file():
             for ext in (".bed", ".bim", ".fam"):
-                p = prefix.with_suffix(ext)
+                p = Path(f"{prefix}{ext}")
                 if p.exists():
                     p.unlink()
         else:
@@ -172,14 +183,14 @@ class GenotypeData:
         """
         # Check for pfile format first (preferred)
         pfile_exists = all(
-            path.with_suffix(ext).exists() for ext in PFILE_EXTENSIONS
+            Path(f"{path}{ext}").exists() for ext in PFILE_EXTENSIONS
         )
         if pfile_exists:
             return "pfile"
 
         # Check for bfile format
         bfile_exists = all(
-            path.with_suffix(ext).exists() for ext in BFILE_EXTENSIONS
+            Path(f"{path}{ext}").exists() for ext in BFILE_EXTENSIONS
         )
         if bfile_exists:
             return "bfile"
@@ -205,8 +216,8 @@ class GenotypeData:
             Tuple of (sample_count, variant_count)
         """
         if format_type == "pfile":
-            sample_file = path.with_suffix(".psam")
-            variant_file = path.with_suffix(".pvar")
+            sample_file = Path(f"{path}.psam")
+            variant_file = Path(f"{path}.pvar")
 
             # Count samples (subtract 1 for header)
             sample_count = sum(1 for _ in open(sample_file)) - 1
@@ -219,8 +230,8 @@ class GenotypeData:
                         variant_count += 1
 
         else:  # bfile
-            sample_file = path.with_suffix(".fam")
-            variant_file = path.with_suffix(".bim")
+            sample_file = Path(f"{path}.fam")
+            variant_file = Path(f"{path}.bim")
 
             # fam has no header
             sample_count = sum(1 for _ in open(sample_file))
@@ -291,7 +302,7 @@ class GenotypeData:
             )
 
         # Clean up log file (following existing pattern)
-        log_file = out_path.with_suffix(".log")
+        log_file = Path(f"{out_path}.log")
         if log_file.exists():
             log_file.unlink()
 
@@ -359,7 +370,7 @@ class GenotypeData:
             )
 
         # Clean up log file (following existing pattern)
-        log_file = out_path.with_suffix(".log")
+        log_file = Path(f"{out_path}.log")
         if log_file.exists():
             log_file.unlink()
 
@@ -381,7 +392,7 @@ class GenotypeData:
             return self
 
         work_dir = Path(work_dir)
-        out_path = work_dir / f"{self.path.stem}_pfile"
+        out_path = work_dir / f"{self.path.name}_pfile"
         return self.to_pfile(out_path)
 
     def ensure_bfile(self, work_dir: Path | str) -> "GenotypeData":
@@ -400,7 +411,7 @@ class GenotypeData:
             return self
 
         work_dir = Path(work_dir)
-        out_path = work_dir / f"{self.path.stem}_bfile"
+        out_path = work_dir / f"{self.path.name}_bfile"
         return self.to_bfile(out_path)
 
     def validate_required_columns(self) -> None:
@@ -413,7 +424,7 @@ class GenotypeData:
             ValidationError: If required columns are missing.
         """
         if self.format == "pfile":
-            sample_file = self.path.with_suffix(".psam")
+            sample_file = Path(f"{self.path}.psam")
             with open(sample_file) as f:
                 header = f.readline().strip()
 
@@ -441,42 +452,42 @@ class GenotypeData:
     def pgen(self) -> Optional[Path]:
         """Path to .pgen file if pfile format, else None."""
         if self.format == "pfile":
-            return self.path.with_suffix(".pgen")
+            return Path(f"{self.path}.pgen")
         return None
 
     @property
     def pvar(self) -> Optional[Path]:
         """Path to .pvar file if pfile format, else None."""
         if self.format == "pfile":
-            return self.path.with_suffix(".pvar")
+            return Path(f"{self.path}.pvar")
         return None
 
     @property
     def psam(self) -> Optional[Path]:
         """Path to .psam file if pfile format, else None."""
         if self.format == "pfile":
-            return self.path.with_suffix(".psam")
+            return Path(f"{self.path}.psam")
         return None
 
     @property
     def bed(self) -> Optional[Path]:
         """Path to .bed file if bfile format, else None."""
         if self.format == "bfile":
-            return self.path.with_suffix(".bed")
+            return Path(f"{self.path}.bed")
         return None
 
     @property
     def bim(self) -> Optional[Path]:
         """Path to .bim file if bfile format, else None."""
         if self.format == "bfile":
-            return self.path.with_suffix(".bim")
+            return Path(f"{self.path}.bim")
         return None
 
     @property
     def fam(self) -> Optional[Path]:
         """Path to .fam file if bfile format, else None."""
         if self.format == "bfile":
-            return self.path.with_suffix(".fam")
+            return Path(f"{self.path}.fam")
         return None
 
     def __str__(self) -> str:
