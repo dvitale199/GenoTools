@@ -18,13 +18,14 @@
 --pfile and --out are PLINK prefixes: GenoTools appends .pgen, .json, ... to
 them. It used to build those names with ``Path.with_suffix``, which replaces
 whatever follows the last dot -- ``genotools.test.v2`` became
-``genotools.test.pgen``. Every step then failed to find its input and, under
-the default --warn, the run still exited 0 and copied the raw input out as
-``{out}.pgen``. Exit code and file existence -- all
-``test_full_qc_pipeline_completes`` checks -- both looked fine.
+``genotools.test.pgen``. Every step then failed to find its input, and the run
+exited 1 with the raw input copied out as ``{out}.pgen``.
 
-So this runs the same QC twice, under plain names and under dotted ones, and
-requires the same per-step outcomes and the same surviving samples and variants.
+The exit code catches a step that fails outright, but not a path that is wrong
+without failing -- the report written to ``clean.json``, or a step reading a
+different file that happens to exist. So this runs the same QC twice, under
+plain names and under dotted ones, and requires the same per-step outcomes and
+the same surviving samples and variants.
 
 Revert check: restoring ``data.path.with_suffix(...)`` for ``input_file`` in
 qc/steps/callrate.py, or ``out_path.with_suffix(".json")`` in cli/__init__.py,

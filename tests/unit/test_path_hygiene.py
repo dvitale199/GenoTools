@@ -4,8 +4,8 @@ GenoTools passes PLINK *prefixes* around -- extensionless paths like
 ``/data/cohort`` that stand for cohort.pgen/.pvar/.psam. ``with_suffix``
 replaces whatever follows the last dot, so on a prefix whose name contains a
 period it silently rewrites the name: ``genotools.test.v2`` -> ``genotools.test.pgen``.
-Every QC step then failed to find its input and, under the default --warn, the
-run exited 0 with the raw input copied out as the "cleaned" result.
+Every QC step then failed to find its input, and the run exited 1 with the
+raw input copied out under the output name.
 
 Build file names from a prefix by appending, the way PLINK does:
 ``Path(f"{prefix}.pgen")``.
