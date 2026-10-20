@@ -3,7 +3,7 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
-## Unreleased — next release is 2.2.1
+## 2.2.1
 
 ### Removed
 
