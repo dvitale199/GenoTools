@@ -70,7 +70,7 @@ def filter_sex(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -124,8 +124,8 @@ def filter_sex(
         )
 
         # Process results
-        sexcheck1 = sex_tmp1.with_suffix(".sexcheck")
-        sexcheck2 = sex_tmp2.with_suffix(".sexcheck")
+        sexcheck1 = Path(f"{sex_tmp1}.sexcheck")
+        sexcheck2 = Path(f"{sex_tmp2}.sexcheck")
 
         if sexcheck1.exists() and sexcheck2.exists():
             # Grab fails from .sexcheck files
@@ -157,12 +157,12 @@ def filter_sex(
 
             # Cleanup temp files
             for temp_file in [
-                sex_tmp1.with_suffix(".hh"),
+                Path(f"{sex_tmp1}.hh"),
                 sexcheck1,
-                sex_tmp2.with_suffix(".hh"),
+                Path(f"{sex_tmp2}.hh"),
                 sexcheck2,
-                sex_tmp1.with_suffix(".log"),
-                sex_tmp2.with_suffix(".log"),
+                Path(f"{sex_tmp1}.log"),
+                Path(f"{sex_tmp2}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -170,7 +170,7 @@ def filter_sex(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -193,7 +193,7 @@ def filter_sex(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 

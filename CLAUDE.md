@@ -122,6 +122,13 @@ panel. `label == "AMR"` was the second defect behind `--amr-het`.
 boundary — this is how `--ancestry` without `--ref-panel` used to fail
 (round 12).
 
+**A PLINK prefix is not a filename.** Never call `with_suffix` or `.stem` on
+one — they rewrite whatever follows the last period, so `cohort.v2` became
+`cohort.pgen` and every step silently ran on nothing (#296). Append:
+`Path(f"{prefix}.pgen")`, or `data.pgen` on a `GenotypeData`.
+`tests/unit/test_path_hygiene.py` bans `.with_suffix(` from the pipeline
+packages.
+
 **Data preconditions are skips, not crashes.** A step the data rules out gets a
 `<step>_skip_reason()` in `core/validation.py`, wired into `_skip_reasons()`,
 so the report distinguishes "not requested" from "requested but impossible".

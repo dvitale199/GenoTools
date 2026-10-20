@@ -62,7 +62,7 @@ def filter_callrate(
         logger.info(f"Filtering samples by callrate (mind={config.mind})")
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -81,7 +81,7 @@ def filter_callrate(
         output = GenotypeData.from_path(out_path)
 
         # Process outlier file
-        mindrem_file = out_path.with_suffix(".mindrem.id")
+        mindrem_file = Path(f"{out_path}.mindrem.id")
         outliers_file = out_path.parent / f"{out_path.name}.outliers"
         pruned_file: Path | None = None
 

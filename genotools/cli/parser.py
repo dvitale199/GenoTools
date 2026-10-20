@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..ancestry.config import MISSING_FILL_STRATEGIES
 from ..ancestry.diagnostics import DEFAULT_MAX_FILL_FRACTION
+from ..core.genotypes import vcf_prefix
 from ..core.version import version_string
 from ..qc.config import (
     CallrateConfig,
@@ -67,11 +68,8 @@ class InputArgs:
         elif self.bfile is not None:
             return self.bfile
         elif self.vcf is not None:
-            # VCF path without .vcf extension
-            vcf_str = str(self.vcf)
-            if ".vcf" in vcf_str:
-                return Path(vcf_str.split(".vcf")[0])
-            return self.vcf
+            # Must match the prefix GenotypeData.from_vcf converts to
+            return vcf_prefix(self.vcf)
         raise ValueError("No input file specified")
 
     @property

@@ -293,7 +293,8 @@ def get_raw_files(
     else:
         if common_snps_file is None or not os.path.isfile(common_snps_file):
             raise FileNotFoundError(f"{common_snps_file} file does not exist.")
-        ref_common_snps = f"{os.path.dirname(out_path)}/" + os.path.basename(common_snps_file).split(".")[0]
+        # Drop only the .common_snps extension -- the name carries --out, which may contain periods
+        ref_common_snps = f"{os.path.dirname(out_path)}/" + os.path.splitext(os.path.basename(common_snps_file))[0]
         run_command(
             f"{plink2} --bfile {ref_panel} --extract {common_snps_file} --make-bed --out {ref_common_snps}",
             tool_name="plink2",

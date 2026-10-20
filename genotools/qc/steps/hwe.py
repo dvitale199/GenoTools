@@ -64,7 +64,7 @@ def filter_hwe(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -93,7 +93,7 @@ def filter_hwe(
             extra_args=extra_args,
         )
 
-        snplist_file = hwe_tmp.with_suffix(".snplist")
+        snplist_file = Path(f"{hwe_tmp}.snplist")
         if snplist_file.exists():
             # Extract passing variants and convert back to pfile
             run_plink2(
@@ -110,8 +110,8 @@ def filter_hwe(
             # Cleanup temp files
             for temp_file in [
                 snplist_file,
-                hwe_tmp.with_suffix(".hh"),
-                hwe_tmp.with_suffix(".log"),
+                Path(f"{hwe_tmp}.hh"),
+                Path(f"{hwe_tmp}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -119,7 +119,7 @@ def filter_hwe(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 
@@ -140,7 +140,7 @@ def filter_hwe(
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:
-                    bfile = bfile_data.path.with_suffix(ext)
+                    bfile = Path(f"{bfile_data.path}{ext}")
                     if bfile.exists():
                         bfile.unlink()
 

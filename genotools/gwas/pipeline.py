@@ -101,7 +101,7 @@ class AssocPipeline:
             logger.info("Starting association analysis pipeline")
 
             # Validate input exists
-            input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+            input_file = data.pgen if data.format == "pfile" else data.bed
             if not input_file.exists():
                 raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -175,7 +175,7 @@ class AssocPipeline:
             Tuple of (covar_path, covar_names) or (None, None).
         """
         covar_config = self.config.covariates
-        eigenvec_path = out_path.with_suffix(".eigenvec")
+        eigenvec_path = Path(f"{out_path}.eigenvec")
 
         # Check if PCA produced eigenvectors
         pca_available = (

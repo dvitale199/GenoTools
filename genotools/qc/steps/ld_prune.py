@@ -65,7 +65,7 @@ def prune_ld(
         )
 
         # Validate input exists
-        input_file = data.path.with_suffix(".pgen" if data.format == "pfile" else ".bed")
+        input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
             raise ValidationError(f"Input file does not exist: {input_file}")
 
@@ -92,7 +92,7 @@ def prune_ld(
             make_pgen=False,
         )
 
-        prune_in_file = ld_tmp.with_suffix(".prune.in")
+        prune_in_file = Path(f"{ld_tmp}.prune.in")
         if prune_in_file.exists():
             # Step 2: Extract pruned variants
             run_plink2(
@@ -109,8 +109,8 @@ def prune_ld(
             # Cleanup temp files
             for temp_file in [
                 prune_in_file,
-                ld_tmp.with_suffix(".prune.out"),
-                ld_tmp.with_suffix(".log"),
+                Path(f"{ld_tmp}.prune.out"),
+                Path(f"{ld_tmp}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
