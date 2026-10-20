@@ -643,7 +643,7 @@ the ancestry path materializes the cohort as a dense 8-byte matrix, and peak
 memory is about **4x** that matrix — roughly **167 GiB** at 129,831 samples x
 43,173 SNPs. Plan hardware accordingly for full-release prediction.
 
-2.2.0 improved this: the peak was 6.78x the matrix before, and a real 10k run
+2.2.1 improved this: the peak was 6.78x the matrix before, and a real 10k run
 went 26.84 -> 18.03 GiB with predictions bit-identical. 1.x still has the
 unimproved path, so it needs more. Nothing yet *bounds* the peak independent of
 cohort size — tracked as
