@@ -4,8 +4,8 @@
   "reason": null,
   "step": "hwe_prune",
   "metrics": {
-    "outlier_count": 636,
-    "hwe_removed_count": 636
+    "outlier_count": 903,
+    "hwe_removed_count": 903
   },
   "parameters": {},
   "output": {

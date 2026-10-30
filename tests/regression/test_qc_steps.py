@@ -282,6 +282,19 @@ class TestDirectOutlierValidation:
             f"Expected {len(expected)}, detected {len(detected_expected)}"
         )
 
+        # Precision, which recall alone never checked (#311): the synthetic
+        # males were heterozygous on X, so every one was confidently called
+        # female and the step removed 253 samples while this test passed.
+        # Outside the injected samples, a sex-check failure may only be an
+        # ambiguous call (SNPSEX 0, F near a cutoff), never a confident one.
+        checks = pd.read_csv(result.plot_data["check"], sep="\t")
+        others = checks[~checks["IID"].isin(expected) & (checks["STATUS"] == "PROBLEM")]
+        confident = others[others["SNPSEX"] != 0]
+        assert confident.empty, (
+            f"{confident['IID'].nunique()} non-injected samples got a confident "
+            f"wrong sex call:\n{confident.head(10)}"
+        )
+
     def test_het_outliers_detection(
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):

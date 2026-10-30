@@ -5,7 +5,7 @@
   "step": "related_prune",
   "metrics": {
     "related_count": 0,
-    "duplicated_count": 1
+    "duplicated_count": 4
   },
   "parameters": {},
   "output": {

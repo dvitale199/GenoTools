@@ -19,7 +19,7 @@
     "reason": null,
     "step": "sex_prune",
     "metrics": {
-      "outlier_count": 253
+      "outlier_count": 17
     },
     "parameters": {},
     "output": {
@@ -33,7 +33,7 @@
     "reason": null,
     "step": "het_prune",
     "metrics": {
-      "outlier_count": 3
+      "outlier_count": 8
     },
     "parameters": {
       "het_mode": "fixed",
@@ -54,7 +54,7 @@
     "step": "related_prune",
     "metrics": {
       "related_count": 0,
-      "duplicated_count": 1
+      "duplicated_count": 4
     },
     "parameters": {},
     "output": {
@@ -84,8 +84,8 @@
     "reason": null,
     "step": "hwe_prune",
     "metrics": {
-      "outlier_count": 636,
-      "hwe_removed_count": 636
+      "outlier_count": 903,
+      "hwe_removed_count": 903
     },
     "parameters": {},
     "output": {
@@ -114,8 +114,8 @@
     "reason": null,
     "step": "haplotype_prune",
     "metrics": {
-      "outlier_count": 12,
-      "haplotype_removed_count": 12
+      "outlier_count": 27,
+      "haplotype_removed_count": 27
     },
     "parameters": {},
     "output": {
@@ -129,8 +129,8 @@
     "reason": null,
     "step": "ld_prune",
     "metrics": {
-      "outlier_count": 17690,
-      "ld_removed_count": 17690
+      "outlier_count": 17133,
+      "ld_removed_count": 17133
     },
     "parameters": {},
     "output": {
