@@ -8,16 +8,21 @@ import pytest
 
 import genotools
 from genotools.plotting import render_plots
+from genotools.plotting.plots import qc_summary
 from genotools.plotting.render import PLOTS, Plot, default_out_dir
 
 from .conftest import qc_row, write_report
 
 PLOTTING_DIR = Path(genotools.__file__).resolve().parent / "plotting"
 
+# The render mechanics run on the QC summary plots, which every QC report
+# supports; the per-step plots need plot tables the hand-built reports lack.
+SUMMARY = qc_summary.PLOTS
+
 
 class TestRenderPlots:
     def test_writes_every_supported_plot(self, ancestry_report: Path) -> None:
-        result = render_plots(ancestry_report)
+        result = render_plots(ancestry_report, plots=SUMMARY)
         assert result.out_dir == ancestry_report.parent / "cohort_plots"
         assert sorted(p.name for p in result.pngs) == [
             "sample_attrition.png", "step_outcomes.png", "variant_attrition.png"
@@ -27,13 +32,13 @@ class TestRenderPlots:
         assert result.skipped == []
 
     def test_html_is_self_contained(self, ancestry_report: Path) -> None:
-        html = render_plots(ancestry_report).html.read_text()
+        html = render_plots(ancestry_report, plots=SUMMARY).html.read_text()
         assert html.startswith("<!doctype html>")
         # plotly.js inlined (several MB), never fetched from a CDN.
         assert "<script src=" not in html
         assert len(html) > 1_000_000
         assert html.count("* plotly.js v") == 1
-        for plot in PLOTS:
+        for plot in SUMMARY:
             assert f'id="{plot.name}"' in html
 
     def test_plot_without_data_is_listed_not_drawn(self, tmp_path: Path) -> None:
@@ -41,7 +46,7 @@ class TestRenderPlots:
         report = write_report(
             tmp_path / "s.json", [qc_row("callrate_prune", 1, "outlier_count")], n_input=10
         )
-        result = render_plots(report)
+        result = render_plots(report, plots=SUMMARY)
         assert "variant_attrition.png" not in {p.name for p in result.pngs}
         assert any(s.startswith("Variant attrition") for s in result.skipped)
         assert "Not plotted" in result.html.read_text()
@@ -51,8 +56,8 @@ class TestRenderPlots:
             raise RuntimeError("bad figure")
 
         broken = Plot("broken", "Broken", "", lambda r: True, boom, boom)
-        result = render_plots(ancestry_report, plots=[broken] + PLOTS)
-        assert len(result.pngs) == len(PLOTS)
+        result = render_plots(ancestry_report, plots=[broken] + SUMMARY)
+        assert len(result.pngs) == len(SUMMARY)
         assert any("bad figure" in s for s in result.skipped)
 
     def test_out_dir_override(self, ancestry_report: Path, tmp_path: Path) -> None:
