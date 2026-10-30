@@ -2675,3 +2675,83 @@ class TestPlotDataCollected:
         assert len(smiss) == 500
         # Nothing left behind beside the output.
         assert not list(tmp_path.glob("*_plotdata_*"))
+
+
+def _assoc_aware_steps(step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any], **_: Any) -> Dict[str, Any]:
+    """Fake steps: QC steps write traceable pfiles, assoc writes none (like the real one)."""
+    if step == "assoc":
+        return {"pass": True, "step": "assoc", "metrics": {}, "output": {}}
+    _write_traceable_pfiles(Path(step_output))
+    return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+
+class TestFinalPfileAfterAssoc:
+    """Regression: ``assoc`` writes eigenvec/glm but no pfile, so a run whose last
+    step was ``assoc`` ended with no ``{out}.pgen`` - the final dataset was left in
+    the temp dir and deleted with it.
+    """
+
+    @pytest.mark.parametrize("full_output", [True, False])
+    def test_last_step_assoc_leaves_final_pfile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_output: bool
+    ) -> None:
+        import tempfile
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, warn_only=True, full_output=full_output),
+        )
+        runner = PipelineRunner(args)
+        tmp = tempfile.TemporaryDirectory(dir=tmp_path)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=tmp)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "assoc"], geno_path=str(geno), out_path=str(out)
+        )
+
+        # The dataset assoc analysed is the final dataset: the sex output.
+        for ext in (".pgen", ".pvar", ".psam"):
+            assert Path(f"{out}{ext}").read_text() == f"out_callrate_sex{ext}"
+        tmp.cleanup()
+
+    def test_assoc_only_run_copies_the_input_and_keeps_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(steps=["assoc"], geno_path=str(geno), out_path=str(out))
+
+        assert Path(f"{out}.pgen").exists()
+        assert Path(f"{geno}.pgen").exists()  # the caller's input is never moved
+
+
+class TestAssocParametersReachReport:
+    """The shared tail records ``AssocResult`` paths as resolved parameters."""
+
+    def test_output_paths_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from genotools.gwas.results import AssocResult, GWASResult
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        glm = tmp_path / "out.PHENO1.glm.logistic.hybrid"
+        monkeypatch.setitem(
+            runner._new_modules,
+            "run_gwas_association",
+            lambda data, out_path, config: AssocResult(
+                gwas_result=GWASResult(output_path=glm, phenotype_type="binary")
+            ),
+        )
+        runner._run_single_step(
+            "assoc", str(geno), f"{out}_assoc", _gwas_legacy_args(gwas=True)
+        )
+        recorded = {
+            p.parameter: p.value
+            for p in runner.state.parameters
+            if p.source == "resolved"
+        }
+        assert recorded["gwas_output_path"] == str(glm)

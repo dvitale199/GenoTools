@@ -1295,6 +1295,13 @@ class PipelineRunner:
                         output_path=step_output,
                     )
 
+                    self._keep_pfile_after_assoc(
+                        step=step,
+                        pass_fail=pass_fail,
+                        out_path=out_path,
+                        geno_path=geno_path,
+                    )
+
                     # Clean up intermediate files
                     self._cleanup_intermediate_files(
                         step=step,
@@ -1652,6 +1659,41 @@ class PipelineRunner:
                     source="resolved",
                 )
             )
+
+    def _keep_pfile_after_assoc(
+        self,
+        step: str,
+        pass_fail: Dict[str, PassFailRecord],
+        out_path: str,
+        geno_path: str,
+    ) -> None:
+        """Make ``{out}.pgen/.pvar/.psam`` exist when ``assoc`` is the last step.
+
+        ``assoc`` writes ``{out}.eigenvec`` / ``.glm.*`` and no pfile, so the
+        pipeline's final dataset used to be left at the previous step's
+        temp-dir output and deleted with the temp dir: every other run shape
+        ends with a pfile at ``out_path``, and this one ended with none. The
+        dataset ``assoc`` read is the final dataset, so hand it over: copy when
+        it is the caller's own input or ``--full-output`` keeps intermediates,
+        move otherwise (it is about to be deleted anyway).
+
+        Args:
+            step: Current step name; only ``assoc`` does anything.
+            pass_fail: Pass/fail tracking dictionary; ``assoc`` must have passed.
+            out_path: Final output path prefix.
+            geno_path: Original genotype path for this run.
+        """
+        if step != "assoc" or not pass_fail[step].status:
+            return
+        src = pass_fail[step].input_path
+        if src == out_path or os.path.isfile(f"{out_path}.pgen"):
+            return
+        if not all(os.path.isfile(f"{src}.{ext}") for ext in ("pgen", "pvar", "psam")):
+            return
+        keep = self.args.full_output or src == geno_path
+        transfer = shutil.copy2 if keep else shutil.move
+        for ext in ("pgen", "pvar", "psam"):
+            transfer(f"{src}.{ext}", f"{out_path}.{ext}")
 
     def _cleanup_intermediate_files(
         self,
