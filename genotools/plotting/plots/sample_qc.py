@@ -119,15 +119,15 @@ def outside_bounds(
 
 
 def sex_pass(frame: pd.DataFrame) -> pd.DataFrame:
-    """The one `--check-sex` pass the sex plot shows.
+    """The one `--check-sex` pass whose F values the sex plot draws.
 
-    `sex_check.tsv` holds both passes. The step prunes a sample that PLINK
-    flags in either, but the plot shows `filtered_x`: it is computed on the
-    non-pseudoautosomal X with variants filtered for MAF, missingness and HWE,
-    so F is not blurred by PAR or poorly genotyped sites, and the two
-    cutoffs separate the sexes most cleanly. `all_x` is the fallback for a
-    table without it. Showing both would double every sample and put two F
-    values on one hover.
+    `sex_check.tsv` holds both passes. The plot draws `filtered_x`: it is
+    computed on the non-pseudoautosomal X with variants filtered for MAF,
+    missingness and HWE, so F is not blurred by PAR or poorly genotyped sites,
+    and the two cutoffs separate the sexes most cleanly. `all_x` is the
+    fallback for a table without it. Drawing both would double every sample
+    and put two F values on one hover. Which samples are *flagged* is a
+    separate question, answered by `sex_flagged` over both passes.
     """
     if "check" not in frame.columns:
         return frame
@@ -136,6 +136,41 @@ def sex_pass(frame: pd.DataFrame) -> pd.DataFrame:
         if not chosen.empty:
             return chosen
     return frame
+
+
+def sex_flagged(table: pd.DataFrame) -> pd.DataFrame:
+    """Samples `filter_sex` prunes: PLINK's PROBLEM in either pass.
+
+    The step removes the union of both passes' PROBLEM samples, so the plot's
+    flagged count must equal the step's removal count. Each sample appears once
+    (matched on `#FID`/`IID`) at its F in the pass the plot draws, or, for one
+    only the other pass has, at that pass's F. `flagged_in` names the pass(es)
+    that flagged it, e.g. `all_x` or `all_x, filtered_x`.
+    """
+    shown = sex_pass(table)
+    if "check" not in table.columns:
+        flagged = shown[shown["STATUS"] == "PROBLEM"].copy()
+        flagged["flagged_in"] = "check-sex"
+        return flagged
+    problems = table[table["STATUS"] == "PROBLEM"]
+    key = ["#FID", "IID"]
+    passes = (
+        problems.groupby(key, sort=False)["check"]
+        .agg(lambda c: ", ".join(sorted(set(c))))
+        .rename("flagged_in")
+        .reset_index()
+    )
+    # One row per flagged sample: its row in the drawn pass if it has one,
+    # else the row from whichever pass flagged it.
+    shown_flagged = shown.merge(passes, on=key)
+    missing = passes.merge(shown[key], on=key, how="left", indicator=True)
+    missing = missing[missing["_merge"] == "left_only"][key]
+    extra = (
+        problems.merge(missing, on=key)
+        .drop_duplicates(subset=key, keep="first")
+        .merge(passes, on=key)
+    )
+    return pd.concat([shown_flagged, extra], ignore_index=True)
 
 
 # --- Histogram panels --------------------------------------------------------
@@ -214,25 +249,26 @@ def sex_panels(report: Report) -> List[HistPanel]:
             values = frame.loc[frame["PEDSEX"] == code, "F"].to_numpy(float)
             if len(values):
                 series.append(HistSeries(SEX_NAMES[code], SEX_COLORS[code], values))
-        # PLINK's own verdict on this pass: it applied the cutoffs above.
-        flagged = frame[frame["STATUS"] == "PROBLEM"]
+        # What the step pruned: flagged in either pass, not just the drawn one.
+        flagged = sex_flagged(table)
         panels.append(
             HistPanel(
                 ancestry=ancestry,
                 title=_flag_title(
-                    ancestry, len(frame), len(flagged), "flagged by --check-sex"
+                    ancestry, len(frame), len(flagged), "pruned by the sex check"
                 ),
                 series=series,
                 lines=lines,
                 flagged_x=flagged["F"].to_numpy(float),
                 flagged_hover=[
                     f"{who}<br>F {f:.3f}, reported {SEX_NAMES.get(int(p), p)}, "
-                    f"genetic {SEX_NAMES.get(int(s), s)}"
-                    for who, f, p, s in zip(
-                        _ids(flagged), flagged["F"], flagged["PEDSEX"], flagged["SNPSEX"]
+                    f"genetic {SEX_NAMES.get(int(s), s)}<br>flagged in {w}"
+                    for who, f, p, s, w in zip(
+                        _ids(flagged), flagged["F"], flagged["PEDSEX"],
+                        flagged["SNPSEX"], flagged["flagged_in"],
                     )
                 ],
-                flag_label=f"flagged ({len(flagged):,})",
+                flag_label=f"pruned ({len(flagged):,})",
             )
         )
     return panels
@@ -551,8 +587,9 @@ PLOTS: List[Plot] = [
         title="Sex check",
         description=(
             "X-chromosome F by reported sex (the QC-filtered X pass), with the "
-            "female and male cutoffs. Ticks mark samples PLINK flagged; hover "
-            "for reported and genetic sex."
+            "female and male cutoffs. Ticks mark every sample PLINK flagged in "
+            "either pass, which is what the step prunes; hover for reported "
+            "and genetic sex and the pass that flagged it."
         ),
         available=_has_table("sex_check"),
         png=lambda r, plt, p: hist_png(sex_panels(r), "X-chromosome F", plt, p),

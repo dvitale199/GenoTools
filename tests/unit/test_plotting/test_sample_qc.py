@@ -18,6 +18,7 @@ from genotools.plotting.plots.sample_qc import (
     kinship_panels,
     missingness_panels,
     outside_bounds,
+    sex_flagged,
     sex_pass,
     sex_panels,
 )
@@ -170,12 +171,51 @@ class TestSex:
         assert panel.lines == [(0.25, "female max 0.25"), (0.75, "male min 0.75")]
         assert list(panel.flagged_x) == [0.9]
         assert "reported female" in panel.flagged_hover[0]
+        assert "flagged in all_x, filtered_x" in panel.flagged_hover[0]
         assert panel.title.startswith("all: 1 of 4 ")  # filtered_x only: 4 samples
 
     def test_missing_cutoffs_draw_no_lines(self, tmp_path: Path) -> None:
         report = _report(tmp_path, {"all": {"sex_check": self._table()}}, params=[])
         (panel,) = sex_panels(report)
         assert panel.lines == []
+
+
+class TestSexFlagged:
+    COLS = ["#FID", "IID", "PEDSEX", "SNPSEX", "STATUS", "F", "check"]
+
+    def test_union_of_both_passes_matches_the_step(self) -> None:
+        table = pd.DataFrame(
+            [
+                ("a", "a", 2, 1, "PROBLEM", 0.9, "all_x"),
+                ("a", "a", 2, 1, "PROBLEM", 0.95, "filtered_x"),  # both passes
+                ("b", "b", 2, 1, "PROBLEM", 0.8, "all_x"),        # all_x only
+                ("b", "b", 2, 2, "OK", 0.1, "filtered_x"),
+                ("c", "c", 1, 2, "OK", 0.0, "all_x"),
+                ("c", "c", 1, 2, "PROBLEM", 0.0, "filtered_x"),   # filtered_x only
+                ("d", "d", 1, 1, "OK", 1.0, "all_x"),
+                ("d", "d", 1, 1, "OK", 1.0, "filtered_x"),
+            ],
+            columns=self.COLS,
+        )
+        flagged = sex_flagged(table).set_index("IID")
+        assert sorted(flagged.index) == ["a", "b", "c"]
+        # Each sits at its F in the drawn (filtered_x) pass.
+        assert flagged.loc["b", "F"] == 0.1
+        assert flagged.loc["a", "F"] == 0.95
+        assert flagged.loc["a", "flagged_in"] == "all_x, filtered_x"
+        assert flagged.loc["b", "flagged_in"] == "all_x"
+        assert flagged.loc["c", "flagged_in"] == "filtered_x"
+
+    def test_sample_flagged_only_by_the_other_pass_still_appears(self) -> None:
+        table = pd.DataFrame(
+            [
+                ("a", "a", 2, 1, "PROBLEM", 0.8, "all_x"),
+                ("z", "z", 1, 1, "OK", 1.0, "filtered_x"),
+            ],
+            columns=self.COLS,
+        )
+        flagged = sex_flagged(table)
+        assert list(flagged["IID"]) == ["a"] and list(flagged["F"]) == [0.8]
 
 
 class TestKinship:
@@ -253,6 +293,8 @@ class TestRendering:
         report = load_report(golden_sample_report)
         (miss,) = missingness_panels(report)
         assert len(miss.flagged_x) == 12
+        (sex,) = sex_panels(report)
+        assert len(sex.flagged_x) == 17  # what filter_sex pruned
         (het,) = het_panels(report)
         assert len(het.flagged_x) == 8
         (kin,) = kinship_panels(report)
