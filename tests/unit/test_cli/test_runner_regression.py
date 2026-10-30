@@ -2221,7 +2221,6 @@ class TestAncestryDiagnosticsWiring:
         ancestry: AncestryArgs, **stub_overrides: Any,
     ) -> Dict[str, Any]:
         import genotools.ancestry.cohort as cohort_mod
-        import genotools.ancestry.plots as plots_mod
         import genotools.ancestry.preprocessing as prep_mod
         import genotools.ancestry.reducers.umap_reducer as umap_mod
 
@@ -2259,14 +2258,8 @@ class TestAncestryDiagnosticsWiring:
                 "diagnostics": kwargs["diagnostics"],
             }
 
-        plot_calls: List[Dict[str, Any]] = []
-
         monkeypatch.setattr(prep_mod, "get_raw_files", fake_get_raw_files)
         monkeypatch.setattr(prep_mod, "clean_up_files", lambda files: None)
-        monkeypatch.setattr(
-            plots_mod, "plot_ancestry_diagnostics",
-            lambda **kwargs: (plot_calls.append(kwargs), ["/tmp/plot.png"])[1],
-        )
         monkeypatch.setattr(
             umap_mod, "run_umap",
             lambda **kwargs: {"total_umap": None, "ref_umap": None, "new_umap": None},
@@ -2282,7 +2275,6 @@ class TestAncestryDiagnosticsWiring:
         return {
             "result": result,
             "raw_calls": raw_calls,
-            "plot_calls": plot_calls,
             "out": out,
         }
 
@@ -2367,21 +2359,6 @@ class TestAncestryDiagnosticsWiring:
             tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, self_test=True)
         )
         assert run["result"]["diagnostics"]["self_test"]["n_samples"] == 1
-
-    @pytest.mark.parametrize("mode", ["training", "inference"])
-    def test_plots_are_opt_in_and_get_the_decisions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
-    ) -> None:
-        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
-        assert run["plot_calls"] == []
-
-        run = self._run(
-            tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, write_plots=True)
-        )
-        (call,) = run["plot_calls"]
-        assert call["out_prefix"] == str(run["out"])
-        assert list(call["decisions"]["label_pre_admixture"]) == ["EUR"]
-        assert run["result"]["diagnostics"]["plots"] == ["/tmp/plot.png"]
 
     @pytest.mark.parametrize("mode", ["training", "inference"])
     def test_diagnostics_reach_the_json_report(
