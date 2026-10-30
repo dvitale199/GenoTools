@@ -170,7 +170,14 @@ run actually applied.
 
 #### Sample QC
 
-None yet.
+Each plot is one panel per ancestry group (`all` first). Thresholds are read from the report's `parameters` section for that group; a threshold the report does not record is not drawn. A plot is skipped when its table is absent (step not requested, or skipped for that group).
+
+| Plot | Shows |
+|---|---|
+| `sample_missingness` | Per-sample `F_MISS` histogram with the `--mind` line. Ticks along the baseline mark the samples above it. |
+| `sex_check` | X-chromosome F by reported sex, with the `female_max_f` and `male_min_f` cutoffs. Shows the QC-filtered X pass (`filtered_x`: non-PAR, MAF/geno/HWE-filtered), falling back to `all_x`; the step prunes a sample flagged in either pass. Ticks mark every sample PLINK flagged in either pass, so the count equals what the step pruned; hover gives reported and genetic sex and which pass flagged it. |
+| `heterozygosity` | Per-sample F histogram with the keep band (`het_lower` to `het_upper`) that group was actually pruned against, which differs by group under `--het sd`. Ticks mark outliers. |
+| `relatedness` | KING kinship against IBS0 for the pairs kept in `related_kinship`, with the standard degree boundaries (0.354 duplicate/MZ, 0.177 1st, 0.0884 2nd, 0.0442 3rd) and the step's own `related_cutoff` and `duplicated_cutoff`. Hover names both samples. |
 
 #### Variant QC
 
