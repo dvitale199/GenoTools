@@ -4,7 +4,7 @@
   "reason": null,
   "step": "sex_prune",
   "metrics": {
-    "outlier_count": 253
+    "outlier_count": 17
   },
   "parameters": {},
   "output": {
