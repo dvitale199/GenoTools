@@ -184,6 +184,11 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
 - **`pruned_samples`**  
   - *Process*: `Ancestry/Quality Control (QC)`  
   - *Description*: DataFrame containing samples pruned due to insufficient ancestry count or sample-level QC.
+    Columns `FID`, `IID`, `step` and, in an `--ancestry` run, `label`. `step` is
+    a QC step key (`callrate`, `sex`, `het`, `related`) or
+    `insufficient_ancestry_sample_n`: the sample's predicted group had fewer
+    than `--min-samples` members, so it was dropped before QC (`label` is that
+    group). *New in 2.3.0:* these were previously left out of the report.
 
 - **`related_samples`**  
   - *Process*: `Quality Control (QC)`  

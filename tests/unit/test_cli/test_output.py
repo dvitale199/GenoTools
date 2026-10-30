@@ -818,3 +818,82 @@ class TestAssocOutputPaths:
             gwas_result=GWASResult(output_path=None, phenotype_type="binary", success=False)
         ).to_dict()
         assert "parameters" not in out
+
+
+class TestInsufficientAncestryDropsReachReport:
+    """Samples in a group under --min-samples are dropped before any QC runs, so
+    only the ancestry result knows about them. They were stored and then ignored,
+    so the report never accounted for them.
+    """
+
+    @staticmethod
+    def _state_and_args(tmp_path: Path):
+        from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
+        from genotools.cli.runner import PipelineState
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=tmp_path / "geno"),
+            output=OutputArgs(out_path=tmp_path / "out"),
+        )
+        state = PipelineState(
+            geno_path=tmp_path / "geno", out_path=tmp_path / "out", tmp_dir=None
+        )
+        return args, state
+
+    @staticmethod
+    def _dropped() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "FID": ["f1", "f2"],
+                "IID": ["i1", "i2"],
+                "step": "insufficient_ancestry_sample_n",
+                "label": "SAS",
+            }
+        )
+
+    def test_drops_alone_reach_pruned_samples(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        state.ancestry_result = {"data": {"pruned_samples": self._dropped()}}
+        state.ancestry_results = {}
+
+        pruned = pd.DataFrame(
+            PipelineOutput.from_runner_state(args, state).to_dict()["pruned_samples"]
+        )
+        assert set(pruned["step"]) == {"insufficient_ancestry_sample_n"}
+        assert set(pruned["IID"]) == {"i1", "i2"}
+        assert set(pruned["label"]) == {"SAS"}
+
+    def test_merged_with_qc_prunes(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        outliers = tmp_path / "callrate.outliers"
+        outliers.write_text("#FID\tIID\nf9\ti9\n")
+        state.ancestry_result = {"data": {"pruned_samples": self._dropped()}}
+        state.ancestry_results = {
+            "EUR": {
+                "callrate": {
+                    "pass": True,
+                    "step": "callrate_prune",
+                    "metrics": {"outlier_count": 1},
+                    "output": {"pruned_samples": str(outliers)},
+                },
+                "pass_fail": {},
+            }
+        }
+
+        pruned = pd.DataFrame(
+            PipelineOutput.from_runner_state(args, state).to_dict()["pruned_samples"]
+        )
+        steps = dict(zip(pruned["IID"], pruned["step"]))
+        assert steps == {
+            "i1": "insufficient_ancestry_sample_n",
+            "i2": "insufficient_ancestry_sample_n",
+            "i9": "callrate",
+        }
+
+    def test_no_drops_changes_nothing(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        state.ancestry_result = {
+            "data": {"pruned_samples": pd.DataFrame(columns=["FID", "IID", "step", "label"])}
+        }
+        state.ancestry_results = {}
+        assert "pruned_samples" not in PipelineOutput.from_runner_state(args, state).to_dict()
