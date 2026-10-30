@@ -2755,3 +2755,64 @@ class TestAssocParametersReachReport:
             if p.source == "resolved"
         }
         assert recorded["gwas_output_path"] == str(glm)
+
+
+class TestAncestryPlotData:
+    """Ancestry tables that die with the temp dir are kept under
+    ``{out}_plot_data/ancestry/`` - eigenvalues and the allele-frequency sample."""
+
+    @staticmethod
+    def _runner(tmp_path: Path):
+        runner, _geno, out = _make_runner(tmp_path, warn_only=True)
+        actual = tmp_path / "tmpdir" / "out"
+        actual.parent.mkdir()
+        return runner, out, str(actual)
+
+    def test_keeps_eigenvalues_and_allele_frequencies(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        Path(f"{actual}_pca_eigenvalues.txt").write_text("PC\teigenvalue\nPC1\t3.0\n")
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"], "ref_freq": [0.1]})
+        )
+
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "pca_eigenvalues.tsv").read_text().startswith("PC\teigenvalue")
+        assert pd.read_csv(dest / "allele_frequencies.tsv", sep="\t")["snp"].tolist() == ["rs1"]
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+        # Copied, not moved: --full-output's own copy must survive.
+        assert Path(f"{actual}_pca_eigenvalues.txt").exists()
+
+    def test_inference_run_without_eigenvalues_keeps_what_it_has(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]})
+        )
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "allele_frequencies.tsv").exists()
+        assert not (dest / "pca_eigenvalues.tsv").exists()
+
+    def test_nothing_to_keep_creates_nothing(self, tmp_path: Path) -> None:
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        runner._keep_ancestry_plot_data(actual, AncestryDiagnostics())
+        assert not Path(f"{out}_plot_data").exists()
+        assert runner.state.plot_data_dir is None
+
+    def test_runner_calls_it_during_ancestry_prediction(self) -> None:
+        """Gate the call site, not just the helper (round-7 lesson)."""
+        import inspect
+
+        src = inspect.getsource(PipelineRunner._run_ancestry_prediction_new)
+        assert "_keep_ancestry_plot_data(actual_out, diagnostics)" in src

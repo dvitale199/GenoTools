@@ -834,6 +834,8 @@ class PipelineRunner:
             subset=self.args.ancestry.subset_ancestry,
         )
 
+        self._keep_ancestry_plot_data(actual_out, diagnostics)
+
         # Build legacy-format result dict
         pred_ids = predictions.predictions.rename(
             columns={"predicted_ancestry": "label"}
@@ -911,6 +913,47 @@ class PipelineRunner:
             self._move_ancestry_files(out_dict)
 
         return out_dict
+
+    def _keep_ancestry_plot_data(
+        self, actual_out: str, diagnostics: "AncestryDiagnostics"
+    ) -> None:
+        """Keep ancestry tables that die with the temp dir in ``{out}_plot_data/ancestry/``.
+
+        The PCA eigenvalues and the per-SNP allele frequencies are computed
+        during ancestry and, without ``--full-output``, deleted with the temp
+        directory. They are for ``genotools-plot`` only, so a failure to keep
+        them is a warning, never a failed run. The projected cohort PCs are not
+        copied: the report already carries them whole as ``projected_pcs``.
+
+        The directory name is fixed and says what it holds; it is not an
+        ancestry label, which is user-supplied and lives one level up for QC
+        tables.
+
+        Args:
+            actual_out: Output prefix ancestry wrote to (temp dir unless
+                ``--full-output``).
+            diagnostics: Collector; its ``allele_frequency_sample`` is written.
+        """
+        assert self.state is not None
+        eigenvalues = Path(f"{actual_out}_pca_eigenvalues.txt")
+        sample = diagnostics.allele_frequency_sample
+        has_sample = sample is not None and not sample.empty
+        # Inference from a saved model fits no PCA, so there are no eigenvalues.
+        if not eigenvalues.is_file() and not has_sample:
+            return
+
+        root = Path(f"{self.args.output.out_path}_plot_data")
+        dest = root / "ancestry"
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            if eigenvalues.is_file():
+                shutil.copy2(eigenvalues, dest / "pca_eigenvalues.tsv")
+            if has_sample:
+                sample.to_csv(dest / "allele_frequencies.tsv", sep="\t", index=False)
+        except OSError as e:
+            logger.warning(f"Ancestry plot data not kept: {e}")
+            return
+        self.state.plot_data_dir = root
 
     def _run_training_mode(
         self,
