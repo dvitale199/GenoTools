@@ -427,6 +427,7 @@ class OutputArgs:
     warn_only: bool = True  # Continue on step failure
     quiet: bool = False  # Suppress the console stream (log files still written)
     debug: bool = False  # Widen both streams to DEBUG level
+    plots: bool = False  # Render {out}_plots/ from the report once it is written
 
 
 @dataclass
@@ -733,6 +734,14 @@ Examples:
         "--debug",
         action="store_true",
         help="Log at DEBUG level (console and consolidated log)",
+    )
+    output_group.add_argument(
+        "--plots",
+        action="store_true",
+        help=(
+            "Render plots from the report once the run finishes, into "
+            "{out}_plots/ (same as running genotools-plot afterwards)"
+        ),
     )
 
     # Sample QC group
@@ -1520,6 +1529,7 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         warn_only=not ns.no_warn,
         quiet=ns.quiet,
         debug=ns.debug,
+        plots=ns.plots,
     )
 
     sample_qc_args = SampleQCArgs(
