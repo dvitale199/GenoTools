@@ -72,13 +72,13 @@ def test_default_out_dir_keeps_dotted_prefix() -> None:
 def test_plotting_imports_no_pipeline_package() -> None:
     """Plotting reads the report; it must not reach back into the pipeline."""
     banned = ("genotools.cli", "genotools.qc", "genotools.gwas", "genotools.ancestry")
-    for path in PLOTTING_DIR.glob("*.py"):
+    paths = sorted(PLOTTING_DIR.rglob("*.py"))
+    assert PLOTTING_DIR / "plots" / "sample_qc.py" in paths
+    for path in paths:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
-                assert node.level == 0 or node.level == 1 and node.module in (
-                    None, "report", "render", "figures", "cli"
-                ), f"{path.name}: relative import {node.module}"
+                assert node.level == 0, f"{path.name}: use absolute imports"
                 names = [node.module or ""]
             elif isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
@@ -86,6 +86,25 @@ def test_plotting_imports_no_pipeline_package() -> None:
                 continue
             for name in names:
                 assert not name.startswith(banned), f"{path.name} imports {name}"
+
+
+def test_render_order_follows_the_areas() -> None:
+    """Each area owns its plots; render.py only concatenates them."""
+    from genotools.plotting.plots import ancestry, gwas, qc_summary, sample_qc, variant_qc
+
+    expected = [
+        *qc_summary.PLOTS, *sample_qc.PLOTS, *variant_qc.PLOTS,
+        *ancestry.PLOTS, *gwas.PLOTS,
+    ]
+    assert PLOTS == expected
+    assert len({p.name for p in PLOTS}) == len(PLOTS), "plot names must be unique"
+
+
+def test_every_plot_renders_the_golden_reports(golden_qc_report: Path, tmp_path: Path) -> None:
+    """Real reports with real plot tables: nothing available may fail to draw."""
+    result = render_plots(golden_qc_report, tmp_path / "figs")
+    assert not [s for s in result.skipped if "failed to render" in s], result.skipped
+    assert result.pngs
 
 
 class TestGenotoolsPlotCommand:

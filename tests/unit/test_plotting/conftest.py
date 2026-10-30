@@ -1,6 +1,7 @@
 """Hand-built reports for the plotting tests."""
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -68,3 +69,42 @@ def ancestry_report(tmp_path: Path) -> Path:
         qc_row("geno_prune", 20, "geno_removed_count", "AMR", level="variant"),
     ]
     return write_report(tmp_path / "cohort.json", qc, labels={"EUR": 200, "AMR": 40})
+
+
+GOLDEN_DIR = Path(__file__).resolve().parents[2] / "regression" / "golden"
+
+
+def _copy_golden(name: str, tmp_path: Path) -> Path:
+    """Copy one golden run's report and plot tables into `tmp_path`.
+
+    Plots default to writing beside the report, so tests never point at
+    `tests/regression/golden/` itself. The copy's `plot_data` is repointed at
+    the copied tables.
+    """
+    src = GOLDEN_DIR / name
+    dest = tmp_path / name
+    dest.mkdir()
+    shutil.copytree(src / "output_plot_data", dest / "output_plot_data")
+    raw = json.loads((src / "output.json").read_text())
+    raw["plot_data"] = str(dest / "output_plot_data")
+    report = dest / "output.json"
+    report.write_text(json.dumps(raw))
+    return report
+
+
+@pytest.fixture
+def golden_sample_report(tmp_path: Path) -> Path:
+    """A real `--all-sample` report on the synthetic data, with its plot tables."""
+    return _copy_golden("all_sample", tmp_path)
+
+
+@pytest.fixture
+def golden_variant_report(tmp_path: Path) -> Path:
+    """A real `--all-variant` report on the synthetic data, with its plot tables."""
+    return _copy_golden("all_variant", tmp_path)
+
+
+@pytest.fixture(params=["all_sample", "all_variant"])
+def golden_qc_report(request, tmp_path: Path) -> Path:
+    """Each real QC report in turn: for checks every plot must pass on both."""
+    return _copy_golden(request.param, tmp_path)

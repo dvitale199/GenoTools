@@ -27,67 +27,19 @@ GenoTools has, and one bad figure must not cost the rest.
 import html
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from genotools.core.logging import get_logger
-from genotools.plotting import figures
-from genotools.plotting.report import Report, attrition_frame, load_report, outcome_frame
+from genotools.plotting.plots import ALL_PLOTS, Plot
+from genotools.plotting.report import Report, load_report
 
 logger = get_logger(__name__)
 
+# Every plot, in report order. Plots live in `plots/<area>.py`; adding one
+# never touches this file.
+PLOTS: List[Plot] = ALL_PLOTS
 
-@dataclass(frozen=True)
-class Plot:
-    """One plot: how to tell if the report supports it, and how to draw it.
-
-    `png` and `plotly` both take the loaded report; `png` also takes pyplot and
-    the path to write.
-    """
-
-    name: str
-    title: str
-    description: str
-    available: Callable[[Report], bool]
-    png: Callable
-    plotly: Callable
-
-
-def _has_level(level: str) -> Callable[[Report], bool]:
-    return lambda report: (report.qc["level"] == level).any()
-
-
-PLOTS: List[Plot] = [
-    Plot(
-        name="sample_attrition",
-        title="Sample attrition",
-        description="Samples removed at each QC step, per ancestry group.",
-        available=_has_level("sample"),
-        png=lambda r, plt, p: figures.attrition_png(attrition_frame(r), "sample", plt, p),
-        plotly=lambda r: figures.attrition_plotly(attrition_frame(r), "sample"),
-    ),
-    Plot(
-        name="variant_attrition",
-        title="Variant attrition",
-        description=(
-            "Variants removed at each QC step, per ancestry group. The report "
-            "does not record the input variant count, so these are removals only."
-        ),
-        available=_has_level("variant"),
-        png=lambda r, plt, p: figures.attrition_png(attrition_frame(r), "variant", plt, p),
-        plotly=lambda r: figures.attrition_plotly(attrition_frame(r), "variant"),
-    ),
-    Plot(
-        name="step_outcomes",
-        title="Step outcomes",
-        description=(
-            "Whether each requested QC step passed, failed or was skipped, per "
-            "ancestry group. Hover a cell for the reason."
-        ),
-        available=lambda r: not r.qc.empty,
-        png=lambda r, plt, p: figures.outcome_png(outcome_frame(r), plt, p),
-        plotly=lambda r: figures.outcome_plotly(outcome_frame(r)),
-    ),
-]
+__all__ = ["PLOTS", "Plot", "RenderResult", "default_out_dir", "render_plots"]
 
 
 @dataclass

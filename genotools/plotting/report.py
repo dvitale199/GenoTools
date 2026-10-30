@@ -44,6 +44,8 @@ class Report:
         input_samples: The input `.psam` table, or None.
         ancestry_labels: Per-sample predicted labels, or None for a run
             without `--ancestry`.
+        parameters: The `parameters` table - one row per (step, parameter,
+            ancestry, source) - or None for a report from before 2.3.
     """
 
     path: Path
@@ -51,6 +53,7 @@ class Report:
     qc: pd.DataFrame
     input_samples: Optional[pd.DataFrame] = None
     ancestry_labels: Optional[pd.DataFrame] = None
+    parameters: Optional[pd.DataFrame] = None
 
 
 def _frame(raw: Dict[str, Any], key: str) -> Optional[pd.DataFrame]:
@@ -104,6 +107,7 @@ def load_report(path: Path) -> Report:
         qc=qc,
         input_samples=_frame(raw, "input_samples"),
         ancestry_labels=_frame(raw, "ancestry_labels"),
+        parameters=_frame(raw, "parameters"),
     )
 
 
@@ -198,3 +202,112 @@ def outcome_frame(report: Report) -> pd.DataFrame:
     reason = out["reason"].astype(object)
     out["reason"] = reason.where(reason.notna(), None)
     return out.reset_index(drop=True)
+
+
+# --- Lookups the per-step plots share ---------------------------------------
+
+
+def _report_prefix(report: Report) -> str:
+    """`{out}.json` -> `{out}`, appending rather than using `.stem` (#296)."""
+    name = str(report.path)
+    return name[: -len(".json")] if name.endswith(".json") else name
+
+
+def plot_data_dir(report: Report) -> Optional[Path]:
+    """The run's `{out}_plot_data/` directory, or None if it has none.
+
+    The report records the path as the run saw it, which is relative to the
+    run's working directory. When that does not resolve from here, fall back
+    to `{out}_plot_data` beside the report - where the run wrote it - so a
+    report read from another directory, or moved with its tables, still works.
+    """
+    recorded = report.raw.get("plot_data")
+    candidates = [Path(recorded)] if recorded else []
+    candidates.append(Path(f"{_report_prefix(report)}_plot_data"))
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def plot_tables(report: Report, name: str) -> Dict[str, pd.DataFrame]:
+    """One plot table per ancestry group that has it.
+
+    Args:
+        report: A loaded report.
+        name: The table's file name without `.tsv`, e.g. `het_f` or
+            `hwe_pvalue_bins` (see `plot_data` in docs/json_output_overview.md).
+
+    Returns:
+        `{ancestry: frame}`, `all` first and then alphabetical; empty when no
+        group kept the table. A group that skipped the step has no file and so
+        no entry.
+    """
+    root = plot_data_dir(report)
+    if root is None:
+        return {}
+    found = {
+        group.name: group / f"{name}.tsv"
+        for group in root.iterdir()
+        if group.is_dir() and (group / f"{name}.tsv").is_file()
+    }
+    order = sorted(sorted(found), key=lambda g: g != "all")
+    return {group: pd.read_csv(found[group], sep="\t") for group in order}
+
+
+def parameter(
+    report: Report,
+    step: str,
+    name: str,
+    ancestry: str = "all",
+    source: Optional[str] = None,
+) -> Any:
+    """A step's setting from the report's `parameters` table.
+
+    Plots draw thresholds from here, never from a hardcoded default, so a run
+    with `--mind 0.02` gets its line at 0.02.
+
+    Args:
+        report: A loaded report.
+        step: The reported step name, e.g. `het_prune`.
+        name: The parameter, e.g. `mind` or `het_lower`.
+        ancestry: The group; `all` for a run without `--ancestry`.
+        source: `requested` (what the step was handed) or `resolved` (what it
+            worked out at runtime, e.g. auto-detected het bounds). None
+            prefers `resolved`, since that is what the step actually applied.
+
+    Returns:
+        The value, or None if the report does not record it.
+    """
+    params = report.parameters
+    if params is None or params.empty:
+        return None
+    rows = params[
+        (params["step"] == step)
+        & (params["parameter"] == name)
+        & (params["ancestry"].astype(str) == str(ancestry))
+    ]
+    if source is not None:
+        rows = rows[rows["source"] == source]
+    if rows.empty:
+        return None
+    resolved = rows[rows["source"] == "resolved"]
+    value = (resolved if not resolved.empty else rows)["value"].iloc[0]
+    return None if value is None or (isinstance(value, float) and pd.isna(value)) else value
+
+
+def assoc_prefix(report: Report, ancestry: str = "all") -> Optional[str]:
+    """The PLINK prefix the `assoc` step wrote its GWAS files under.
+
+    Read from `pass_fail` (flat run) or `{ancestry}_pass_fail`. A prefix, not
+    a filename: append to it (`f"{prefix}.PHENO1.glm.logistic.hybrid"`), never
+    call `with_suffix` on it (#296).
+
+    Returns:
+        The prefix, or None when the group did not run `assoc`.
+    """
+    key = "pass_fail" if ancestry == "all" else f"{ancestry}_pass_fail"
+    entry = report.raw.get(key, {}).get("assoc")
+    if not isinstance(entry, dict):
+        return None
+    return entry.get("output") or None
