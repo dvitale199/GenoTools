@@ -126,8 +126,11 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     are present but inert, and the `resolved` row `het_mode` says which pair
     was live.
 
-    The heterozygosity step derives its bounds, and the `assoc` step records
-    where its output files went, so those are the steps with `resolved` rows.
+    The heterozygosity step derives its bounds, the haplotype step records the
+    `p_threshold` it applied (`0.05 / n_samples` above 10,000 samples, the configured
+    value otherwise), and the `assoc`
+    step records where its output files went, so those are the steps with
+    `resolved` rows.
     Every step contributes `requested` rows.
 
     **Where the association files are.** After `assoc`, `step` = `assoc` carries
