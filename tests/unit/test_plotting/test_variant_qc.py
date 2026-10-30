@@ -151,7 +151,7 @@ class TestHweTest:
         (panel,) = qq_panels(load_report(report), QQ_SPECS["hwe"])
         assert panel.test == "UNAFF"
         assert panel.points["n"].iloc[0] == 10  # UNAFF's total, not ALL's 1000
-        assert panel.removed == 1
+        assert panel.exact == 1
 
 
 def _write_tables(tmp_path: Path, tables, groups=("all",), params=None) -> Path:
@@ -244,7 +244,7 @@ class TestGolden:
         (panel,) = qq_panels(report, QQ_SPECS["hwe"])
         failing = pd.read_csv(golden_variant_report.parent / "output_plot_data/all/hwe_failing.tsv", sep="\t")
         pts = panel.points
-        assert (pts["kind"] == "exact").sum() == len(failing) == panel.removed
+        assert (pts["kind"] == "exact").sum() == len(failing) == panel.exact
         assert pts["count"].sum() == pts["n"].iloc[0]
         # Every point past the threshold is exact, none are binned.
         past = pts[pts["observed"] > -np.log10(panel.threshold) + 0.05]
@@ -263,3 +263,45 @@ class TestGolden:
         assert plot.png(report, plt, tmp_path / f"{name}.png").stat().st_size > 0
         fig = plot.plotly(report)
         assert len(fig.data) > 0
+
+
+class TestRemovedCounts:
+    """Titles report what the step removed, read from the QC table."""
+
+    @pytest.mark.parametrize("name,removed", [("hwe", 899), ("case_control", 0), ("haplotype", 33)])
+    def test_qq_removed_comes_from_the_qc_table(self, golden_variant_report: Path, name: str, removed: int) -> None:
+        (panel,) = qq_panels(load_report(golden_variant_report), QQ_SPECS[name])
+        assert panel.removed == removed
+
+    def test_missingness_removed_is_225(self, golden_variant_report: Path) -> None:
+        (panel,) = missingness_panels(load_report(golden_variant_report))
+        assert panel.removed == 225
+
+    def test_haplotype_title_gives_tests_and_variants(self, golden_variant_report: Path) -> None:
+        spec = QQ_SPECS["haplotype"]
+        (panel,) = qq_panels(load_report(golden_variant_report), spec)
+        assert vq._qq_title(panel, spec) == "all: 11 significant tests, 33 variants removed"
+        hwe = QQ_SPECS["hwe"]
+        (panel,) = qq_panels(load_report(golden_variant_report), hwe)
+        assert vq._qq_title(panel, hwe) == "all: UNAFF test, 899 variants removed"
+
+    def test_steps_metrics_are_summed(self, tmp_path: Path) -> None:
+        qc = [qc_row("hwe_prune", 5, "a", level="variant"), qc_row("hwe_prune", 7, "b", level="variant"),
+              qc_row("hwe_prune", 100, "a", ancestry="EUR", level="variant")]
+        report = load_report(write_report(tmp_path / "r.json", qc, n_input=10))
+        assert vq.removed_count(report, "hwe_prune", "all") == 12
+        assert vq.removed_count(report, "hwe_prune", "EUR") == 100
+        assert vq.removed_count(report, "geno_prune", "all") is None
+
+
+def test_resolved_haplotype_threshold_wins_over_requested(tmp_path: Path) -> None:
+    spec = QQ_SPECS["haplotype"]
+    report = _write_tables(tmp_path, {spec.bins_table: bins([4, 3, 2, 1])},
+                           params={(spec.step, "p_threshold"): 1e-4})
+    raw = json.loads(report.read_text())
+    rows = pd.DataFrame(raw["parameters"])
+    resolved = rows.iloc[[0]].assign(value=5e-6, source="resolved")
+    raw["parameters"] = pd.concat([rows, resolved], ignore_index=True).to_dict()
+    report.write_text(json.dumps(raw))
+    (panel,) = qq_panels(load_report(report), spec)
+    assert panel.threshold == 5e-6

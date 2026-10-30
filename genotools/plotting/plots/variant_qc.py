@@ -49,10 +49,6 @@ from genotools.plotting.style import (
 
 logger = get_logger(__name__)
 
-# The step keeps at most this many failing rows per table (genotools.qc.plot_data
-# applies the cap; plotting may not import it). A table this long may be cut.
-MAX_FAILING_ROWS = 10_000
-
 # A p of exactly 0 is -log10(p) = inf, and the histogram's last bin is open
 # ("50 and above"). Neither can be placed on an axis, so they are drawn here and
 # flagged as lower bounds.
@@ -79,12 +75,23 @@ def _usable(tables: Dict[str, pd.DataFrame]) -> bool:
     return any(not frame.empty for frame in tables.values())
 
 
-def _removed_label(n: Optional[int], noun: str) -> str:
-    """`899 variants removed`, or `10,000+ ...` when the table hit its cap."""
-    if n is None:
-        return ""
-    plus = "+" if n >= MAX_FAILING_ROWS else ""
-    return f"{n:,}{plus} {noun} removed"
+def removed_count(report: Report, step: str, ancestry: str) -> Optional[int]:
+    """Variants a step removed from one group, as the step reported them.
+
+    Read from `report.qc`, not counted from a plot table: a step can remove
+    more than the table lists (haplotype also removes each significant test's
+    flanking variants) and the tables are capped. A step with several metrics
+    is summed. None when the report has no row for it.
+    """
+    qc = report.qc
+    rows = qc[(qc["step"] == step) & (qc["ancestry"].astype(str) == str(ancestry))]
+    if rows.empty:
+        return None
+    return int(pd.to_numeric(rows["pruned_count"], errors="coerce").fillna(0).sum())
+
+
+def _removed_label(n: Optional[int], noun: str = "variants") -> str:
+    return "" if n is None else f"{n:,} {noun} removed"
 
 
 # --- Variant missingness -----------------------------------------------------
@@ -101,18 +108,16 @@ class MissingnessPanel:
 def missingness_panels(report: Report) -> List[MissingnessPanel]:
     """One panel per group that kept a variant-missingness histogram."""
     bins = plot_tables(report, "geno_missingness_bins")
-    failing = plot_tables(report, "geno_failing")
     panels = []
     for ancestry, frame in bins.items():
         if frame.empty:
             continue
-        removed = failing.get(ancestry)
         panels.append(
             MissingnessPanel(
                 ancestry=ancestry,
                 bins=frame,
                 threshold=_threshold(report, "geno_prune", "geno", ancestry),
-                removed=None if removed is None else len(removed),
+                removed=removed_count(report, "geno_prune", ancestry),
             )
         )
     return panels
@@ -128,7 +133,7 @@ def _missingness_xmax(panel: MissingnessPanel) -> float:
 
 
 def _missingness_title(panel: MissingnessPanel) -> str:
-    removed = _removed_label(panel.removed, "variants")
+    removed = _removed_label(panel.removed)
     return f"{panel.ancestry}: {removed}" if removed else panel.ancestry
 
 
@@ -364,7 +369,8 @@ class QQPanel:
     ancestry: str
     points: pd.DataFrame
     threshold: Optional[float]  # p, not -log10
-    removed: Optional[int]
+    removed: Optional[int]  # variants the step removed, from report.qc
+    exact: Optional[int]  # failing rows drawn as exact points
     test: Optional[str]  # HWE only
 
 
@@ -395,7 +401,8 @@ def qq_panels(report: Report, spec: QQSpec) -> List[QQPanel]:
                 ancestry=ancestry,
                 points=qq_points(bins, failing),
                 threshold=_threshold(report, spec.step, spec.threshold_parameter, ancestry),
-                removed=None if failing is None else len(failing),
+                removed=removed_count(report, spec.step, ancestry),
+                exact=None if failing is None else len(failing),
                 test=test,
             )
         )
@@ -412,7 +419,11 @@ def _qq_title(panel: QQPanel, spec: QQSpec) -> str:
     detail = []
     if panel.test:
         detail.append(f"{panel.test} test")
-    removed = _removed_label(panel.removed, spec.noun)
+    if spec.noun == "tests" and panel.exact is not None:
+        # The step also removes each significant test's flanking variants, so
+        # the tests and the variants removed are different numbers.
+        detail.append(f"{panel.exact:,} significant tests")
+    removed = _removed_label(panel.removed)
     if removed:
         detail.append(removed)
     return f"{panel.ancestry}: " + ", ".join(detail) if detail else panel.ancestry
@@ -459,7 +470,7 @@ def qq_png(report: Report, spec: QQSpec, plt, out_path: Path) -> Path:
         ax.set_xlabel("expected -log10(p)", color=INK_SECONDARY, fontsize="small")
         ax.set_ylabel("observed -log10(p)", color=INK_SECONDARY, fontsize="small")
         if k == 0:
-            ax.legend(fontsize="x-small", frameon=False, loc="lower right")
+            ax.legend(fontsize="x-small", frameon=False, loc="best")
 
     for ax in list(axes.flat)[len(panels):]:
         ax.set_visible(False)
