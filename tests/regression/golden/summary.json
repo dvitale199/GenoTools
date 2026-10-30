@@ -117,7 +117,9 @@
       "outlier_count": 27,
       "haplotype_removed_count": 27
     },
-    "parameters": {},
+    "parameters": {
+      "p_threshold": 0.0001
+    },
     "output": {
       "pruned_samples": null,
       "plink_out": "tests/regression/golden/haplotype/output"
