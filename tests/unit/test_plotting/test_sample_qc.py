@@ -287,7 +287,9 @@ class TestRendering:
         result = render_plots(golden_sample_report, tmp_path / "out")
         names = {p.stem for p in result.pngs}
         assert set(PLOT_NAMES) <= names
-        assert not [s for s in result.skipped if any(n in s.lower() for n in ("missing", "sex", "het", "relat"))]
+        # Other areas' plots may skip on a sample-only report; none of ours may.
+        titles = {plot.title for plot in sample_qc.PLOTS}
+        assert not [s for s in result.skipped if s.split(":")[0] in titles]
 
     def test_golden_counts_match_the_tables(self, golden_sample_report: Path) -> None:
         report = load_report(golden_sample_report)
