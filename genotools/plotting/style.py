@@ -64,24 +64,26 @@ CATEGORICAL = [
 # any label. No eleven hues stay distinguishable in every pair, so the
 # assignment gives look-alike colours to labels far apart in PC space; every
 # pair of neighbouring clusters (the European/Middle-Eastern block, the
-# African pair, the Asian groups, AMR and CAH against their sources) clears
-# both the normal-vision and the CVD floor. Marker shape is the second cue.
+# African pair, the South/Central/East Asian groups, and AMR and CAH, which are
+# admixed, against every group they spread towards) clears both the
+# normal-vision and the CVD floor. Marker shape is the second cue.
 PANEL_COLORS = {
     "AAC": "#008300",
-    "AFR": "#e87ba4",
-    "AJ": "#6250d6",
-    "AMR": "#2a78d6",
-    "CAH": "#843753",
-    "CAS": "#14588f",
-    "EAS": "#e34948",
-    "EUR": "#1baf7a",
-    "FIN": "#eb6834",
-    "MDE": "#883a2c",
-    "SAS": "#eda100",
+    "AFR": "#2a78d6",
+    "AJ": "#883a2c",
+    "AMR": "#843753",
+    "CAH": "#e87ba4",
+    "CAS": "#1baf7a",
+    "EAS": "#eb6834",
+    "EUR": "#6250d6",
+    "FIN": "#e34948",
+    "MDE": "#eda100",
+    "SAS": "#14588f",
 }
 
 # Marker shapes as (matplotlib, plotly) names: shape is the cue that survives
-# where two colours do not. Boldest first; the star reads smallest.
+# where two colours do not. All filled and of similar weight: a thin or small
+# shape (a star) disappears in a dense scatter.
 MARKERS = [
     ("o", "circle"),
     ("s", "square"),
@@ -93,11 +95,11 @@ MARKERS = [
     (">", "triangle-right"),
     ("P", "cross"),
     ("X", "x"),
-    ("*", "star"),
+    ("p", "pentagon"),
 ]
 
 # Fixed shapes for the panel labels: the boldest go to the crowded
-# European/Middle-Eastern block, the star to CAH, which sits on its own.
+# European/Middle-Eastern block.
 PANEL_MARKERS = {
     "EUR": MARKERS[0],
     "FIN": MARKERS[1],
