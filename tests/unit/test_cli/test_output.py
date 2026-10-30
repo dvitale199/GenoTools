@@ -681,3 +681,29 @@ class TestAncestryFitBlock:
         block = self._from_result({"fit": fit}).to_dict()["ancestry_fit"]
         assert block["fit_validation"]["collapsed"] is True
         assert block["baseline_scores"]["15-NN"] > block["test_balanced_accuracy"]
+
+
+class TestPlotDataKey:
+    """#302: the report points genotools-plot at the run's plot-ready tables."""
+
+    def test_absent_when_no_step_kept_any(self) -> None:
+        assert "plot_data" not in PipelineOutput().to_dict()
+
+    def test_records_the_directory(self) -> None:
+        output = PipelineOutput(plot_data="runs/cohort.v2_plot_data")
+        assert output.to_dict()["plot_data"] == "runs/cohort.v2_plot_data"
+
+    def test_carried_from_runner_state(self, tmp_path: Path) -> None:
+        from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
+        from genotools.cli.runner import PipelineState
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=tmp_path / "geno"),
+            output=OutputArgs(out_path=tmp_path / "out"),
+        )
+        state = PipelineState(
+            geno_path=tmp_path / "geno", out_path=tmp_path / "out", tmp_dir=None
+        )
+        state.plot_data_dir = tmp_path / "out_plot_data"
+        output = PipelineOutput.from_runner_state(args, state)
+        assert output.to_dict()["plot_data"] == str(tmp_path / "out_plot_data")

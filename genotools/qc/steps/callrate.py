@@ -27,6 +27,7 @@ from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import CallrateConfig
+from genotools.qc.plot_data import write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -68,6 +69,24 @@ def filter_callrate(
 
         # Ensure output directory exists
         out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Per-sample missingness, for plotting. A separate report-only call:
+        # --missing alongside --mind would report only the samples that passed.
+        miss_tmp = out_path.parent / f"{out_path.name}_miss_tmp"
+        run_plink2(
+            input_path=data.path,
+            output_path=miss_tmp,
+            input_format=data.format,
+            extra_args=["--missing", "sample-only"],
+            make_pgen=False,
+        )
+        smiss_file = Path(f"{miss_tmp}.smiss")
+        plot_tables = {}
+        if smiss_file.exists():
+            smiss = pd.read_csv(smiss_file, sep=r"\s+", dtype={"#FID": str, "IID": str})
+            plot_tables["sample_missingness"] = smiss.loc[:, ["#FID", "IID", "F_MISS"]]
+            smiss_file.unlink()
+        Path(f"{miss_tmp}.log").unlink(missing_ok=True)
 
         # Run PLINK2 with --mind
         result = run_plink2(
@@ -111,5 +130,6 @@ def filter_callrate(
             },
             log=result.stderr,
             pruned_samples_file=pruned_file,
+            plot_data=write_plot_data(plot_tables, out_path),
             step_name=step_name,
         )

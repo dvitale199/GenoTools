@@ -28,6 +28,7 @@ from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HetConfig
+from genotools.qc.plot_data import write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -207,7 +208,7 @@ def filter_heterozygosity(
         # Process het file
         het_file = Path(f"{het_tmp3}.het")
         if het_file.exists():
-            het = pd.read_csv(het_file, sep=r"\s+")
+            het = pd.read_csv(het_file, sep=r"\s+", dtype={"#FID": str, "IID": str})
 
             het_outliers, het_metrics = select_het_outliers(het, config)
 
@@ -220,6 +221,7 @@ def filter_heterozygosity(
                 )
 
             outlier_count = het_outliers.shape[0]
+            plot_tables = {"f": het.loc[:, ["#FID", "IID", "F"]]}
             het_outliers.to_csv(outliers_out, sep="\t", header=True, index=False)
 
             # Remove outliers from original data
@@ -273,6 +275,7 @@ def filter_heterozygosity(
                 parameters=het_metrics,
                 log="",
                 pruned_samples_file=outliers_out if outlier_count > 0 else None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

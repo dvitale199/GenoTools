@@ -27,6 +27,7 @@ from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import SexConfig
+from genotools.qc.plot_data import write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -129,10 +130,10 @@ def filter_sex(
 
         if sexcheck1.exists() and sexcheck2.exists():
             # Grab fails from .sexcheck files
-            sex1 = pd.read_csv(sexcheck1, sep=r"\s+")
+            sex1 = pd.read_csv(sexcheck1, sep=r"\s+", dtype={"FID": str, "IID": str})
             sex_fail1 = sex1[sex1.STATUS == "PROBLEM"]
 
-            sex2 = pd.read_csv(sexcheck2, sep=r"\s+")
+            sex2 = pd.read_csv(sexcheck2, sep=r"\s+", dtype={"FID": str, "IID": str})
             sex_fail2 = sex2[sex2.STATUS == "PROBLEM"]
 
             # Combine and deduplicate
@@ -142,6 +143,19 @@ def filter_sex(
             )
             sex_fail_ids = sex_fail_ids.rename(columns={"FID": "#FID"})
             sex_fail_count = sex_fail_ids.shape[0]
+
+            # Both checks' X-chromosome F, for plotting. `check` says which:
+            # "all_x" (method 1) or "filtered_x" (method 2, QC-filtered X).
+            plot_tables = {
+                "check": pd.concat(
+                    [
+                        sex1.assign(check="all_x"),
+                        sex2.assign(check="filtered_x"),
+                    ],
+                    ignore_index=True,
+                ).loc[:, ["FID", "IID", "PEDSEX", "SNPSEX", "STATUS", "F", "check"]]
+                .rename(columns={"FID": "#FID"})
+            }
             sex_fail_ids.to_csv(sex_fails, sep="\t", header=True, index=False)
 
             # Remove sex fail samples from geno
@@ -187,6 +201,7 @@ def filter_sex(
                 },
                 log="",
                 pruned_samples_file=sex_fails if sex_fail_count > 0 else None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

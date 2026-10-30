@@ -72,7 +72,8 @@ over `--bfile`, which wins over `--vcf`.
   - *Type*: `flag`
   - *Default*: `False`
   - *Description*: Keep every intermediate pfile instead of only the final
-    output. Does **not** affect logs — the consolidated and per-step logs are
+    output. Plot-ready QC tables are kept in `{out}_plot_data/`
+    either way (see `plot_data` in `docs/json_output_overview.md`). Does **not** affect logs — the consolidated and per-step logs are
     always written. This is the **only** switch governing disk retention: at
     defaults each step's input pfile is deleted once the step has passed and
     written its own output, so peak disk is roughly one working copy rather
