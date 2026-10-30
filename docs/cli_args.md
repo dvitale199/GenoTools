@@ -491,7 +491,8 @@ silent no-op.
     `CAH` the samples that sit nearer the global centroid than any ancestry
     centroid. The first thing to try on an all-`CAH` result: it separates a
     broken classifier from a broken override. The per-sample
-    `{out}_decisions.txt` file records both labels either way.
+    `{anc}_decisions.txt` file records both labels either way (`{anc}` is
+    defined under "Files an ancestry run writes" below).
 
 - **`--ancestry-plots`**
   - *Type*: `flag`
@@ -513,14 +514,16 @@ silent no-op.
     leaves only the cohort's own preprocessing to blame.
 
 **Files an ancestry run writes for debugging** (alongside the report, at the
-final output prefix — they survive a run without `--full-output`):
+final output prefix — they survive a run without `--full-output`). `{anc}` is
+`{out}_ancestry` when QC steps run alongside ancestry (`{out}` itself carries
+the QC output there) and plain `{out}` for an ancestry-only run:
 
 | File | Contents |
 |---|---|
-| `{out}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
-| `{out}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
-| `{out}_pca_diagnostic.png` | With `--ancestry-plots` |
-| `{out}_centroid_distance.png` | With `--ancestry-plots` |
+| `{anc}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
+| `{anc}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
+| `{anc}_pca_diagnostic.png` | With `--ancestry-plots` |
+| `{anc}_centroid_distance.png` | With `--ancestry-plots` |
 
 #### Fit validation
 
