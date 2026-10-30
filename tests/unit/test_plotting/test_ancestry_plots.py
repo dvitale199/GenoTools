@@ -346,11 +346,21 @@ class TestLabelEncoding:
         # A label whose own shape scatter3d supports keeps it.
         assert all(symbols[l] == s.symbol for l, s in styles.items() if s.symbol in plots.SCATTER3D_SYMBOLS)
 
-    def test_styles_do_not_depend_on_which_plot_draws_a_subset(self, report) -> None:
-        """A plot of fewer labels must not shift anyone's colour."""
-        full = plots.styles_for(report)
-        counts_only = label_styles(plots.counts_frame(report)["label"])
-        assert all(counts_only[l] == full[l] for l in counts_only)
+    def test_a_label_has_one_colour_in_every_plot(self, report) -> None:
+        """A plot of fewer labels must not shift anyone's colour.
+
+        The counts plot has no EAS (reference-only), so if it styled its own
+        subset, a label outside the panel would take a different spare slot
+        there than in the PC scatter.
+        """
+        by_name = {p.name: p for p in PLOTS}
+        bars = by_name["ancestry_label_counts"].plotly(report).data[0]
+        bar_colour = dict(zip(bars.x, bars.marker.color))
+        pairs = by_name["ancestry_pc_pairs"].plotly(report)
+        cohort = [t for t in pairs.data if t.name in bar_colour]
+        assert {t.name for t in cohort} == set(bar_colour)
+        for trace in cohort:
+            assert trace.marker.color == bar_colour[trace.name], trace.name
 
     def test_reference_is_faded_and_cohort_solid(self, report) -> None:
         fig = plots.pairs_plotly(plots.pc_frame(report), plots.styles_for(report))
