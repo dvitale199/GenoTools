@@ -126,6 +126,43 @@ examined whatever the flags.
     shown (without it, expected failures print a one-line `ERROR:` message).
     Combine with `--quiet` for verbose file-only logs.
 
+- **`--plots`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Once the run has written its JSON report, render plots from
+    it into `{out}_plots/`: one PNG per plot under `static/`, plus a
+    self-contained `report.html` with interactive versions (hover a cell or bar
+    for its detail). Identical to running `genotools-plot --report {out}.json`
+    after the run. A plot the run produced no data for is listed as not
+    plotted; a plotting failure is logged as a warning and never fails the run.
+
+---
+
+### Plotting a finished run: `genotools-plot`
+
+Renders the same `{out}_plots/` directory as `--plots`, from an existing report,
+without rerunning anything. Use it to plot a run that was not started with
+`--plots`, or to re-render after upgrading GenoTools.
+
+```bash
+genotools-plot --report results/output.json                    # -> results/output_plots/
+genotools-plot --report results/output.json --out-dir figs/    # -> figs/
+```
+
+| Argument | Description |
+|---|---|
+| `--report` | The `{out}.json` report a `genotools` run wrote. Required. |
+| `--out-dir` | Where to write. Default: `{out}_plots` beside the report. |
+| `--debug` | Show the full traceback on error. |
+
+Plots rendered today:
+
+| Plot | Shows |
+|---|---|
+| `sample_attrition` | Samples entering QC and removed at each step, per ancestry group, as a waterfall. Skipped and failed steps are labelled as such. |
+| `variant_attrition` | Variants removed at each step, per ancestry group. Removals only: the report does not record the input variant count. |
+| `step_outcomes` | Step × ancestry grid of pass / fail / skipped, with the reason on hover in the HTML. |
+
 ---
 
 ### Data-Driven Step Auto-Skips
@@ -562,6 +599,11 @@ genotools --pfile data/mydata --out results/output --ancestry \
 genotools --pfile data/mydata --out results/output \
           --callrate 0.05 --geno 0.01 --hwe 1e-6 \
           --pca 20 --gwas --quiet
+
+# Full pipeline with plots in results/output_plots/
+genotools --pfile data/mydata --out results/output --ancestry \
+          --ref-panel refs/panel --ref-labels refs/labels.txt \
+          --all-sample --all-variant --plots
 
 # Debugging a prediction that came back one label for every sample
 genotools --pfile data/mydata --out results/debug --ancestry \
