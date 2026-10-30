@@ -13,49 +13,38 @@
 # limitations under the License.
 # ==============================================================================
 
-"""The figures, each drawn twice: a matplotlib PNG and a plotly figure.
+"""QC summary plots: sample and variant attrition, and each step's outcome.
 
-Static PNGs go into papers and slides; the plotly figures go into the HTML
-report, where hover carries the detail a PNG has no room for. Plotly could
-write PNGs too, but only through kaleido and a headless Chrome, which is
-exactly what is missing on a cluster node. Matplotlib needs neither.
-
-Each figure reads one frame from `report.py` and nothing else.
+The pattern for every plot module: pure figure functions that each read one
+frame from `report.py` and draw it twice - a matplotlib PNG (for papers and
+slides; no kaleido or headless Chrome needed on a cluster node) and a plotly
+figure for the HTML report, where hover carries the detail a PNG has no room
+for - and a `PLOTS` list at the bottom wiring them to the report.
 """
 
-import math
 from pathlib import Path
-from typing import List, Tuple
+from typing import Callable, List, Tuple
 
 import pandas as pd
 
-# Colours from the dataviz reference palette. Removal is the one thing the
-# attrition plots encode, so it gets the single series colour; inputs and
-# survivors are neutral.
-REMOVED = "#2a78d6"
-NEUTRAL = "#b4b2a9"
-INK = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-SURFACE = "#fcfcfb"
-GRID = "#e6e5e0"
-
-# Status colours, reserved for outcome; never reused for a series. Every cell
-# also carries its outcome as text, so state is never colour alone.
-OUTCOME_COLORS = {
-    "pass": "#0ca30c",
-    "fail": "#d03b3b",
-    "skipped": "#fab219",
-    "not run": "#f0efec",
-}
-OUTCOME_ORDER = ["pass", "fail", "skipped", "not run"]
-
-# Reported step names are long and mostly the same suffix.
-_STEP_LABELS = {"case_control_missingness_prune": "case_control"}
-
-
-def step_label(step: str) -> str:
-    """Short display name for a reported step (`het_prune` -> `het`)."""
-    return _STEP_LABELS.get(step, step.removesuffix("_prune"))
+from genotools.plotting.plots.base import Plot
+from genotools.plotting.report import Report, attrition_frame, outcome_frame
+from genotools.plotting.style import (
+    GRID,
+    INK,
+    INK_SECONDARY,
+    NEUTRAL,
+    OUTCOME_COLORS,
+    OUTCOME_ORDER,
+    REMOVED,
+    SURFACE,
+    grid,
+    groups,
+    plotly_layout,
+    save_png,
+    step_label,
+    style_axis,
+)
 
 
 def _attrition_labels(group: pd.DataFrame) -> List[str]:
@@ -68,28 +57,6 @@ def _attrition_labels(group: pd.DataFrame) -> List[str]:
         step_label(step) if outcome == "pass" else f"{step_label(step)} ({outcome})"
         for step, outcome in zip(group["step"], group["outcome"])
     ]
-
-
-def _grid(n: int, max_cols: int = 3) -> Tuple[int, int]:
-    cols = min(n, max_cols)
-    return math.ceil(n / cols), cols
-
-
-def _style_axis(ax) -> None:
-    ax.set_facecolor(SURFACE)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color(GRID)
-    ax.tick_params(colors=INK_SECONDARY, labelsize="small")
-    ax.yaxis.grid(True, color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-
-
-def _groups(frame: pd.DataFrame) -> List[str]:
-    """Ancestry groups in a stable order: `all` first, then alphabetical."""
-    groups = sorted(frame["ancestry"].unique())
-    return sorted(groups, key=lambda g: g != "all")
 
 
 # --- Attrition ---------------------------------------------------------------
@@ -113,16 +80,16 @@ def attrition_png(frame: pd.DataFrame, level: str, plt, out_path: Path) -> Path:
     variants went in, so there is nothing to fall from.
     """
     frame = frame[frame["level"] == level]
-    groups = _groups(frame)
-    rows, cols = _grid(len(groups))
+    group_names = groups(frame)
+    rows, cols = grid(len(group_names))
     fig, axes = plt.subplots(
         rows, cols, figsize=(4.6 * cols, 3.4 * rows), squeeze=False
     )
     fig.patch.set_facecolor(SURFACE)
 
-    for ax, ancestry in zip(axes.flat, groups):
+    for ax, ancestry in zip(axes.flat, group_names):
         group = frame[frame["ancestry"] == ancestry]
-        _style_axis(ax)
+        style_axis(ax)
         if level == "sample" and group["start"].notna().all():
             labels, bottoms, heights, colors = _waterfall_bars(group)
             start, kept = heights[0], heights[-1]
@@ -151,13 +118,10 @@ def attrition_png(frame: pd.DataFrame, level: str, plt, out_path: Path) -> Path:
         ax.set_title(title, loc="left", fontsize="medium", color=INK)
         ax.set_ylabel(f"{level}s", color=INK_SECONDARY, fontsize="small")
 
-    for ax in list(axes.flat)[len(groups):]:
+    for ax in list(axes.flat)[len(group_names):]:
         ax.set_visible(False)
 
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor=SURFACE)
-    plt.close(fig)
-    return out_path
+    return save_png(fig, plt, out_path)
 
 
 def attrition_plotly(frame: pd.DataFrame, level: str):
@@ -166,11 +130,11 @@ def attrition_plotly(frame: pd.DataFrame, level: str):
     from plotly.subplots import make_subplots
 
     frame = frame[frame["level"] == level]
-    groups = _groups(frame)
-    rows, cols = _grid(len(groups))
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=groups)
+    group_names = groups(frame)
+    rows, cols = grid(len(group_names))
+    fig = make_subplots(rows=rows, cols=cols, subplot_titles=group_names)
 
-    for i, ancestry in enumerate(groups):
+    for i, ancestry in enumerate(group_names):
         group = frame[frame["ancestry"] == ancestry]
         row, col = i // cols + 1, i % cols + 1
         steps = _attrition_labels(group)
@@ -196,14 +160,7 @@ def attrition_plotly(frame: pd.DataFrame, level: str):
             )
         fig.add_trace(trace, row=row, col=col)
 
-    fig.update_layout(
-        showlegend=False,
-        height=300 * rows + 60,
-        plot_bgcolor=SURFACE,
-        paper_bgcolor=SURFACE,
-        font={"color": INK},
-        margin={"t": 60, "l": 50, "r": 20, "b": 40},
-    )
+    plotly_layout(fig, 300 * rows + 60, showlegend=False)
     fig.update_yaxes(gridcolor=GRID, title_text=f"{level}s")
     return fig
 
@@ -215,7 +172,7 @@ def _outcome_matrix(frame: pd.DataFrame) -> pd.DataFrame:
     """Step x ancestry matrix of outcomes; `not run` where a group has no row."""
     steps = list(dict.fromkeys(frame["step"]))
     matrix = frame.pivot(index="step", columns="ancestry", values="outcome")
-    matrix = matrix.reindex(index=steps, columns=_groups(frame))
+    matrix = matrix.reindex(index=steps, columns=groups(frame))
     return matrix.fillna("not run")
 
 
@@ -253,10 +210,7 @@ def outcome_png(frame: pd.DataFrame, plt, out_path: Path) -> Path:
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150, facecolor=SURFACE)
-    plt.close(fig)
-    return out_path
+    return save_png(fig, plt, out_path)
 
 
 def outcome_plotly(frame: pd.DataFrame):
@@ -301,13 +255,52 @@ def outcome_plotly(frame: pd.DataFrame):
             ygap=2,
         )
     )
-    fig.update_layout(
-        height=120 + 36 * len(matrix.index),
-        plot_bgcolor=SURFACE,
-        paper_bgcolor=SURFACE,
-        font={"color": INK},
+    plotly_layout(
+        fig,
+        120 + 36 * len(matrix.index),
         margin={"t": 40, "l": 120, "r": 20, "b": 20},
     )
     fig.update_xaxes(side="top")
     fig.update_yaxes(autorange="reversed")
     return fig
+
+
+# --- Registry ----------------------------------------------------------------
+
+
+def _has_level(level: str) -> Callable[[Report], bool]:
+    return lambda report: (report.qc["level"] == level).any()
+
+
+PLOTS: List[Plot] = [
+    Plot(
+        name="sample_attrition",
+        title="Sample attrition",
+        description="Samples removed at each QC step, per ancestry group.",
+        available=_has_level("sample"),
+        png=lambda r, plt, p: attrition_png(attrition_frame(r), "sample", plt, p),
+        plotly=lambda r: attrition_plotly(attrition_frame(r), "sample"),
+    ),
+    Plot(
+        name="variant_attrition",
+        title="Variant attrition",
+        description=(
+            "Variants removed at each QC step, per ancestry group. The report "
+            "does not record the input variant count, so these are removals only."
+        ),
+        available=_has_level("variant"),
+        png=lambda r, plt, p: attrition_png(attrition_frame(r), "variant", plt, p),
+        plotly=lambda r: attrition_plotly(attrition_frame(r), "variant"),
+    ),
+    Plot(
+        name="step_outcomes",
+        title="Step outcomes",
+        description=(
+            "Whether each requested QC step passed, failed or was skipped, per "
+            "ancestry group. Hover a cell for the reason."
+        ),
+        available=lambda r: not r.qc.empty,
+        png=lambda r, plt, p: outcome_png(outcome_frame(r), plt, p),
+        plotly=lambda r: outcome_plotly(outcome_frame(r)),
+    ),
+]

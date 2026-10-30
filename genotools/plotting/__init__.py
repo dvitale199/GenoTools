@@ -22,16 +22,30 @@ after the report is written; `genotools-plot` does the same for an existing
 report.
 """
 
-from genotools.plotting.render import PLOTS, RenderResult, default_out_dir, render_plots
-from genotools.plotting.report import Report, attrition_frame, load_report, outcome_frame
+from genotools.plotting.render import PLOTS, Plot, RenderResult, default_out_dir, render_plots
+from genotools.plotting.report import (
+    Report,
+    assoc_prefix,
+    attrition_frame,
+    load_report,
+    outcome_frame,
+    parameter,
+    plot_data_dir,
+    plot_tables,
+)
 
 __all__ = [
     "PLOTS",
+    "Plot",
     "RenderResult",
     "Report",
+    "assoc_prefix",
     "attrition_frame",
     "default_out_dir",
     "load_report",
     "outcome_frame",
+    "parameter",
+    "plot_data_dir",
+    "plot_tables",
     "render_plots",
 ]
