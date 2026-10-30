@@ -66,6 +66,15 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     | `n_failed_candidates` | Grid candidates that raised and were scored `NaN`. They rank last silently, so the search chose among fewer than it evaluated |
     | `n_grid_candidates` | Candidates the search evaluated |
  
+- **`ancestry_diagnostics`**  
+  - *Process*: `Ancestry`  
+  - *Description*: What the prediction path measured about itself. `pc_drift`
+    is one list per column (`pc`, `train_mean`, `train_sd`, `cohort_mean`,
+    `cohort_sd`, `shift_sd`, `sd_ratio`); `pc_drift_limits` records the
+    thresholds the run's drift warnings applied (`max_shift_sd`, and
+    `sd_ratio_range` as `[low, high]`), which the PC drift plot draws as its
+    band. Reports from before `pc_drift_limits` was recorded lack it.
+
 - **`ref_pcs`**  
   - *Process*: `Ancestry`  
   - *Description*: DataFrame containing the reference panel prinicpal components.

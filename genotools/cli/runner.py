@@ -800,16 +800,6 @@ class PipelineRunner:
         projected_pca_path = f"{actual_out}_projected_new_pca.txt"
         projected_pca = pd.read_csv(projected_pca_path, sep="\t")
 
-        if self.args.ancestry.write_plots:
-            from ..ancestry.plots import plot_ancestry_diagnostics
-
-            diagnostics.plots = plot_ancestry_diagnostics(
-                train_pca=model._train_pca,
-                projected=projected_pca,
-                out_prefix=out_path,
-                decisions=predictions.decisions,
-            )
-
         # UMAP visualization
         from ..ancestry.reducers.umap_reducer import run_umap
 

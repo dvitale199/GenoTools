@@ -64,3 +64,65 @@ def test_grid() -> None:
     assert grid(1) == (1, 1)
     assert grid(4) == (2, 3)
     assert grid(0) == (0, 1)
+
+
+# --- Neighbouring panel labels stay tellable apart ---------------------------
+
+# Panel labels whose clusters touch in real PC space: the European/Middle-
+# Eastern block, the African pair, the Asian groups, and the admixed AMR and
+# CAH against every group they spread towards.
+NEIGHBOURS = [
+    ("EUR", "FIN"), ("EUR", "AJ"), ("EUR", "MDE"), ("AJ", "MDE"), ("FIN", "AJ"),
+    ("FIN", "MDE"), ("AFR", "AAC"), ("CAS", "EUR"), ("CAS", "SAS"), ("CAS", "EAS"),
+    ("CAS", "MDE"), ("CAS", "AMR"), ("SAS", "EAS"), ("SAS", "MDE"), ("AMR", "EUR"),
+    ("AMR", "EAS"), ("AMR", "AFR"), ("AMR", "AAC"), ("AMR", "SAS"), ("AMR", "MDE"),
+    ("AMR", "FIN"), ("CAH", "AFR"), ("CAH", "EUR"), ("CAH", "AAC"), ("CAH", "AMR"),
+    ("CAH", "MDE"), ("AJ", "AFR"), ("MDE", "AFR"), ("MDE", "AAC"),
+]
+
+# Machado et al. (2009) full-severity deuteranopia and protanopia, linear RGB.
+_DEUTAN = [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413],
+           [-0.011820, 0.042940, 0.968881]]
+_PROTAN = [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216],
+           [-0.003882, -0.048116, 1.051998]]
+
+
+def _linear(hex_color: str):
+    import numpy as np
+
+    c = np.array([int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]) / 255
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _oklab(rgb):
+    import numpy as np
+
+    m1 = np.array([[0.4122214708, 0.5363325363, 0.0514459929],
+                   [0.2119034982, 0.6806995451, 0.1073969566],
+                   [0.0883024619, 0.2817188376, 0.6299787005]])
+    m2 = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                   [1.9779984951, -2.4285922050, 0.4505937099],
+                   [0.0259040371, 0.7827717662, -0.8086757660]])
+    return m2 @ np.cbrt(m1 @ rgb)
+
+
+def _delta_e(a: str, b: str, sim=None) -> float:
+    """OKLab distance x100, optionally under a colour-vision simulation."""
+    import numpy as np
+
+    la, lb = _linear(a), _linear(b)
+    if sim is not None:
+        la, lb = (np.clip(np.array(sim) @ x, 0, 1) for x in (la, lb))
+    return float(np.linalg.norm(_oklab(la) - _oklab(lb)) * 100)
+
+
+def test_neighbouring_panel_labels_clear_both_floors() -> None:
+    """The dataviz floors: normal-vision dE >= 15, CVD dE >= 8."""
+    weak = []
+    for a, b in NEIGHBOURS:
+        ca, cb = PANEL_COLORS[a], PANEL_COLORS[b]
+        normal = _delta_e(ca, cb)
+        cvd = min(_delta_e(ca, cb, _DEUTAN), _delta_e(ca, cb, _PROTAN))
+        if normal < 15 or cvd < 8:
+            weak.append(f"{a}-{b}: normal {normal:.1f}, cvd {cvd:.1f}")
+    assert not weak, weak
