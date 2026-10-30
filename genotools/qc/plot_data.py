@@ -99,8 +99,16 @@ def failing_rows(
     ascending: bool,
     limit: int = MAX_FAILING_ROWS,
 ) -> pd.DataFrame:
-    """The rows that failed a threshold, most extreme first, capped at `limit`."""
-    return frame[mask].sort_values(sort_by, ascending=ascending).head(limit)
+    """The rows that failed a threshold, most extreme first, capped at `limit`.
+
+    The sort is stable, so ties keep PLINK's variant order whatever the pandas
+    version (its default quicksort ordered ties differently in pandas 2 and 3).
+    """
+    return (
+        frame[mask]
+        .sort_values(sort_by, ascending=ascending, kind="stable")
+        .head(limit)
+    )
 
 
 def write_plot_data(

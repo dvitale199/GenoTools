@@ -194,5 +194,7 @@ def outcome_frame(report: Report) -> pd.DataFrame:
     first = report.qc.drop_duplicates(subset=["step", "ancestry"], keep="first")
     out = first[columns].copy()
     out["ancestry"] = out["ancestry"].astype(str)
-    out["reason"] = out["reason"].where(out["reason"].notna(), None)
+    # Object dtype first: pandas 3's string dtype turns None back into NaN.
+    reason = out["reason"].astype(object)
+    out["reason"] = reason.where(reason.notna(), None)
     return out.reset_index(drop=True)
