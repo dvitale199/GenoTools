@@ -28,6 +28,7 @@ from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HaplotypeConfig
+from genotools.qc.plot_data import failing_rows, pvalue_histogram, write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -105,7 +106,20 @@ def filter_haplotype(
         mishap_file = Path(f"{hap_tmp}.missing.hap")
         if mishap_file.exists():
             # Read mishap file and identify variants to exclude
-            mis_hap = pd.read_csv(mishap_file, sep=r"\s+")
+            mis_hap = pd.read_csv(mishap_file, sep=r"\s+", dtype={"SNP": str})
+
+            # Binned over every haplotype test, and the significant tests.
+            # The step also removes each significant test's FLANKING variants,
+            # so `failing` lists the tests, not every variant removed.
+            plot_tables = {
+                "pvalue_bins": pvalue_histogram(mis_hap["P"]),
+                "failing": failing_rows(
+                    mis_hap.loc[:, ["SNP", "HAPLOTYPE", "P", "FLANKING"]],
+                    mis_hap.P <= p_threshold,
+                    "P",
+                    ascending=True,
+                ),
+            }
 
             # Get reference SNPs (central variants) for significant associations
             ref_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:, "SNP"])
@@ -165,6 +179,7 @@ def filter_haplotype(
                 },
                 log="",
                 pruned_samples_file=None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

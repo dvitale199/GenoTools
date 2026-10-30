@@ -161,6 +161,7 @@ class PipelineOutput:
     pruned_samples: Optional[pd.DataFrame] = None
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    plot_data: Optional[str] = None
 
     @property
     def success(self) -> bool:
@@ -222,6 +223,8 @@ class PipelineOutput:
         # builds each step's config, so nothing has to be reconstructed here
         # from legacy_args - which cannot express a derived bound anyway.
         output.parameters = list(state.parameters)
+        if state.plot_data_dir is not None:
+            output.plot_data = str(state.plot_data_dir)
         output.run_info = {"version": __version__}
         if args.invocation:
             output.run_info["invocation"] = args.invocation
@@ -587,6 +590,10 @@ class PipelineOutput:
         # Related samples
         if self.related_samples is not None and not self.related_samples.empty:
             result["related_samples"] = self.related_samples.to_dict()
+
+        # Plot-ready QC tables for genotools-plot, collected per ancestry group
+        if self.plot_data is not None:
+            result["plot_data"] = self.plot_data
 
         # Pass/fail status
         result.update(self.pass_fail)

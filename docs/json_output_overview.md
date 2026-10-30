@@ -169,6 +169,28 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing relatedness information output by PLINK/KING from completed relatedness pruning.
 
+- **`plot_data`**  
+  - *Process*: `Quality Control (QC)`  
+  - *Description*: *New in 2.3.0.* Path to `{out}_plot_data/`, the plot-ready
+    tables the QC steps kept from the statistics they computed, for
+    `genotools-plot`. One subdirectory per ancestry group (`all` for a run
+    without `--ancestry`), one TSV per table, named `{step}_{table}.tsv`:
+
+    | File | Contents |
+    |---|---|
+    | `callrate_sample_missingness.tsv` | `#FID`, `IID`, `F_MISS` for every sample entering the step |
+    | `sex_check.tsv` | Both `--check-sex` passes: `#FID`, `IID`, `PEDSEX`, `SNPSEX`, `STATUS`, `F`, and `check` (`all_x`, or `filtered_x` for the QC-filtered X pass) |
+    | `het_f.tsv` | `#FID`, `IID`, `F` from `--het` on the LD-pruned variants |
+    | `related_kinship.tsv` | KING pairs with kinship ≥ 0.0442 (3rd degree), or the step's cutoff if lower: `#FID1`, `IID1`, `FID2`, `IID2`, `IBS0`, `KINSHIP` |
+    | `geno_missingness_bins.tsv` | Variant `F_MISS` histogram, 200 bins of 0.005 |
+    | `{geno,case_control,haplotype,hwe}_failing.tsv` | The variants (or, for `haplotype`, the tests) that failed, most extreme first, capped at 10,000 |
+    | `{case_control,haplotype,hwe}_pvalue_bins.tsv` | Histogram of -log10(p) in bins of 0.05 up to 50, then one open bin. HWE has one histogram per `test` (`ALL`, `AFF`, `UNAFF`) |
+
+    Per-sample tables are kept whole; per-variant ones are binned, so the
+    directory's size does not grow with the array. HWE's failing variants carry
+    the `UNAFF` p-value on case/control data, because that is the test PLINK
+    1.9's `--hwe` filters on. Absent when no step kept any tables.
+
 - **`pass_fail`** / **`{ANCESTRY}_pass_fail`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: Per-step status. `pass_fail` for a run without `--ancestry`;

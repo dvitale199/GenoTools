@@ -168,6 +168,8 @@ class PipelineState:
     ancestry_result: Optional[Dict[str, Any]] = None
     labels_list: List[str] = field(default_factory=list)
     parameters: List[ParameterRecord] = field(default_factory=list)
+    # Where the steps' plot-ready tables were collected, once any were.
+    plot_data_dir: Optional[Path] = None
 
     def get_last_passed_output(self) -> Optional[str]:
         """Get the output path of the last passed step."""
@@ -1546,6 +1548,7 @@ class PipelineRunner:
         if result is None:
             return None
 
+        self._collect_plot_data(step, getattr(result, "plot_data", {}), ancestry_label)
         out = result.to_dict()
         self._record_parameters(
             step=step,
@@ -1554,6 +1557,40 @@ class PipelineRunner:
             ancestry_label=ancestry_label,
         )
         return out
+
+    def _collect_plot_data(
+        self,
+        step: str,
+        plot_data: Dict[str, Path],
+        ancestry_label: str,
+    ) -> None:
+        """Move a step's plot-ready tables into ``{out}_plot_data/{ancestry}/``.
+
+        Steps write them beside their own output, which is usually in the temp
+        directory and gone by the end of the run. Collecting them here, in the
+        shared tail, reaches both run shapes and keeps them without
+        ``--full-output``. The tables are for ``genotools-plot`` only, so a
+        failure to keep them is a warning, never a failed step.
+
+        Args:
+            step: Pipeline step key; prefixes each file (``het_het.tsv``).
+            plot_data: ``kind -> path`` from ``FilterResult.plot_data``.
+            ancestry_label: Group the step ran for, or "all" in a flat run.
+        """
+        assert self.state is not None
+        if not plot_data:
+            return
+
+        root = Path(f"{self.args.output.out_path}_plot_data")
+        dest = root / ancestry_label
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            for kind, src in plot_data.items():
+                shutil.move(str(src), dest / f"{step}_{kind}.tsv")
+        except OSError as e:
+            logger.warning(f"Plot data for {step} not kept: {e}")
+            return
+        self.state.plot_data_dir = root
 
     def _record_parameters(
         self,

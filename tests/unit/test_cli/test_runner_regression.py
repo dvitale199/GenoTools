@@ -2568,3 +2568,110 @@ class TestIntermediateCleanupIsNotWeldedToWarnMode:
 
         assert (tmp_path / "out.pgen").exists()
         assert "sex" in (tmp_path / "out.pgen").read_text()
+
+
+class TestPlotDataCollected:
+    """#302: steps' plot-ready tables reach {out}_plot_data/{ancestry}/.
+
+    Collection lives in _run_single_step's shared tail, which both run shapes
+    reach, so these drive that tail rather than a helper.
+    """
+
+    def _runner_with_step(self, tmp_path: Path, plot_data: Dict[str, Path]):
+        from genotools.qc.results import FilterResult
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        result = FilterResult(
+            output=SimpleNamespace(path=tmp_path / "step_out"),
+            samples_removed=0,
+            variants_removed=0,
+            plot_data=plot_data,
+            step_name="callrate_prune",
+        )
+        runner._new_modules["filter_callrate"] = lambda data, config, out_path: result
+        runner._new_modules["GenotypeData"] = SimpleNamespace(
+            from_path=lambda path: SimpleNamespace(path=path)
+        )
+        return runner, geno, out
+
+    def test_tables_move_under_the_group(self, tmp_path: Path) -> None:
+        table = tmp_path / "step_out_plotdata_sample_missingness.tsv"
+        table.write_text("#FID\tIID\tF_MISS\n")
+        runner, geno, out = self._runner_with_step(
+            tmp_path, {"sample_missingness": table}
+        )
+
+        runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"),
+            {"callrate": 0.05}, ancestry_label="EUR",
+        )
+
+        kept = Path(f"{out}_plot_data") / "EUR" / "callrate_sample_missingness.tsv"
+        assert kept.read_text() == "#FID\tIID\tF_MISS\n"
+        assert not table.exists()
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+
+    def test_a_step_without_tables_leaves_no_directory(self, tmp_path: Path) -> None:
+        runner, geno, out = self._runner_with_step(tmp_path, {})
+        runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"), {"callrate": 0.05}
+        )
+        assert not Path(f"{out}_plot_data").exists()
+        assert runner.state.plot_data_dir is None
+
+    def test_failure_to_keep_tables_does_not_fail_the_step(self, tmp_path: Path) -> None:
+        runner, geno, out = self._runner_with_step(
+            tmp_path, {"sample_missingness": tmp_path / "never_written.tsv"}
+        )
+        result = runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"), {"callrate": 0.05}
+        )
+        assert result["pass"] is True
+        assert runner.state.plot_data_dir is None
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_real_steps_keep_tables_without_full_output(self, tmp_path: Path) -> None:
+        """Every sample and variant step, run in the temp dir as at defaults."""
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+        from genotools.cli import parse_args
+
+        out = tmp_path / "cohort.v2"
+        args = parse_args([
+            "--pfile", str(SYNTHETIC), "--out", str(out),
+            "--all-sample", "--all-variant",
+        ])
+        runner = PipelineRunner(args)
+        runner._initialize_modules()
+        runner.state = PipelineState(
+            geno_path=SYNTHETIC, out_path=out,
+            tmp_dir=tempfile.TemporaryDirectory(dir=tmp_path),
+        )
+        steps = ["callrate", "sex", "het", "related",
+                 "geno", "case_control", "haplotype", "hwe"]
+        runner._run_qc_pipeline(steps, str(SYNTHETIC), str(out))
+        runner.state.tmp_dir.cleanup()
+
+        kept = Path(f"{out}_plot_data") / "all"
+        assert sorted(p.name for p in kept.iterdir()) == sorted([
+            "callrate_sample_missingness.tsv",
+            "sex_check.tsv",
+            "het_f.tsv",
+            "related_kinship.tsv",
+            "geno_missingness_bins.tsv", "geno_failing.tsv",
+            "case_control_pvalue_bins.tsv", "case_control_failing.tsv",
+            "haplotype_pvalue_bins.tsv", "haplotype_failing.tsv",
+            "hwe_pvalue_bins.tsv", "hwe_failing.tsv",
+        ])
+        # Failing rows agree with what the step reported removing.
+        geno_failing = pd.read_csv(kept / "geno_failing.tsv", sep="\t")
+        hwe_failing = pd.read_csv(kept / "hwe_failing.tsv", sep="\t")
+        results = runner.state.step_results
+        assert len(geno_failing) == results["geno"].metrics["geno_removed_count"] > 0
+        assert len(hwe_failing) == results["hwe"].metrics["hwe_removed_count"] > 0
+        # The callrate table covers every input sample, not just survivors.
+        smiss = pd.read_csv(kept / "callrate_sample_missingness.tsv", sep="\t")
+        assert len(smiss) == 500
+        # Nothing left behind beside the output.
+        assert not list(tmp_path.glob("*_plotdata_*"))
