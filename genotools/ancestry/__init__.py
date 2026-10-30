@@ -84,6 +84,7 @@ from genotools.ancestry.diagnostics import (
     BimCompatibility,
     admixture_summary,
     allele_frequency_concordance,
+    allele_frequency_table,
     bim_compatibility,
     pc_drift,
 )
@@ -146,6 +147,7 @@ __all__ = [
     "BimCompatibility",
     "admixture_summary",
     "allele_frequency_concordance",
+    "allele_frequency_table",
     "bim_compatibility",
     "pc_drift",
     # Results

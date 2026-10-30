@@ -707,3 +707,193 @@ class TestPlotDataKey:
         state.plot_data_dir = tmp_path / "out_plot_data"
         output = PipelineOutput.from_runner_state(args, state)
         assert output.to_dict()["plot_data"] == str(tmp_path / "out_plot_data")
+
+
+class TestGwasBlockReachesReport:
+    """The assoc step's GWAS block must reach the report in both run shapes.
+
+    The flat path rebuilt step dicts from ``StepResult``, which kept only
+    metrics/output, so a flat ``--gwas`` run reported no GWAS section at all.
+    These drive ``from_runner_state`` with the dict the real
+    ``AssocResult.to_dict()`` produces.
+    """
+
+    @staticmethod
+    def _assoc_dict(tmp_path: Path) -> Dict[str, Any]:
+        from genotools.gwas.results import (
+            AssocResult,
+            GWASResult,
+            InflationMetrics,
+            PCAResult,
+        )
+
+        return AssocResult(
+            pca_result=PCAResult(
+                eigenvec_path=tmp_path / "out.eigenvec",
+                eigenval_path=tmp_path / "out.eigenval",
+                n_pcs=5,
+            ),
+            gwas_result=GWASResult(
+                output_path=tmp_path / "out.PHENO1.glm.logistic.hybrid",
+                phenotype_type="binary",
+                inflation=InflationMetrics(
+                    lambda_gc=1.02, lambda_1000=1.07, n_cases=10, n_controls=20
+                ),
+            ),
+        ).to_dict()
+
+    @staticmethod
+    def _args(tmp_path: Path):
+        from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
+
+        return PipelineArgs(
+            input=InputArgs(pfile=tmp_path / "geno"),
+            output=OutputArgs(out_path=tmp_path / "out"),
+        )
+
+    def test_flat_run(self, tmp_path: Path) -> None:
+        from genotools.cli.runner import PipelineState, StepResult
+
+        state = PipelineState(
+            geno_path=tmp_path / "geno", out_path=tmp_path / "out", tmp_dir=None
+        )
+        state.step_results = {
+            "assoc": StepResult.from_legacy_dict("assoc", self._assoc_dict(tmp_path))
+        }
+        report = PipelineOutput.from_runner_state(self._args(tmp_path), state).to_dict()
+
+        gwas = report["GWAS"]
+        by_metric = {gwas["metric"][i]: gwas["value"][i] for i in gwas["metric"]}
+        assert by_metric["lambda"] == 1.02
+        assert by_metric["lambda1000"] == 1.07
+        assert set(gwas["ancestry"].values()) == {"all"}
+
+    def test_ancestry_run(self, tmp_path: Path) -> None:
+        from genotools.cli.runner import PipelineState
+
+        state = PipelineState(
+            geno_path=tmp_path / "geno", out_path=tmp_path / "out", tmp_dir=None
+        )
+        state.ancestry_results = {"EUR": {"assoc": self._assoc_dict(tmp_path), "pass_fail": {}}}
+        report = PipelineOutput.from_runner_state(self._args(tmp_path), state).to_dict()
+
+        gwas = report["GWAS"]
+        assert set(gwas["ancestry"].values()) == {"EUR"}
+        assert 1.02 in set(gwas["value"].values())
+
+    def test_other_steps_do_not_grow_a_gwas_key(self) -> None:
+        from genotools.cli.runner import StepResult
+
+        step = StepResult.from_legacy_dict("sex", {"pass": True, "metrics": {}})
+        assert step.gwas is None
+
+
+class TestAssocOutputPaths:
+    """Where the .glm / .eigenval files are: parameters, absolute, never metrics."""
+
+    def test_paths_are_resolved_parameters_not_metrics(self, tmp_path: Path) -> None:
+        out = TestGwasBlockReachesReport._assoc_dict(tmp_path)
+        params = out["parameters"]
+        assert params["eigenval_path"] == str(tmp_path / "out.eigenval")
+        assert params["eigenvec_path"] == str(tmp_path / "out.eigenvec")
+        assert params["gwas_output_path"] == str(
+            tmp_path / "out.PHENO1.glm.logistic.hybrid"
+        )
+        assert not set(params) & set(out["gwas"]["metrics"])
+
+    def test_relative_paths_are_made_absolute(self) -> None:
+        from genotools.gwas.results import GWASResult
+
+        from genotools.gwas.results import AssocResult
+
+        out = AssocResult(
+            gwas_result=GWASResult(output_path=Path("rel/out.glm"), phenotype_type="binary")
+        ).to_dict()
+        assert Path(out["parameters"]["gwas_output_path"]).is_absolute()
+
+    def test_no_parameters_key_when_nothing_ran_to_a_file(self) -> None:
+        from genotools.gwas.results import AssocResult, GWASResult
+
+        out = AssocResult(
+            gwas_result=GWASResult(output_path=None, phenotype_type="binary", success=False)
+        ).to_dict()
+        assert "parameters" not in out
+
+
+class TestInsufficientAncestryDropsReachReport:
+    """Samples in a group under --min-samples are dropped before any QC runs, so
+    only the ancestry result knows about them. They were stored and then ignored,
+    so the report never accounted for them.
+    """
+
+    @staticmethod
+    def _state_and_args(tmp_path: Path):
+        from genotools.cli.parser import InputArgs, OutputArgs, PipelineArgs
+        from genotools.cli.runner import PipelineState
+
+        args = PipelineArgs(
+            input=InputArgs(pfile=tmp_path / "geno"),
+            output=OutputArgs(out_path=tmp_path / "out"),
+        )
+        state = PipelineState(
+            geno_path=tmp_path / "geno", out_path=tmp_path / "out", tmp_dir=None
+        )
+        return args, state
+
+    @staticmethod
+    def _dropped() -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "FID": ["f1", "f2"],
+                "IID": ["i1", "i2"],
+                "step": "insufficient_ancestry_sample_n",
+                "label": "SAS",
+            }
+        )
+
+    def test_drops_alone_reach_pruned_samples(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        state.ancestry_result = {"data": {"pruned_samples": self._dropped()}}
+        state.ancestry_results = {}
+
+        pruned = pd.DataFrame(
+            PipelineOutput.from_runner_state(args, state).to_dict()["pruned_samples"]
+        )
+        assert set(pruned["step"]) == {"insufficient_ancestry_sample_n"}
+        assert set(pruned["IID"]) == {"i1", "i2"}
+        assert set(pruned["label"]) == {"SAS"}
+
+    def test_merged_with_qc_prunes(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        outliers = tmp_path / "callrate.outliers"
+        outliers.write_text("#FID\tIID\nf9\ti9\n")
+        state.ancestry_result = {"data": {"pruned_samples": self._dropped()}}
+        state.ancestry_results = {
+            "EUR": {
+                "callrate": {
+                    "pass": True,
+                    "step": "callrate_prune",
+                    "metrics": {"outlier_count": 1},
+                    "output": {"pruned_samples": str(outliers)},
+                },
+                "pass_fail": {},
+            }
+        }
+
+        pruned = pd.DataFrame(
+            PipelineOutput.from_runner_state(args, state).to_dict()["pruned_samples"]
+        )
+        steps = dict(zip(pruned["IID"], pruned["step"]))
+        assert steps == {
+            "i1": "insufficient_ancestry_sample_n",
+            "i2": "insufficient_ancestry_sample_n",
+            "i9": "callrate",
+        }
+
+    def test_no_drops_changes_nothing(self, tmp_path: Path) -> None:
+        args, state = self._state_and_args(tmp_path)
+        state.ancestry_result = {
+            "data": {"pruned_samples": pd.DataFrame(columns=["FID", "IID", "step", "label"])}
+        }
+        state.ancestry_results = {}
+        assert "pruned_samples" not in PipelineOutput.from_runner_state(args, state).to_dict()

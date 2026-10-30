@@ -348,3 +348,88 @@ def test_the_recorded_drift_limits_are_the_ones_the_warnings_apply():
 
 def test_an_empty_collector_serializes_to_just_its_warnings():
     assert AncestryDiagnostics().to_dict() == {"warnings": []}
+
+
+# --- per-SNP allele-frequency table ----------------------------------------
+
+
+def _large_pair(n_snps):
+    rng = np.random.default_rng(1)
+    cols = {f"rs{i}": rng.integers(0, 3, size=20) for i in range(n_snps)}
+    ref = pd.DataFrame(cols)
+    return ref, ref.copy()
+
+
+def test_table_rows_agree_with_concordance_counts_when_unsampled():
+    from genotools.ancestry.diagnostics import allele_frequency_table
+
+    ref = _dosages(rs1=[0, 0, 0, 1], rs2=[2, 2, 2, 1], rs3=[0, 1, 2, 1])
+    cohort = ref.copy()
+    cohort["rs1"] = 2 - cohort["rs1"]
+    summary = allele_frequency_concordance(ref, cohort)
+    table = allele_frequency_table(ref, cohort)
+
+    assert list(table["snp"]) == ["rs1", "rs2", "rs3"]
+    assert len(table) == summary["n_snps"]
+    assert int(table["discordant"].sum()) == summary["n_discordant"]
+    assert int(table["flip_signature"].sum()) == summary["n_flip_signature"]
+    row = table.set_index("snp").loc["rs1"]
+    assert row["ref_freq"] == pytest.approx(0.125)
+    assert row["cohort_freq"] == pytest.approx(0.875)
+    assert bool(row["flip_signature"])
+
+
+def test_table_is_bounded_and_reproducible():
+    from genotools.ancestry.diagnostics import allele_frequency_table
+
+    ref, cohort = _large_pair(300)
+    a = allele_frequency_table(ref, cohort, max_snps=50)
+    b = allele_frequency_table(ref, cohort, max_snps=50)
+    assert len(a) == 50
+    assert a["snp"].is_unique
+    pd.testing.assert_frame_equal(a, b)
+    # Different seed, different sites.
+    c = allele_frequency_table(ref, cohort, max_snps=50, seed=7)
+    assert list(a["snp"]) != list(c["snp"])
+    # Kept in the reference's column order, not shuffled.
+    order = {name: i for i, name in enumerate(ref.columns)}
+    positions = [order[s] for s in a["snp"]]
+    assert positions == sorted(positions)
+
+
+def test_default_bound_is_5000():
+    from genotools.ancestry.diagnostics import (
+        ALLELE_FREQ_SAMPLE_SIZE,
+        allele_frequency_table,
+    )
+
+    assert ALLELE_FREQ_SAMPLE_SIZE == 5000
+    ref, cohort = _large_pair(5100)
+    assert len(allele_frequency_table(ref, cohort)) == 5000
+
+
+def test_table_carries_alleles_by_snp_id():
+    from genotools.ancestry.diagnostics import allele_frequency_table
+
+    ref = _dosages(rs1=[0, 1], rs2=[2, 1])
+    alleles = pd.DataFrame(
+        {"counted_allele": ["A", "C"], "other_allele": ["G", "T"],
+         "cohort_a1": ["T", "C"], "cohort_a2": ["C", "T"]},
+        index=["rs2", "rs1"],  # deliberately not in matrix order
+    )
+    table = allele_frequency_table(ref, ref.copy(), alleles=alleles).set_index("snp")
+    assert table.loc["rs1", "counted_allele"] == "C"
+    assert table.loc["rs2", "cohort_a1"] == "T"
+
+
+def test_table_with_no_overlap_is_empty_with_columns():
+    from genotools.ancestry.diagnostics import allele_frequency_table
+
+    table = allele_frequency_table(_dosages(rs1=[0, 1]), _dosages(rs9=[0, 1]))
+    assert table.empty
+    assert {"snp", "ref_freq", "cohort_freq", "flip_signature"} <= set(table.columns)
+
+
+def test_table_is_not_part_of_the_report_dict():
+    diag = AncestryDiagnostics(allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]}))
+    assert "allele_frequency_sample" not in diag.to_dict()

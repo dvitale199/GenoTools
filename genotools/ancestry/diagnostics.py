@@ -89,6 +89,11 @@ DISCORDANT_FREQ_DELTA = 0.2
 #: allele-swap signature rather than ordinary population difference.
 FLIP_SIGNATURE_TOLERANCE = 0.05
 
+#: Most SNPs kept in the per-SNP allele-frequency table written for plotting,
+#: and the seed that picks them, so the same run always keeps the same sites.
+ALLELE_FREQ_SAMPLE_SIZE = 5000
+ALLELE_FREQ_SAMPLE_SEED = 0
+
 #: Fraction of samples labeled CAH that is high enough to suspect the override
 #: rather than the cohort. A real cohort has admixed samples; it does not
 #: consist of them.
@@ -343,6 +348,31 @@ def is_low_overlap(
 # ---------------------------------------------------------------------------
 
 
+def _matched_frequencies(
+    ref_dosages: pd.DataFrame, geno_dosages: pd.DataFrame
+) -> Tuple[pd.Series, pd.Series]:
+    """Allele frequency per SNP the two matrices share, both finite.
+
+    Both come back indexed by SNP ID in the reference's column order.
+    """
+    # A cohort can carry the same site under several probe IDs; if two
+    # survived into the matrix, the second is not a second opinion worth
+    # averaging, and a duplicated label would break the alignment below.
+    geno_dosages = geno_dosages.loc[:, ~geno_dosages.columns.duplicated()]
+    ref_dosages = ref_dosages.loc[:, ~ref_dosages.columns.duplicated()]
+
+    geno_columns = set(geno_dosages.columns)
+    shared = [c for c in ref_dosages.columns if c in geno_columns]
+    if not shared:
+        empty = pd.Series(dtype=float)
+        return empty, empty
+
+    ref_freq = ref_dosages[shared].mean(axis=0, skipna=True) / 2.0
+    geno_freq = geno_dosages[shared].mean(axis=0, skipna=True) / 2.0
+    usable = ref_freq.notna() & geno_freq.notna()
+    return ref_freq[usable], geno_freq[usable]
+
+
 def allele_frequency_concordance(
     ref_dosages: pd.DataFrame,
     geno_dosages: pd.DataFrame,
@@ -371,28 +401,7 @@ def allele_frequency_concordance(
         a None correlation rather than an exception -- this is a diagnostic and
         must never be the thing that fails a run.
     """
-    # A cohort can carry the same site under several probe IDs; if two
-    # survived into the matrix, the second is not a second opinion worth
-    # averaging, and a duplicated label would break the alignment below.
-    geno_dosages = geno_dosages.loc[:, ~geno_dosages.columns.duplicated()]
-    ref_dosages = ref_dosages.loc[:, ~ref_dosages.columns.duplicated()]
-
-    shared = [c for c in ref_dosages.columns if c in set(geno_dosages.columns)]
-    if not shared:
-        return {
-            "n_snps": 0,
-            "correlation": None,
-            "mean_abs_delta": None,
-            "n_discordant": 0,
-            "fraction_discordant": None,
-            "n_flip_signature": 0,
-            "fraction_flip_signature": None,
-        }
-
-    ref_freq = ref_dosages[shared].mean(axis=0, skipna=True) / 2.0
-    geno_freq = geno_dosages[shared].mean(axis=0, skipna=True) / 2.0
-    usable = ref_freq.notna() & geno_freq.notna()
-    ref_freq, geno_freq = ref_freq[usable], geno_freq[usable]
+    ref_freq, geno_freq = _matched_frequencies(ref_dosages, geno_dosages)
 
     n_snps = int(len(ref_freq))
     if n_snps == 0:
@@ -417,6 +426,68 @@ def allele_frequency_concordance(
         "n_flip_signature": int(flipped.sum()),
         "fraction_flip_signature": _f(flipped.mean()) if n_snps else None,
     }
+
+
+def allele_frequency_table(
+    ref_dosages: pd.DataFrame,
+    geno_dosages: pd.DataFrame,
+    alleles: Optional[pd.DataFrame] = None,
+    max_snps: int = ALLELE_FREQ_SAMPLE_SIZE,
+    seed: int = ALLELE_FREQ_SAMPLE_SEED,
+    discordant_delta: float = DISCORDANT_FREQ_DELTA,
+    flip_tolerance: float = FLIP_SIGNATURE_TOLERANCE,
+) -> pd.DataFrame:
+    """Per-SNP panel vs cohort allele frequency, bounded for plotting.
+
+    The rows `allele_frequency_concordance` summarises and discards. Matching
+    uses the same rules (duplicate IDs dropped, NaN frequencies excluded), and
+    the `discordant` / `flip_signature` flags use the same thresholds, so a
+    plot of this table agrees with the report's counts for the sites it shows.
+
+    Args:
+        ref_dosages: Reference matrix, samples x SNPs, values 0/1/2 (NaN ok).
+        geno_dosages: Cohort matrix over the same SNP columns.
+        alleles: Optional frame indexed by SNP ID with any of `counted_allele`,
+            `other_allele`, `cohort_a1`, `cohort_a2`. Joined on as given.
+        max_snps: Most rows to keep. A larger overlap is sampled without
+            replacement, so the file does not grow with the array.
+        seed: Seed for the sample. Fixed by default: a rerun keeps the same sites.
+        discordant_delta: Frequency difference counted as discordant.
+        flip_tolerance: Closeness to `1 - ref_freq` counted as a swap.
+
+    Returns:
+        DataFrame with `snp`, any allele columns, `ref_freq`, `cohort_freq`,
+        `abs_delta`, `discordant`, `flip_signature`, in the reference matrix's
+        column order. Empty (same columns) when nothing matched.
+    """
+    ref_freq, geno_freq = _matched_frequencies(ref_dosages, geno_dosages)
+
+    if len(ref_freq) > max_snps:
+        rng = np.random.default_rng(seed)
+        keep = np.sort(rng.choice(len(ref_freq), size=max_snps, replace=False))
+        ref_freq, geno_freq = ref_freq.iloc[keep], geno_freq.iloc[keep]
+
+    delta = (geno_freq - ref_freq).abs()
+    discordant = delta > discordant_delta
+    flipped = discordant & ((geno_freq - (1.0 - ref_freq)).abs() <= flip_tolerance)
+
+    table = pd.DataFrame({"snp": ref_freq.index.astype(str)})
+    if alleles is not None:
+        allele_cols = [
+            c
+            for c in ("counted_allele", "other_allele", "cohort_a1", "cohort_a2")
+            if c in alleles.columns
+        ]
+        by_snp = alleles[allele_cols]
+        by_snp = by_snp[~by_snp.index.duplicated()]
+        for col in allele_cols:
+            table[col] = by_snp[col].reindex(ref_freq.index).to_numpy()
+    table["ref_freq"] = ref_freq.to_numpy()
+    table["cohort_freq"] = geno_freq.to_numpy()
+    table["abs_delta"] = delta.to_numpy()
+    table["discordant"] = discordant.to_numpy()
+    table["flip_signature"] = flipped.to_numpy()
+    return table
 
 
 def allele_frequency_warnings(
@@ -665,6 +736,9 @@ class AncestryDiagnostics:
     snp_overlap: Optional[SnpOverlapReport] = None
     filled_snps_path: Optional[str] = None
     allele_frequency: Optional[Dict[str, Any]] = None
+    # Bounded per-SNP rows behind `allele_frequency`, for the plot-data
+    # directory. Deliberately not in `to_dict()`: it is a table, not a finding.
+    allele_frequency_sample: Optional[pd.DataFrame] = None
     pc_drift: Optional[pd.DataFrame] = None
     admixture: Optional[Dict[str, Any]] = None
     self_test: Optional[Dict[str, Any]] = None

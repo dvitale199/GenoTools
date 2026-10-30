@@ -288,6 +288,14 @@ class PipelineOutput:
         if "data" in ancestry_result and "common_snps" in ancestry_result["data"]:
             self.common_snps = ancestry_result["data"]["common_snps"]
 
+        # Samples whose predicted group fell under --min-samples. They are
+        # dropped from every group's QC, so no QC step will ever list them;
+        # this is the only place the report can account for them. Kept here
+        # and merged with the QC prunes in _process_qc_results.
+        dropped = ancestry_result.get("data", {}).get("pruned_samples")
+        if dropped is not None and len(dropped) > 0:
+            self.pruned_samples = pd.DataFrame(dropped)[["FID", "IID", "step", "label"]]
+
         # Diagnostics. Accepts either the collector or its dict form, so a
         # caller assembling this dict by hand does not have to know which.
         diagnostics = ancestry_result.get("diagnostics")
@@ -339,6 +347,9 @@ class PipelineOutput:
                     "step": v.step,
                     "metrics": v.metrics,
                     "output": v.output,
+                    # Only present on assoc; absent keys keep every other
+                    # step's dict exactly as it was.
+                    **({"gwas": v.gwas} if v.gwas else {}),
                 }
                 for k, v in state.step_results.items()
             }
@@ -370,6 +381,12 @@ class PipelineOutput:
             combined = pd.concat(pruned_dfs, ignore_index=True)
             combined = combined.drop_duplicates(subset=["#FID", "IID"], ignore_index=True)
             combined = combined.rename({"#FID": "FID"}, axis=1)
+            if self.pruned_samples is not None and not self.pruned_samples.empty:
+                # Ancestry drops first: they happened first, and a sample
+                # cannot be in both (dropped samples are never QC'd).
+                combined = pd.concat(
+                    [self.pruned_samples, combined], ignore_index=True
+                ).drop_duplicates(subset=["FID", "IID"], ignore_index=True)
             self.pruned_samples = combined
 
         # Combine related samples

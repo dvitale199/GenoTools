@@ -526,17 +526,18 @@ silent no-op.
     `CAH` the samples that sit nearer the global centroid than any ancestry
     centroid. The first thing to try on an all-`CAH` result: it separates a
     broken classifier from a broken override. The per-sample
-    `{out}_decisions.txt` file records both labels either way.
+    `{anc}_decisions.txt` file records both labels either way (`{anc}` is
+    defined under "Files an ancestry run writes" below).
 
 - **`--ancestry-plots`**
   - *Type*: `flag`
   - *Default*: `False`
   - *Description*: **Deprecated alias for `--plots`.** Logs a deprecation
     warning and turns on the post-run plot report. It no longer writes
-    `{out}_pca_diagnostic.png` or `{out}_centroid_distance.png`. The
+    `{anc}_pca_diagnostic.png` or `{anc}_centroid_distance.png`. The
     reference-and-cohort PC picture is replaced by the ancestry plots in
     `{out}_plots/` (see [Ancestry](#ancestry) under `genotools-plot`); the
-    centroid-margin histogram has no replacement yet, and `{out}_decisions.txt`
+    centroid-margin histogram has no replacement yet, and `{anc}_decisions.txt`
     still records every sample's margin. It no longer requires
     `--ancestry`, since `--plots` does not.
 
@@ -552,12 +553,14 @@ silent no-op.
     leaves only the cohort's own preprocessing to blame.
 
 **Files an ancestry run writes for debugging** (alongside the report, at the
-final output prefix — they survive a run without `--full-output`):
+final output prefix — they survive a run without `--full-output`). `{anc}` is
+`{out}_ancestry` when QC steps run alongside ancestry (`{out}` itself carries
+the QC output there) and plain `{out}` for an ancestry-only run:
 
 | File | Contents |
 |---|---|
-| `{out}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
-| `{out}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
+| `{anc}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
+| `{anc}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
 
 #### Fit validation
 

@@ -34,6 +34,22 @@ from genotools.qc.results import FilterResult
 logger = get_logger(__name__)
 
 
+#: Cohorts above this many samples get the Bonferroni-style threshold when
+#: ``adjust_for_sample_size`` is set.
+LARGE_COHORT_SAMPLES = 10000
+
+
+def effective_p_threshold(config: HaplotypeConfig, sample_count: int) -> float:
+    """The p-value threshold the step applies for a cohort of this size.
+
+    ``0.05 / sample_count`` for more than 10,000 samples when
+    ``adjust_for_sample_size`` is set, the configured value otherwise.
+    """
+    if config.adjust_for_sample_size and sample_count > LARGE_COHORT_SAMPLES:
+        return 0.05 / sample_count
+    return config.p_threshold
+
+
 def filter_haplotype(
     data: GenotypeData,
     config: HaplotypeConfig,
@@ -65,9 +81,6 @@ def filter_haplotype(
     step_name = "haplotype_prune"
 
     with step_context(step_name):
-        # Determine effective p-value threshold
-        p_threshold = config.p_threshold
-
         # Validate input exists
         input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
@@ -83,9 +96,8 @@ def filter_haplotype(
         initial_variant_count = data.variant_count
 
         # Adjust threshold for large sample sizes if configured
-        sample_count = data.sample_count
-        if config.adjust_for_sample_size and sample_count > 10000:
-            p_threshold = 0.05 / sample_count
+        p_threshold = effective_p_threshold(config, data.sample_count)
+        if p_threshold != config.p_threshold:
             logger.info(
                 f"Adjusted p-threshold for large sample size: {p_threshold:.2e}"
             )
@@ -177,6 +189,9 @@ def filter_haplotype(
                 metrics={
                     "haplotype_removed_count": variants_removed,
                 },
+                # What was applied, adjusted or not: the configured value is
+                # not recoverable from the report once it has been replaced.
+                parameters={"p_threshold": p_threshold},
                 log="",
                 pruned_samples_file=None,
                 plot_data=write_plot_data(plot_tables, out_path),

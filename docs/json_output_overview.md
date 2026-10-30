@@ -135,8 +135,27 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     are present but inert, and the `resolved` row `het_mode` says which pair
     was live.
 
-    Only the heterozygosity step derives anything today, so it is the only one
-    with `resolved` rows. Every step contributes `requested` rows.
+    The heterozygosity step derives its bounds, the haplotype step records the
+    `p_threshold` it applied (`0.05 / n_samples` above 10,000 samples, the configured
+    value otherwise), and the `assoc`
+    step records where its output files went, so those are the steps with
+    `resolved` rows.
+    Every step contributes `requested` rows.
+
+    **Where the association files are.** After `assoc`, `step` = `assoc` carries
+    `resolved` rows naming the files a plot needs, as absolute paths so they
+    open from any working directory:
+
+    | `parameter` | File |
+    |---|---|
+    | `eigenvec_path` | `{out}.eigenvec`, the PCA projections (with `--pca`) |
+    | `eigenval_path` | `{out}.eigenval`, the PCA eigenvalues, for the scree plot (with `--pca`) |
+    | `gwas_output_path` | The `.glm.logistic.hybrid` / `.glm.linear` association table (with `--gwas`) |
+
+    They are parameters rather than `GWAS` rows because `GWAS` holds numbers
+    about the analysis; a path is a setting. In an `--ancestry` run there is one
+    set per group, at that group's own prefix. (`pass_fail[...]["assoc"]["output"]`
+    is the output *prefix*, not a pfile.)
 
 - **`QC`**  
   - *Process*: `Quality Control (QC)`  
@@ -169,10 +188,19 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
 - **`GWAS`**  
   - *Process*: `Genome-wide Assoication Study (GWAS)`  
   - *Description*: DataFrame containing lambda and lambda1000 values from completed association analysis/analyses.
+    One row per (metric, ancestry), with columns `value`, `metric` and
+    `ancestry` (`all` for a run without `--ancestry`). Present in both run
+    shapes; before 2.3.0 a run without `--ancestry` dropped it. Paths to the
+    `.glm` and `.eigenval` files are in `parameters`, not here.
 
 - **`pruned_samples`**  
   - *Process*: `Ancestry/Quality Control (QC)`  
   - *Description*: DataFrame containing samples pruned due to insufficient ancestry count or sample-level QC.
+    Columns `FID`, `IID`, `step` and, in an `--ancestry` run, `label`. `step` is
+    a QC step key (`callrate`, `sex`, `het`, `related`) or
+    `insufficient_ancestry_sample_n`: the sample's predicted group had fewer
+    than `--min-samples` members, so it was dropped before QC (`label` is that
+    group). *New in 2.3.0:* these were previously left out of the report.
 
 - **`related_samples`**  
   - *Process*: `Quality Control (QC)`  
@@ -181,7 +209,7 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
 - **`plot_data`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: *New in 2.3.0.* Path to `{out}_plot_data/`, the plot-ready
-    tables the QC steps kept from the statistics they computed, for
+    tables the QC steps (and, in an `--ancestry` run, the ancestry step) kept from the statistics they computed, for
     `genotools-plot`. One subdirectory per ancestry group (`all` for a run
     without `--ancestry`), one TSV per table, named `{step}_{table}.tsv`:
 
@@ -194,6 +222,18 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     | `geno_missingness_bins.tsv` | Variant `F_MISS` histogram, 200 bins of 0.005 |
     | `{geno,case_control,haplotype,hwe}_failing.tsv` | The variants (or, for `haplotype`, the tests) that failed, most extreme first, capped at 10,000 |
     | `{case_control,haplotype,hwe}_pvalue_bins.tsv` | Histogram of -log10(p) in bins of 0.05 up to 50, then one open bin. HWE has one histogram per `test` (`ALL`, `AFF`, `UNAFF`) |
+
+    An `--ancestry` run adds `ancestry/` beside the group directories, holding
+    what the ancestry step computes and would otherwise delete with the temp
+    directory (a group literally labelled `ancestry` would share it):
+
+    | File | Contents |
+    |---|---|
+    | `ancestry/pca_eigenvalues.tsv` | The reference PCA: `PC`, `eigenvalue`, `explained_variance_ratio`. Training runs only; a `--model` run fits no PCA |
+    | `ancestry/allele_frequencies.tsv` | Panel vs cohort frequency of the counted allele, for a random sample of at most 5,000 of the matched SNPs (fixed seed, in panel order): `snp`, `counted_allele` / `other_allele` (the panel's), `cohort_a1` / `cohort_a2` (the cohort's own pair before alignment), `ref_freq`, `cohort_freq`, `abs_delta`, `discordant` (delta > 0.2), `flip_signature` (discordant and the cohort frequency within 0.05 of `1 - ref_freq`) |
+
+    The cohort's projected PCs are not written here: `projected_pcs` in this
+    report already holds them whole.
 
     Per-sample tables are kept whole; per-variant ones are binned, so the
     directory's size does not grow with the array. HWE's failing variants carry

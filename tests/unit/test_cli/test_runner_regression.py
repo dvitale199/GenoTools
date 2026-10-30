@@ -2652,3 +2652,144 @@ class TestPlotDataCollected:
         assert len(smiss) == 500
         # Nothing left behind beside the output.
         assert not list(tmp_path.glob("*_plotdata_*"))
+
+
+def _assoc_aware_steps(step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any], **_: Any) -> Dict[str, Any]:
+    """Fake steps: QC steps write traceable pfiles, assoc writes none (like the real one)."""
+    if step == "assoc":
+        return {"pass": True, "step": "assoc", "metrics": {}, "output": {}}
+    _write_traceable_pfiles(Path(step_output))
+    return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+
+class TestFinalPfileAfterAssoc:
+    """Regression: ``assoc`` writes eigenvec/glm but no pfile, so a run whose last
+    step was ``assoc`` ended with no ``{out}.pgen`` - the final dataset was left in
+    the temp dir and deleted with it.
+    """
+
+    @pytest.mark.parametrize("full_output", [True, False])
+    def test_last_step_assoc_leaves_final_pfile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_output: bool
+    ) -> None:
+        import tempfile
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, warn_only=True, full_output=full_output),
+        )
+        runner = PipelineRunner(args)
+        tmp = tempfile.TemporaryDirectory(dir=tmp_path)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=tmp)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "assoc"], geno_path=str(geno), out_path=str(out)
+        )
+
+        # The dataset assoc analysed is the final dataset: the sex output.
+        for ext in (".pgen", ".pvar", ".psam"):
+            assert Path(f"{out}{ext}").read_text() == f"out_callrate_sex{ext}"
+        tmp.cleanup()
+
+    def test_assoc_only_run_copies_the_input_and_keeps_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(steps=["assoc"], geno_path=str(geno), out_path=str(out))
+
+        assert Path(f"{out}.pgen").exists()
+        assert Path(f"{geno}.pgen").exists()  # the caller's input is never moved
+
+
+class TestAssocParametersReachReport:
+    """The shared tail records ``AssocResult`` paths as resolved parameters."""
+
+    def test_output_paths_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from genotools.gwas.results import AssocResult, GWASResult
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        glm = tmp_path / "out.PHENO1.glm.logistic.hybrid"
+        monkeypatch.setitem(
+            runner._new_modules,
+            "run_gwas_association",
+            lambda data, out_path, config: AssocResult(
+                gwas_result=GWASResult(output_path=glm, phenotype_type="binary")
+            ),
+        )
+        runner._run_single_step(
+            "assoc", str(geno), f"{out}_assoc", _gwas_legacy_args(gwas=True)
+        )
+        recorded = {
+            p.parameter: p.value
+            for p in runner.state.parameters
+            if p.source == "resolved"
+        }
+        assert recorded["gwas_output_path"] == str(glm)
+
+
+class TestAncestryPlotData:
+    """Ancestry tables that die with the temp dir are kept under
+    ``{out}_plot_data/ancestry/`` - eigenvalues and the allele-frequency sample."""
+
+    @staticmethod
+    def _runner(tmp_path: Path):
+        runner, _geno, out = _make_runner(tmp_path, warn_only=True)
+        actual = tmp_path / "tmpdir" / "out"
+        actual.parent.mkdir()
+        return runner, out, str(actual)
+
+    def test_keeps_eigenvalues_and_allele_frequencies(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        Path(f"{actual}_pca_eigenvalues.txt").write_text("PC\teigenvalue\nPC1\t3.0\n")
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"], "ref_freq": [0.1]})
+        )
+
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "pca_eigenvalues.tsv").read_text().startswith("PC\teigenvalue")
+        assert pd.read_csv(dest / "allele_frequencies.tsv", sep="\t")["snp"].tolist() == ["rs1"]
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+        # Copied, not moved: --full-output's own copy must survive.
+        assert Path(f"{actual}_pca_eigenvalues.txt").exists()
+
+    def test_inference_run_without_eigenvalues_keeps_what_it_has(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]})
+        )
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "allele_frequencies.tsv").exists()
+        assert not (dest / "pca_eigenvalues.tsv").exists()
+
+    def test_nothing_to_keep_creates_nothing(self, tmp_path: Path) -> None:
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        runner._keep_ancestry_plot_data(actual, AncestryDiagnostics())
+        assert not Path(f"{out}_plot_data").exists()
+        assert runner.state.plot_data_dir is None
+
+    def test_runner_calls_it_during_ancestry_prediction(self) -> None:
+        """Gate the call site, not just the helper (round-7 lesson)."""
+        import inspect
+
+        src = inspect.getsource(PipelineRunner._run_ancestry_prediction_new)
+        assert "_keep_ancestry_plot_data(actual_out, diagnostics)" in src

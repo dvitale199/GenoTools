@@ -28,6 +28,7 @@ Usage:
     print(pca_result.to_dict())  # Legacy format
 """
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -246,6 +247,25 @@ class AssocResult:
 
         if self.gwas_result is not None:
             result["gwas"] = self.gwas_result.to_dict()
+
+        # Where the files went, for the report's "parameters" section (the
+        # runner records this key as source="resolved" for every step). Paths
+        # are not counts, so they stay out of the GWAS metrics, and they are
+        # absolute so a plot can open them from any working directory.
+        parameters: Dict[str, Any] = {}
+        if self.pca_result is not None:
+            for name, path in (
+                ("eigenvec_path", self.pca_result.eigenvec_path),
+                ("eigenval_path", self.pca_result.eigenval_path),
+            ):
+                if path:
+                    parameters[name] = os.path.abspath(path)
+        if self.gwas_result is not None and self.gwas_result.output_path:
+            parameters["gwas_output_path"] = os.path.abspath(
+                self.gwas_result.output_path
+            )
+        if parameters:
+            result["parameters"] = parameters
 
         return result
 
