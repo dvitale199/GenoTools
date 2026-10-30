@@ -339,6 +339,9 @@ class PipelineOutput:
                     "step": v.step,
                     "metrics": v.metrics,
                     "output": v.output,
+                    # Only present on assoc; absent keys keep every other
+                    # step's dict exactly as it was.
+                    **({"gwas": v.gwas} if v.gwas else {}),
                 }
                 for k, v in state.step_results.items()
             }

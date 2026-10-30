@@ -117,6 +117,11 @@ class StepResult:
     error: Optional[str] = None
     outcome: str = "pass"
     reason: Optional[str] = None
+    # The assoc step's GWAS block (``{"metrics": {...}, "output": {...}}``).
+    # Not a metric of the step itself, so it has no place in ``metrics``, but
+    # the report reads it - dropping it here is what emptied the GWAS section
+    # of every flat run.
+    gwas: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_legacy_dict(cls, step: str, legacy: Dict[str, Any]) -> "StepResult":
@@ -135,6 +140,7 @@ class StepResult:
                 "outcome", "pass" if legacy.get("pass", False) else "fail"
             ),
             reason=legacy.get("reason"),
+            gwas=legacy.get("gwas"),
         )
 
 

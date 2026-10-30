@@ -126,8 +126,24 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     are present but inert, and the `resolved` row `het_mode` says which pair
     was live.
 
-    Only the heterozygosity step derives anything today, so it is the only one
-    with `resolved` rows. Every step contributes `requested` rows.
+    The heterozygosity step derives its bounds, and the `assoc` step records
+    where its output files went, so those are the steps with `resolved` rows.
+    Every step contributes `requested` rows.
+
+    **Where the association files are.** After `assoc`, `step` = `assoc` carries
+    `resolved` rows naming the files a plot needs, as absolute paths so they
+    open from any working directory:
+
+    | `parameter` | File |
+    |---|---|
+    | `eigenvec_path` | `{out}.eigenvec`, the PCA projections (with `--pca`) |
+    | `eigenval_path` | `{out}.eigenval`, the PCA eigenvalues, for the scree plot (with `--pca`) |
+    | `gwas_output_path` | The `.glm.logistic.hybrid` / `.glm.linear` association table (with `--gwas`) |
+
+    They are parameters rather than `GWAS` rows because `GWAS` holds numbers
+    about the analysis; a path is a setting. In an `--ancestry` run there is one
+    set per group, at that group's own prefix. (`pass_fail[...]["assoc"]["output"]`
+    is the output *prefix*, not a pfile.)
 
 - **`QC`**  
   - *Process*: `Quality Control (QC)`  
@@ -160,6 +176,10 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
 - **`GWAS`**  
   - *Process*: `Genome-wide Assoication Study (GWAS)`  
   - *Description*: DataFrame containing lambda and lambda1000 values from completed association analysis/analyses.
+    One row per (metric, ancestry), with columns `value`, `metric` and
+    `ancestry` (`all` for a run without `--ancestry`). Present in both run
+    shapes; before 2.3.0 a run without `--ancestry` dropped it. Paths to the
+    `.glm` and `.eigenval` files are in `parameters`, not here.
 
 - **`pruned_samples`**  
   - *Process*: `Ancestry/Quality Control (QC)`  
