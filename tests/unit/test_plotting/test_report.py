@@ -60,13 +60,13 @@ class TestLoadReport:
 
 class TestAttritionFrame:
     def test_golden_flat_run(self) -> None:
-        """A real report: 500 in, then callrate 12, sex 253, het 3, related 0+1."""
+        """A real report: 500 in, then callrate 12, sex 17, het 8, related 0+4."""
         frame = attrition_frame(load_report(GOLDEN_SAMPLE))
         assert list(frame["step"]) == [
             "callrate_prune", "sex_prune", "het_prune", "related_prune"
         ]
-        assert list(frame["removed"]) == [12, 253, 3, 1]
-        assert list(frame["remaining"]) == [488, 235, 232, 231]
+        assert list(frame["removed"]) == [12, 17, 8, 4]
+        assert list(frame["remaining"]) == [488, 471, 463, 459]
         assert set(frame["start"]) == {500}
 
     def test_groups_start_from_their_predicted_count(self, ancestry_report: Path) -> None:
