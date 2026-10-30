@@ -181,7 +181,19 @@ Each plot is one panel per ancestry group (`all` first). Thresholds are read fro
 
 #### Variant QC
 
-None yet.
+| Plot | Shows |
+|---|---|
+| `variant_missingness` | Per-variant missingness histogram per ancestry group (count on a log axis), with a line at the run's `--geno` and the number of variants removed. |
+| `hwe_qq` | QQ plot of Hardy-Weinberg p-values for the test the filter used (`UNAFF`, i.e. controls, on case/control data; otherwise `ALL`), with the `--hwe` threshold. |
+| `case_control_qq` | QQ plot of case-control missingness p-values, with the step's p threshold. |
+| `haplotype_qq` | QQ plot of haplotype-missingness (`--test-mishap`) p-values, with the step's p threshold. Points are haplotype tests, not variants. |
+
+These are drawn from the binned `plot_data` tables, so they stay fast on large
+arrays. In a QQ plot the bulk is quantised to the histogram's 0.05-wide
+-log10(p) bins and the tail is exact: the tests that failed are plotted
+individually (hover names the variant in the HTML). A hollow triangle is a
+floor, not a value: the open last bin (-log10(p) of 50 or more) or a p of
+exactly 0. A step that was not run, or kept no tables, is skipped.
 
 #### Ancestry
 
