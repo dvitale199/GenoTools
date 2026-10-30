@@ -668,7 +668,6 @@ class AncestryDiagnostics:
     pc_drift: Optional[pd.DataFrame] = None
     admixture: Optional[Dict[str, Any]] = None
     self_test: Optional[Dict[str, Any]] = None
-    plots: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     def add_warnings(self, warnings: Sequence[str]) -> None:
@@ -689,11 +688,16 @@ class AncestryDiagnostics:
             out["allele_frequency"] = self.allele_frequency
         if self.pc_drift is not None and not self.pc_drift.empty:
             out["pc_drift"] = self.pc_drift.to_dict(orient="list")
+            # The limits `pc_drift_warnings` applies (it is called with its
+            # defaults), recorded so a plot of the drift draws the same band
+            # the run warned at instead of a copy of the constants.
+            out["pc_drift_limits"] = {
+                "max_shift_sd": WARN_PC_SHIFT_SD,
+                "sd_ratio_range": list(WARN_PC_SD_RATIO),
+            }
         if self.admixture is not None:
             out["admixture"] = self.admixture
         if self.self_test is not None:
             out["self_test"] = self.self_test
-        if self.plots:
-            out["plots"] = list(self.plots)
         out["warnings"] = list(self.warnings)
         return out

@@ -307,7 +307,6 @@ _ANCESTRY_DIAGNOSTIC_FLAGS: Dict[str, Tuple[str, object]] = {
     "detect_admixed": ("--no-admixture-detection", True),
     "missing_fill": ("--ancestry-missing-fill", "ref-mean"),
     "max_missing_snps": ("--ancestry-max-missing-snps", DEFAULT_MAX_FILL_FRACTION),
-    "write_plots": ("--ancestry-plots", False),
     "self_test": ("--ancestry-self-test", False),
 }
 
@@ -340,7 +339,6 @@ class AncestryArgs:
     detect_admixed: bool = True
     missing_fill: str = "ref-mean"
     max_missing_snps: float = DEFAULT_MAX_FILL_FRACTION
-    write_plots: bool = False
     self_test: bool = False
 
     # Fit validation. Training-only -- see _ANCESTRY_TRAINING_FLAGS.
@@ -996,8 +994,7 @@ Examples:
     ancestry_group.add_argument(
         "--ancestry-plots",
         action="store_true",
-        help="Write diagnostic PNGs: the cohort projected onto the reference "
-             "panel, and the margin behind each CAH decision",
+        help="Deprecated alias for --plots",
     )
     ancestry_group.add_argument(
         "--ancestry-self-test",
@@ -1285,9 +1282,11 @@ def _parse_ld_args(
         )
 
 
-# Flags whose spelling changed in 2.0. The old spelling is still accepted so
-# existing scripts keep working; using one emits a single deprecation warning.
+# Flags that were renamed (underscores to hyphens in 2.0; `--ancestry-plots`
+# folded into `--plots`). The old spelling is still accepted so existing
+# scripts keep working; using one emits a single deprecation warning.
 _DEPRECATED_SPELLINGS = {
+    "--ancestry-plots": "--plots",
     "--all_sample": "--all-sample",
     "--all_variant": "--all-variant",
     "--case_control": "--case-control",
@@ -1529,7 +1528,8 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         warn_only=not ns.no_warn,
         quiet=ns.quiet,
         debug=ns.debug,
-        plots=ns.plots,
+        # --ancestry-plots predates --plots and now means the same thing.
+        plots=ns.plots or ns.ancestry_plots,
     )
 
     sample_qc_args = SampleQCArgs(
@@ -1578,7 +1578,6 @@ def parse_args(args: Optional[Sequence[str]] = None) -> PipelineArgs:
         detect_admixed=not ns.no_admixture_detection,
         missing_fill=ns.ancestry_missing_fill,
         max_missing_snps=ns.ancestry_max_missing_snps,
-        write_plots=ns.ancestry_plots,
         self_test=ns.ancestry_self_test,
         min_fit_accuracy=ns.ancestry_min_fit_accuracy,
         fit_fallbacks=ns.ancestry_fit_fallbacks,

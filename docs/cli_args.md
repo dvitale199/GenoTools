@@ -185,7 +185,23 @@ None yet.
 
 #### Ancestry
 
-None yet.
+Principal components only: the report's UMAP embedding has 15-25 dimensions
+(the grid search chooses), so a 2D or 3D view of it would show an arbitrary
+slice of what the classifier sees. Every label has a fixed colour *and* marker
+shape, the same in every plot of a run, including labels outside the default
+reference panel.
+
+| Plot | Shows |
+|---|---|
+| `ancestry_pc_pairs` | PC1/PC2, PC1/PC3 and PC2/PC3: the reference panel faded, the cohort solid, both coloured by label. |
+| `ancestry_pc_3d` | PC1-3 in three dimensions. In `report.html` it rotates and hover names the sample and label; the PNG is one fixed view, and uses only the marker shapes plotly's 3D scatter supports. |
+| `ancestry_confusion_matrix` | The reference test set's confusion matrix, each true label's row normalised to sum to 1, with the held-out balanced accuracy (training runs only) and accuracy in the title. |
+| `ancestry_label_counts` | Cohort samples predicted as each label. |
+| `ancestry_pc_drift` | Per PC, how far the cohort centre sits from the reference (in reference SD) and its spread relative to the reference's, against the band the run warned outside of. The band is read from `ancestry_diagnostics.pc_drift_limits`; a report that did not record it is drawn without one. |
+
+An all-`CAH` cohort or a collapsed projection shows up here first: the cohort
+lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in
+`ancestry_pc_drift`.
 
 #### GWAS
 
@@ -503,10 +519,14 @@ silent no-op.
 - **`--ancestry-plots`**
   - *Type*: `flag`
   - *Default*: `False`
-  - *Description*: Write two diagnostic PNGs: `{out}_pca_diagnostic.png`, the
-    reference panel coloured by label with the cohort overlaid across the three
-    leading PC pairs, and `{out}_centroid_distance.png`, the margin behind each
-    `CAH` decision against the line where the decision flips.
+  - *Description*: **Deprecated alias for `--plots`.** Logs a deprecation
+    warning and turns on the post-run plot report. It no longer writes
+    `{out}_pca_diagnostic.png` or `{out}_centroid_distance.png`. The
+    reference-and-cohort PC picture is replaced by the ancestry plots in
+    `{out}_plots/` (see [Ancestry](#ancestry) under `genotools-plot`); the
+    centroid-margin histogram has no replacement yet, and `{out}_decisions.txt`
+    still records every sample's margin. It no longer requires
+    `--ancestry`, since `--plots` does not.
 
 - **`--ancestry-self-test`**
   - *Type*: `flag`
@@ -526,8 +546,6 @@ final output prefix — they survive a run without `--full-output`):
 |---|---|
 | `{out}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
 | `{out}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
-| `{out}_pca_diagnostic.png` | With `--ancestry-plots` |
-| `{out}_centroid_distance.png` | With `--ancestry-plots` |
 
 #### Fit validation
 
@@ -637,5 +655,5 @@ genotools --pfile data/mydata --out results/output --ancestry \
 genotools --pfile data/mydata --out results/debug --ancestry \
           --model models/my_model --ref-panel refs/panel \
           --ref-labels refs/labels.txt \
-          --ancestry-self-test --ancestry-plots --no-admixture-detection
+          --ancestry-self-test --plots --no-admixture-detection
 ```

@@ -12,6 +12,8 @@ import pandas as pd
 import pytest
 
 from genotools.ancestry.diagnostics import (
+    WARN_PC_SD_RATIO,
+    WARN_PC_SHIFT_SD,
     AncestryDiagnostics,
     SnpOverlapReport,
     admixture_summary,
@@ -317,7 +319,6 @@ def test_collector_deduplicates_warnings_and_serializes():
         pc_drift=pd.DataFrame([{"pc": "PC1", "shift_sd": 0.1}]),
         admixture={"n_cah": 0},
         self_test={"balanced_accuracy": 0.9},
-        plots=["/tmp/x.png"],
     )
     diagnostics.add_warnings(["same", "same", "other"])
     assert diagnostics.warnings == ["same", "other"]
@@ -326,8 +327,23 @@ def test_collector_deduplicates_warnings_and_serializes():
     assert out["snp_overlap"]["n_matched"] == 90
     assert out["pc_drift"]["pc"] == ["PC1"]
     assert out["self_test"]["balanced_accuracy"] == 0.9
-    assert out["plots"] == ["/tmp/x.png"]
+    # The band a drift plot draws is the one the warnings use, recorded with it.
+    assert out["pc_drift_limits"] == {
+        "max_shift_sd": WARN_PC_SHIFT_SD,
+        "sd_ratio_range": list(WARN_PC_SD_RATIO),
+    }
     assert out["warnings"] == ["same", "other"]
+
+
+def test_the_recorded_drift_limits_are_the_ones_the_warnings_apply():
+    """A plot's band and the run's warnings must not be able to disagree."""
+    inside = pd.DataFrame([{"pc": "PC1", "shift_sd": WARN_PC_SHIFT_SD - 0.1, "sd_ratio": 1.0}])
+    outside = pd.DataFrame([{"pc": "PC1", "shift_sd": WARN_PC_SHIFT_SD + 0.1, "sd_ratio": 1.0}])
+    assert pc_drift_warnings(inside) == []
+    assert pc_drift_warnings(outside)
+    low, high = WARN_PC_SD_RATIO
+    assert pc_drift_warnings(pd.DataFrame([{"pc": "PC1", "shift_sd": 0.0, "sd_ratio": low * 0.9}]))
+    assert pc_drift_warnings(pd.DataFrame([{"pc": "PC1", "shift_sd": 0.0, "sd_ratio": high * 1.1}]))
 
 
 def test_an_empty_collector_serializes_to_just_its_warnings():

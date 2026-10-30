@@ -87,7 +87,6 @@ from genotools.ancestry.diagnostics import (
     bim_compatibility,
     pc_drift,
 )
-from genotools.ancestry.plots import plot_ancestry_diagnostics
 
 # Result classes
 from genotools.ancestry.results import (
@@ -149,7 +148,6 @@ __all__ = [
     "allele_frequency_concordance",
     "bim_compatibility",
     "pc_drift",
-    "plot_ancestry_diagnostics",
     # Results
     "AncestryPredictions",
     "AncestryResult",
