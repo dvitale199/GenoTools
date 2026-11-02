@@ -741,7 +741,7 @@ def margins_plotly(frame: pd.DataFrame, styles: Dict[str, LabelStyle]):
         fig.add_vline(x=0.0, line={"color": THRESHOLD, "dash": "dash", "width": 1},
                       row=row + 1, col=col + 1)
     fig.update_yaxes(gridcolor=GRID, tickformat="d", rangemode="tozero")
-    fig.update_xaxes(showticklabels=True)
+    fig.update_xaxes(showticklabels=True, range=[float(bins[0]), float(bins[-1])])
     fig.update_xaxes(title_text="global - nearest ancestry distance", row=rows)
     plotly_layout(fig, 300 * rows + 60,
                   title={"text": margin_title(frame), "font": {"size": 14}})
