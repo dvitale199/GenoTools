@@ -206,6 +206,23 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing relatedness information output by PLINK/KING from completed relatedness pruning.
 
+- **`sample_fate`**  
+  - *Process*: `Quality Control (QC)`  
+  - *Description*: *New in 2.3.0.* Path to `{out}_sample_fate.tsv`, one row per
+    input sample saying what happened to it. Written in every run shape
+    (`--ancestry` or not), and omitted when the run has no input sample table.
+    Columns: `FID`, `IID`; `ancestry` (the predicted label, or `all` without
+    `--ancestry`); `removed_by` (the step that removed the sample, or `kept`);
+    and, where the run kept them, `F_MISS` (sample missingness), `sex_F` (X
+    chromosome F from the all-X `--check-sex` pass), `het_F` and `max_kinship`
+    (the sample's largest KING kinship in `related_kinship`, which keeps only
+    pairs at 3rd degree or closer, so most samples have none). A statistic is
+    `NA` when its step did not run or never saw the sample (a sample removed
+    by `callrate` has no `het_F`). `removed_by` is taken from `pruned_samples`,
+    so it agrees with that table exactly, including
+    `insufficient_ancestry_sample_n`; a sample listed by more than one step
+    reports the first.
+
 - **`plot_data`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: *New in 2.3.0.* Path to `{out}_plot_data/`, the plot-ready

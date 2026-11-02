@@ -137,6 +137,17 @@ examined whatever the flags.
     after the run. A plot the run produced no data for is listed as not
     plotted; a plotting failure is logged as a warning and never fails the run.
 
+#### Per-sample fate table
+
+Every run that has an input sample table also writes `{out}_sample_fate.tsv`
+(path recorded as `sample_fate` in the JSON report): one row per input sample,
+answering "why did my sample disappear?". Columns are `FID`, `IID`, `ancestry`
+(predicted label, or `all`), `removed_by` (the step that removed it, or `kept`;
+samples dropped by `--min-samples` read `insufficient_ancestry_sample_n`), and
+where kept, `F_MISS`, `sex_F`, `het_F` and `max_kinship`, `NA` when unavailable.
+`removed_by` always agrees with the report's `pruned_samples`. See
+`sample_fate` in `docs/json_output_overview.md`.
+
 ---
 
 ### Plotting a finished run: `genotools-plot`
