@@ -668,23 +668,29 @@ def margin_title(frame: pd.DataFrame) -> str:
     return f"CAH (margin at or below 0): {n_cah:,} of {n:,} samples ({100 * n_cah / n:.1f}%)"
 
 
-def _margin_bins(frame: pd.DataFrame) -> np.ndarray:
-    lo, hi = float(frame["margin_to_all"].min()), float(frame["margin_to_all"].max())
-    if hi <= lo:
-        lo, hi = lo - 0.5, hi + 0.5
-    # Always span zero so the CAH line has something on both sides.
-    lo, hi = min(lo, 0.0), max(hi, 0.0)
-    return np.linspace(lo, hi, MARGIN_BINS + 1)
+def margin_bins(frame: pd.DataFrame) -> np.ndarray:
+    """One set of bin edges for every panel, with 0 as an exact edge.
+
+    Edges are `k * width` for integer k, covering the data, so no bar straddles
+    the CAH line and the panels' bars line up.
+    """
+    values = frame["margin_to_all"]
+    lo, hi = min(float(values.min()), 0.0), max(float(values.max()), 0.0)
+    width = (hi - lo) / MARGIN_BINS if hi > lo else 1.0
+    k_lo, k_hi = int(np.floor(lo / width)), int(np.ceil(hi / width))
+    return np.arange(k_lo, k_hi + 1) * width
 
 
 def margins_png(frame: pd.DataFrame, styles: Dict[str, LabelStyle], plt, out_path: Path) -> Path:
     """Overall histogram plus one panel per nearest ancestry centroid."""
+    from matplotlib.ticker import MaxNLocator
+
     panels = [("all samples", frame)] + margin_panels(frame)
     rows, cols = grid(len(panels), max_cols=3)
     fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 2.9 * rows + 0.6),
                              sharex=True, squeeze=False)
     fig.patch.set_facecolor(SURFACE)
-    bins = _margin_bins(frame)
+    bins = margin_bins(frame)
     flat = list(axes.ravel())
     for ax, (name, part) in zip(flat, panels):
         style_axis(ax)
@@ -696,6 +702,9 @@ def margins_png(frame: pd.DataFrame, styles: Dict[str, LabelStyle], plt, out_pat
                      fontsize="small", color=INK)
     for ax in flat[len(panels):]:
         ax.set_visible(False)
+    for ax in flat[: len(panels)]:
+        ax.tick_params(labelbottom=True)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     for ax in axes[-1]:
         ax.set_xlabel("distance to global centroid - distance to nearest ancestry centroid",
                       color=INK_SECONDARY, fontsize="x-small")
@@ -715,8 +724,8 @@ def margins_plotly(frame: pd.DataFrame, styles: Dict[str, LabelStyle]):
         f"{name}: {int((part['label'] == 'CAH').sum()):,}/{len(part):,} CAH"
         for name, part in panels
     ]
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=titles, shared_xaxes=True)
-    bins = _margin_bins(frame)
+    fig = make_subplots(rows=rows, cols=cols, subplot_titles=titles)
+    bins = margin_bins(frame)
     size = float(bins[1] - bins[0])
     for i, (name, part) in enumerate(panels):
         row, col = divmod(i, cols)
@@ -731,7 +740,8 @@ def margins_plotly(frame: pd.DataFrame, styles: Dict[str, LabelStyle]):
         )
         fig.add_vline(x=0.0, line={"color": THRESHOLD, "dash": "dash", "width": 1},
                       row=row + 1, col=col + 1)
-    fig.update_yaxes(gridcolor=GRID)
+    fig.update_yaxes(gridcolor=GRID, tickformat="d", rangemode="tozero")
+    fig.update_xaxes(showticklabels=True)
     fig.update_xaxes(title_text="global - nearest ancestry distance", row=rows)
     plotly_layout(fig, 300 * rows + 60,
                   title={"text": margin_title(frame), "font": {"size": 14}})

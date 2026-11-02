@@ -90,6 +90,18 @@ class TestMarginFrame:
         assert [name for name, _ in panels] == ["EUR", "AFR", "PAPUAN", "CAS2"]
         assert sum(len(part) for _, part in panels) == len(decisions)
 
+    def test_bin_edges_are_one_set_with_zero_as_an_exact_edge(self, report) -> None:
+        frame = plots.margin_frame(report)
+        edges = plots.margin_bins(frame)
+        assert 0.0 in edges
+        assert np.allclose(np.diff(edges), np.diff(edges)[0])
+        assert edges[0] <= frame["margin_to_all"].min()
+        assert edges[-1] >= frame["margin_to_all"].max()
+        # All-positive and all-negative cohorts still get a zero edge.
+        for shift in (10.0, -10.0):
+            moved = frame.assign(margin_to_all=frame["margin_to_all"].abs() * np.sign(shift) + shift)
+            assert 0.0 in plots.margin_bins(moved)
+
     def test_equal_sized_groups_tie_break_by_name(self) -> None:
         frame = pd.DataFrame(
             {"nearest_ancestry": ["b", "a", "b", "a"], "margin_to_all": [1.0] * 4,
