@@ -35,15 +35,17 @@ import numpy as np
 import pandas as pd
 
 from genotools.plotting.plots.base import Plot
-from genotools.plotting.report import Report
+from genotools.plotting.report import Report, plot_tables
 from genotools.plotting.style import (
     GRID,
     INK,
     INK_SECONDARY,
+    NEUTRAL,
     SERIES,
     SURFACE,
     THRESHOLD,
     LabelStyle,
+    grid,
     label_styles,
     plotly_layout,
     save_png,
@@ -598,6 +600,148 @@ def drift_plotly(drift: pd.DataFrame, limits):
     return fig
 
 
+# --- CAH margins and classifier confidence (#309) ------------------------------
+
+MARGIN_TABLE = "centroid_margins"
+# Panels beyond this many are folded into the overall panel only: a dozen small
+# multiples is already past legible.
+MAX_MARGIN_PANELS = 11
+MARGIN_BINS = 40
+
+
+def margin_frame(report: Report) -> pd.DataFrame:
+    """Per-sample CAH margins kept by the run: `centroid_margins.tsv`.
+
+    Columns `FID`, `IID`, `nearest_centroid`, `nearest_ancestry`,
+    `margin_to_all`, `label`. Empty when the run kept no table (admixture
+    detection off, or a run from before it was kept).
+    """
+    needed = {"nearest_ancestry", "margin_to_all", "label"}
+    frame = plot_tables(report, MARGIN_TABLE).get("ancestry")
+    if frame is None or frame.empty or not needed <= set(frame.columns):
+        return pd.DataFrame()
+    frame = frame.copy()
+    frame["margin_to_all"] = pd.to_numeric(frame["margin_to_all"], errors="coerce")
+    frame = frame.dropna(subset=["margin_to_all"])
+    for column in ("nearest_ancestry", "label"):
+        frame[column] = frame[column].astype(str)
+    return frame.reset_index(drop=True)
+
+
+def margin_panels(frame: pd.DataFrame) -> List[Tuple[str, pd.DataFrame]]:
+    """The groups drawn as small multiples: nearest ancestry centroid, largest first.
+
+    "Nearest centroid" is the nearest *ancestry* centroid (the global one is
+    what the margin is measured against). Ties in size break by name, so the
+    order is the same on every pandas.
+    """
+    sizes = frame["nearest_ancestry"].value_counts()
+    order = sorted(sizes.index, key=lambda g: (-int(sizes[g]), g))[:MAX_MARGIN_PANELS]
+    return [(g, frame[frame["nearest_ancestry"] == g]) for g in order]
+
+
+def margin_styles(report: Report, groups) -> Dict[str, LabelStyle]:
+    """The run's label styles, plus neutral ones for centroids it never labels.
+
+    A nearest-centroid group can be a name no plot of the run has otherwise:
+    the model splits CAS into `CAS` and `CAS2` to find its centroids, and only
+    `CAS` is ever a label. Handing such a name to `styles_for` as `extra` would
+    re-assign the colours of the run's other labels, so they are styled neutral
+    instead and the panel title names them.
+    """
+    base = styles_for(report)
+    missing = sorted({str(g) for g in groups} - set(base))
+    if not missing:
+        return base
+    extra = label_styles(list(base) + missing)
+    return {**{g: LabelStyle(NEUTRAL, extra[g].marker, extra[g].symbol) for g in missing}, **base}
+
+
+def margin_title(frame: pd.DataFrame) -> str:
+    """`CAH: n of N samples (p%)`, counted from the labels the run gave.
+
+    The label is the source of truth rather than `margin < 0`: it is what the
+    rule actually produced (an exact tie also goes to CAH).
+    """
+    n = len(frame)
+    n_cah = int((frame["label"] == "CAH").sum())
+    return f"CAH (margin at or below 0): {n_cah:,} of {n:,} samples ({100 * n_cah / n:.1f}%)"
+
+
+def _margin_bins(frame: pd.DataFrame) -> np.ndarray:
+    lo, hi = float(frame["margin_to_all"].min()), float(frame["margin_to_all"].max())
+    if hi <= lo:
+        lo, hi = lo - 0.5, hi + 0.5
+    # Always span zero so the CAH line has something on both sides.
+    lo, hi = min(lo, 0.0), max(hi, 0.0)
+    return np.linspace(lo, hi, MARGIN_BINS + 1)
+
+
+def margins_png(frame: pd.DataFrame, styles: Dict[str, LabelStyle], plt, out_path: Path) -> Path:
+    """Overall histogram plus one panel per nearest ancestry centroid."""
+    panels = [("all samples", frame)] + margin_panels(frame)
+    rows, cols = grid(len(panels), max_cols=3)
+    fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 2.9 * rows + 0.6),
+                             sharex=True, squeeze=False)
+    fig.patch.set_facecolor(SURFACE)
+    bins = _margin_bins(frame)
+    flat = list(axes.ravel())
+    for ax, (name, part) in zip(flat, panels):
+        style_axis(ax)
+        color = INK_SECONDARY if name == "all samples" else styles[name].color
+        ax.hist(part["margin_to_all"], bins=bins, color=color, alpha=0.9)
+        ax.axvline(0.0, color=THRESHOLD, linestyle="--", linewidth=1.2)
+        n_cah = int((part["label"] == "CAH").sum())
+        ax.set_title(f"{name}: {n_cah:,}/{len(part):,} CAH", loc="left",
+                     fontsize="small", color=INK)
+    for ax in flat[len(panels):]:
+        ax.set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel("distance to global centroid - distance to nearest ancestry centroid",
+                      color=INK_SECONDARY, fontsize="x-small")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("samples", color=INK_SECONDARY, fontsize="small")
+    fig.suptitle(margin_title(frame), x=0.01, ha="left", fontsize="medium", color=INK)
+    return save_png(fig, plt, out_path)
+
+
+def margins_plotly(frame: pd.DataFrame, styles: Dict[str, LabelStyle]):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    panels = [("all samples", frame)] + margin_panels(frame)
+    rows, cols = grid(len(panels), max_cols=3)
+    titles = [
+        f"{name}: {int((part['label'] == 'CAH').sum()):,}/{len(part):,} CAH"
+        for name, part in panels
+    ]
+    fig = make_subplots(rows=rows, cols=cols, subplot_titles=titles, shared_xaxes=True)
+    bins = _margin_bins(frame)
+    size = float(bins[1] - bins[0])
+    for i, (name, part) in enumerate(panels):
+        row, col = divmod(i, cols)
+        color = INK_SECONDARY if name == "all samples" else styles[name].color
+        fig.add_trace(
+            go.Histogram(
+                x=part["margin_to_all"], showlegend=False, marker_color=color,
+                xbins={"start": float(bins[0]), "end": float(bins[-1]), "size": size},
+                hovertemplate="margin %{x}: %{y} samples<extra></extra>",
+            ),
+            row=row + 1, col=col + 1,
+        )
+        fig.add_vline(x=0.0, line={"color": THRESHOLD, "dash": "dash", "width": 1},
+                      row=row + 1, col=col + 1)
+    fig.update_yaxes(gridcolor=GRID)
+    fig.update_xaxes(title_text="global - nearest ancestry distance", row=rows)
+    plotly_layout(fig, 300 * rows + 60,
+                  title={"text": margin_title(frame), "font": {"size": 14}})
+    return fig
+
+
+def _has_margins(report: Report) -> bool:
+    return not margin_frame(report).empty
+
+
 # --- Registry ------------------------------------------------------------------
 
 
@@ -674,5 +818,21 @@ PLOTS: List[Plot] = [
         available=_has_drift,
         png=lambda r, plt, p: drift_png(drift_frame(r), drift_limits(r), plt, p),
         plotly=lambda r: drift_plotly(drift_frame(r), drift_limits(r)),
+    ),
+    Plot(
+        name="ancestry_cah_margins",
+        title="Ancestry: CAH margins",
+        description=(
+            "How close each sample came to being called CAH: the distance to "
+            "the global centroid minus the distance to the nearest ancestry "
+            "centroid. At or left of the dashed line at 0 the global centroid "
+            "is nearest and the sample is CAH. A cohort piled just left of 0 is "
+            "a threshold question; one far to the left is a projection "
+            "question. One panel per nearest ancestry centroid shows which "
+            "group sits on the boundary. Needs admixture detection."
+        ),
+        available=_has_margins,
+        png=lambda r, plt, p: margins_png(margin_frame(r), margin_styles(r, margin_frame(r)["nearest_ancestry"]), plt, p),
+        plotly=lambda r: margins_plotly(margin_frame(r), margin_styles(r, margin_frame(r)["nearest_ancestry"])),
     ),
 ]

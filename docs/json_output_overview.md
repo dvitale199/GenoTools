@@ -231,6 +231,7 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     |---|---|
     | `ancestry/pca_eigenvalues.tsv` | The reference PCA: `PC`, `eigenvalue`, `explained_variance_ratio`. Training runs only; a `--model` run fits no PCA |
     | `ancestry/allele_frequencies.tsv` | Panel vs cohort frequency of the counted allele, for a random sample of at most 5,000 of the matched SNPs (fixed seed, in panel order): `snp`, `counted_allele` / `other_allele` (the panel's), `cohort_a1` / `cohort_a2` (the cohort's own pair before alignment), `ref_freq`, `cohort_freq`, `abs_delta`, `discordant` (delta > 0.2), `flip_signature` (discordant and the cohort frequency within 0.05 of `1 - ref_freq`) |
+    | `ancestry/centroid_margins.tsv` | One row per cohort sample, when admixture detection ran: `FID`, `IID`, `nearest_centroid` (nearest of all centroids, `ALL` for every `CAH` sample), `nearest_ancestry` (nearest ancestry centroid alone; can be a sub-centroid such as `CAS2` that is never a label), `margin_to_all` (distance to the global centroid minus distance to `nearest_ancestry`; at or below 0 is `CAH`), `label` (final) |
 
     The cohort's projected PCs are not written here: `projected_pcs` in this
     report already holds them whole.

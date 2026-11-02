@@ -136,6 +136,18 @@ def write_ancestry_report(
     for key in drop or []:
         report.pop(key, None)
     path.write_text(json.dumps(report))
+    # The CAH margin table is plot data, not report JSON: it sits beside the
+    # report where a run keeps it. `drop=["centroid_margins"]` leaves it out.
+    if "centroid_margins" not in (drop or []):
+        from genotools.ancestry.diagnostics import centroid_margin_table
+
+        from .test_ancestry_margins import decisions_frame
+
+        dest = path.parent / f"{path.stem}_plot_data" / "ancestry"
+        dest.mkdir(parents=True, exist_ok=True)
+        centroid_margin_table(decisions_frame()).to_csv(
+            dest / "centroid_margins.tsv", sep="\t", index=False
+        )
     return path
 
 
@@ -173,6 +185,7 @@ class TestAvailability:
             (["confusion_matrix"], ["ancestry_confusion_matrix"]),
             (["ancestry_counts"], ["ancestry_label_counts"]),
             (["ancestry_diagnostics"], ["ancestry_pc_drift"]),
+            (["centroid_margins"], ["ancestry_cah_margins"]),
         ],
     )
     def test_a_plot_needs_its_own_key(self, tmp_path: Path, dropped, plot_names) -> None:

@@ -2787,6 +2787,38 @@ class TestAncestryPlotData:
         assert not Path(f"{out}_plot_data").exists()
         assert runner.state.plot_data_dir is None
 
+    def test_keeps_centroid_margins_when_admixture_detection_ran(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        decisions = pd.DataFrame(
+            {
+                "FID": ["a", "b"], "IID": ["a", "b"],
+                "label_pre_admixture": ["EUR", "AFR"], "label": ["CAH", "AFR"],
+                "nearest_centroid": ["ALL", "AFR"], "nearest_ancestry": ["EUR", "AFR"],
+                "margin_to_all": [-0.5, 1.5],
+            }
+        )
+        runner._keep_ancestry_plot_data(
+            actual, AncestryDiagnostics(admixture_decisions=decisions)
+        )
+        kept = pd.read_csv(Path(f"{out}_plot_data") / "ancestry" / "centroid_margins.tsv", sep="\t")
+        assert kept["margin_to_all"].tolist() == [-0.5, 1.5]
+        assert kept["label"].tolist() == ["CAH", "AFR"]
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+
+    def test_no_margin_table_without_admixture_detection(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        diagnostics = AncestryDiagnostics(allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]}))
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+        assert not (Path(f"{out}_plot_data") / "ancestry" / "centroid_margins.tsv").exists()
+
     def test_runner_calls_it_during_ancestry_prediction(self) -> None:
         """Gate the call site, not just the helper (round-7 lesson)."""
         import inspect
