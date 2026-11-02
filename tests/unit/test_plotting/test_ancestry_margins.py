@@ -117,7 +117,7 @@ class TestMarginFrame:
     def test_available_never_raises_on_a_malformed_table(self, tmp_path: Path) -> None:
         path = write_ancestry_report(tmp_path / "bad.json", drop=["centroid_margins"])
         dest = tmp_path / "bad_plot_data" / "ancestry"
-        dest.mkdir(parents=True)
+        dest.mkdir(parents=True, exist_ok=True)
         (dest / "centroid_margins.tsv").write_text("FID\tIID\nA\tB\n")
         assert not plot_named().available(load_report(path))
 
