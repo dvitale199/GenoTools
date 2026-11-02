@@ -217,7 +217,18 @@ lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in
 
 #### GWAS
 
-None yet.
+Drawn when the run did `--gwas` and the files the report points at still exist
+(the `assoc` step's `gwas_output_path`, `eigenvec_path` and `eigenval_path`
+parameters, which are absolute paths). Logistic (`.glm.logistic[.hybrid]`) and
+linear (`.glm.linear`) output draw alike; only the `ADD` test rows are used.
+
+| Plot | Shows |
+|---|---|
+| `gwas_manhattan` | -log10(p) by genome position, chromosomes alternating colour, with the genome-wide line at 5e-8. The PNG keeps every variant; the interactive figure thins the non-significant bulk of a very large GWAS. |
+| `gwas_qq` | Observed against expected -log10(p), annotated with the report's `lambda`, `lambda1000` and, when `--maf-lambdas` was used, the MAF-filtered values. |
+| `gwas_pcs_by_phenotype` | GWAS PC1 vs PC2 coloured by the phenotype in the report's `input_samples` (case/control with distinct shapes, or a colour scale for a quantitative phenotype), to check for case/control confounding. |
+| `gwas_pca_scree` | Eigenvalue of each GWAS covariate PC. |
+| `ancestry_pca_scree` | Eigenvalue of each PC of the ancestry reference PCA, with explained variance on hover. Only for runs that trained the ancestry model: it reads `{out}_plot_data/ancestry/pca_eigenvalues.tsv`, which a run using a saved model does not write. |
 
 ---
 
