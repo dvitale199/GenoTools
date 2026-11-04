@@ -47,6 +47,7 @@ from ..core.logging import (
 from ..core.provenance import package_versions, tool_lines
 from ..core.validation import (
     ValidationDecisions,
+    assoc_skip_reason,
     case_control_skip_reason,
     guard_output_not_exists,
     het_skip_reason,
@@ -696,10 +697,12 @@ class PipelineRunner:
         # decision already made stands - a group cannot resurrect a step the
         # whole cohort ruled out.
         if geno_path is not None:
+            run_pca = self.args.gwas.run_pca
             for step, decide in (
                 ("het", het_skip_reason),
                 ("sex", sex_skip_reason),
                 ("case_control", case_control_skip_reason),
+                ("assoc", lambda path: assoc_skip_reason(path, run_pca)),
             ):
                 if step in steps and step not in reasons:
                     reason = decide(geno_path)

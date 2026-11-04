@@ -254,6 +254,7 @@ A requested step is **skipped automatically** when the input can't support it.
 |------|--------------|
 | `--sex` | No sample sex data (no males and no females recorded), or no X chromosome in the input |
 | `--het` | The input has fewer than 50 samples (PLINK's LD floor) |
+| `--pca` (the association step) | The input has fewer than 50 samples: PCA LD-prunes first and hits the same floor. The whole association step is skipped, including `--gwas`. A `--gwas` run without `--pca` has no floor. |
 | `--case-control` | Cases or controls are missing (both are required) |
 | `--filter-controls` | No controls present — the HWE filter runs on everyone instead |
 

@@ -65,6 +65,15 @@ history and the GitHub releases page.
 
 ### Fixed
 
+- **Association is skipped, not failed, on ancestry groups under 50 samples.**
+  PCA LD-prunes before computing PCs, and PLINK refuses to estimate LD from
+  fewer than 50 samples. Each small group (stray predictions, `CAH`) logged
+  an ERROR, was reported as a failed `assoc` step, and left
+  `_pca_pruned_tmp.*` and `_pca_pruned_hg38.exclusion` files beside the
+  run's real outputs. The step is now skipped with a reason, as `--het`
+  already was, whenever `--pca` is requested on fewer than 50 samples. PCA
+  also removes its intermediate files however PLINK exits.
+
 - **The synthetic test cohort no longer gives every male a heterozygous X.**
   Sex QC removed half of it, so the regression tests exercised a cohort no
   real array produces. Sex QC now removes 17 samples instead of 253, and the
