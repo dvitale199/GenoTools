@@ -90,6 +90,11 @@ def removed_count(report: Report, step: str, ancestry: str) -> Optional[int]:
     return int(pd.to_numeric(rows["pruned_count"], errors="coerce").fillna(0).sum())
 
 
+# The pipeline keeps at most this many failing rows per step
+# (`genotools.qc.plot_data.MAX_FAILING_ROWS`). Copied, not imported: plotting
+# reads a finished run and never imports the pipeline. A test pins the two.
+MAX_FAILING_ROWS = 10_000
+
 def _removed_label(n: Optional[int], noun: str = "variants") -> str:
     return "" if n is None else f"{n:,} {noun} removed"
 
@@ -395,6 +400,10 @@ def qq_panels(report: Report, spec: QQSpec) -> List[QQPanel]:
         test = hwe_filter_test(bins) if spec.name == "hwe" else None
         if test is not None:
             bins = bins[bins["test"].astype(str) == test]
+        # A group the step ran no tests on (e.g. haplotype in a group with no
+        # cases) keeps an all-zero histogram: nothing to plot, so no panel.
+        if bins["count"].sum() == 0:
+            continue
         failing = _failing_for_qq(spec, all_failing.get(ancestry), test)
         panels.append(
             QQPanel(
@@ -422,7 +431,9 @@ def _qq_title(panel: QQPanel, spec: QQSpec) -> str:
     if spec.noun == "tests" and panel.exact is not None:
         # The step also removes each significant test's flanking variants, so
         # the tests and the variants removed are different numbers.
-        detail.append(f"{panel.exact:,} significant tests")
+        # The failing table is capped, so a full one is a floor, not a count.
+        more = "+" if panel.exact >= MAX_FAILING_ROWS else ""
+        detail.append(f"{panel.exact:,}{more} significant tests")
     removed = _removed_label(panel.removed)
     if removed:
         detail.append(removed)
