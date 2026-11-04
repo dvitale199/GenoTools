@@ -112,14 +112,23 @@ def above_threshold(frame: pd.DataFrame, column: str, bound: Optional[float]) ->
 
 
 def outside_bounds(
-    frame: pd.DataFrame, column: str, lower: Optional[float], upper: Optional[float]
+    frame: pd.DataFrame,
+    column: str,
+    lower: Optional[float],
+    upper: Optional[float],
+    inclusive: bool = False,
 ) -> pd.DataFrame:
-    """Rows whose `column` is outside the keep band; an absent side flags nothing."""
+    """Rows whose `column` is outside the keep band; an absent side flags nothing.
+
+    `inclusive` also flags a value equal to a bound, as the het step does in
+    fixed mode (`F <= lower | F >= upper`, as in 1.x); its sd mode is strict.
+    """
+    below, above = (np.less_equal, np.greater_equal) if inclusive else (np.less, np.greater)
     mask = pd.Series(False, index=frame.index)
     if lower is not None:
-        mask |= frame[column] < lower
+        mask |= below(frame[column], lower)
     if upper is not None:
-        mask |= frame[column] > upper
+        mask |= above(frame[column], upper)
     return frame[mask]
 
 
@@ -296,7 +305,11 @@ def het_panels(report: Report) -> List[HistPanel]:
     panels = []
     for ancestry, frame in plot_tables(report, "het_f").items():
         lower, upper = het_bounds(report, ancestry)
-        outliers = outside_bounds(frame, "F", lower, upper)
+        # Fixed bounds prune a sample sitting exactly on one; derived (sd)
+        # bounds do not. Count the way the step did, or the title disagrees
+        # with the report's pruned_count.
+        fixed = parameter(report, "het_prune", "het_mode", ancestry) == "fixed"
+        outliers = outside_bounds(frame, "F", lower, upper, inclusive=fixed)
         lines = []
         if lower is not None:
             lines.append((lower, f"lower {lower:.3g}"))

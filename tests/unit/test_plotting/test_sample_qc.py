@@ -149,6 +149,24 @@ class TestHet:
         assert list(panel.flagged_x) == [0.9]
 
 
+    @pytest.mark.parametrize("mode,flagged", [("fixed", [-0.3, -0.15, 0.15, 0.3]), ("sd", [-0.3, 0.3])])
+    def test_a_sample_on_a_bound_is_flagged_as_the_step_prunes_it(
+        self, tmp_path: Path, mode: str, flagged: list
+    ) -> None:
+        # filter_het prunes F <= lower | F >= upper in fixed mode (as 1.x did)
+        # but strictly in sd mode. A real AMR run had one sample at exactly
+        # 0.15: the plot said 281 outliers, the report 282.
+        report = _report(
+            tmp_path, {"all": {"het_f": _het([-0.3, -0.15, 0.0, 0.15, 0.3])}},
+            [
+                _param("het_prune", "het_mode", mode, source="resolved"),
+                _param("het_prune", "het_lower", -0.15, source="resolved"),
+                _param("het_prune", "het_upper", 0.15, source="resolved"),
+            ],
+        )
+        (panel,) = het_panels(report)
+        assert sorted(panel.flagged_x) == flagged
+
 class TestSex:
     def _table(self) -> pd.DataFrame:
         rows = []
