@@ -16,9 +16,11 @@ from .logging import get_logger
 logger = get_logger(__name__)
 
 # PLINK2's --indep-pairwise refuses to estimate LD from fewer than 50 samples
-# (it exits 13), and the het step LD-prunes before it can call --het. Below this
-# floor het cannot run at all, so it is skipped rather than left to fail.
-MIN_HET_SAMPLES = 50
+# (it exits 13). Two steps LD-prune first: het, before it can call --het, and
+# assoc, whose PCA prunes before --pca. Below this floor neither can run, so
+# each is skipped rather than left to fail.
+MIN_LD_SAMPLES = 50
+MIN_HET_SAMPLES = MIN_LD_SAMPLES
 
 # One reason string per decision, shared by the cohort-level checks in
 # ``validate_input`` and the per-dataset checks below so the two cannot drift
@@ -29,9 +31,9 @@ CASE_CONTROL_SKIP_REASON = "only cases or controls are available, not both"
 
 
 def het_floor_reason(n_samples: int) -> str:
-    """Phrase the het skip for a dataset that cannot support LD estimation."""
+    """Phrase the skip for a dataset that cannot support LD estimation."""
     return (
-        f"{n_samples} samples is fewer than the {MIN_HET_SAMPLES} "
+        f"{n_samples} samples is fewer than the {MIN_LD_SAMPLES} "
         f"PLINK requires to estimate LD"
     )
 
@@ -84,6 +86,21 @@ def het_skip_reason(geno_path: Union[str, Path]) -> Optional[str]:
     n_samples = count_samples(geno_path)
     if n_samples < MIN_HET_SAMPLES:
         return het_floor_reason(n_samples)
+    return None
+
+
+def assoc_skip_reason(geno_path: Union[str, Path], run_pca: bool) -> Optional[str]:
+    """Decide whether the association step can run on a specific dataset.
+
+    Only its PCA is limited: PCA LD-prunes with ``--indep-pairwise``, which
+    refuses fewer than ``MIN_LD_SAMPLES`` samples. A GWAS without PCA has no
+    such floor, so it is left to run.
+    """
+    if not run_pca:
+        return None
+    n_samples = count_samples(geno_path)
+    if n_samples < MIN_LD_SAMPLES:
+        return het_floor_reason(n_samples) + " for PCA"
     return None
 
 

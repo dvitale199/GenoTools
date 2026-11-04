@@ -28,6 +28,7 @@ import pytest
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.cli.parser import (
     AncestryArgs,
+    GWASArgs,
     HetSpec,
     InputArgs,
     OutputArgs,
@@ -2911,3 +2912,102 @@ class TestSampleFateWrittenInBothRunShapes:
         fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t")
         assert set(fate["ancestry"]) == {"EUR"}
         assert fate.set_index("IID").loc["i0", "F_MISS"] == 0.01
+
+
+class TestPerGroupAssocFloor:
+    """The association step's PCA LD-prunes, so it shares het's 50-sample
+    floor. Every group under it used to fail with PLINK exit 13 and leave PCA
+    intermediates behind (#329); it is now skipped, in both run shapes.
+    """
+
+    @staticmethod
+    def _with_pca(runner: PipelineRunner, run_pca: bool = True) -> PipelineRunner:
+        runner.args.gwas = GWASArgs(run_pca=run_pca, run_gwas=True)
+        return runner
+
+    def test_small_group_skips_assoc_when_pca_is_requested(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        self._with_pca(runner)
+        group = tmp_path / "out_ancestry_EUR"
+        _psam_with(group, 11)
+
+        reasons = runner._skip_reasons(["geno", "hwe", "assoc"], str(group))
+        assert set(reasons) == {"assoc"}
+        assert reasons["assoc"] == (
+            "11 samples is fewer than the 50 PLINK requires to estimate LD for PCA"
+        )
+
+    def test_gwas_without_pca_has_no_floor(self, tmp_path: Path) -> None:
+        """Only PCA LD-prunes; a GWAS alone is not ruled out by group size."""
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        self._with_pca(runner, run_pca=False)
+        group = tmp_path / "tiny"
+        _psam_with(group, 11)
+
+        assert runner._skip_reasons(["assoc"], str(group)) == {}
+
+    def test_floor_is_inclusive(self, tmp_path: Path) -> None:
+        from genotools.core.validation import MIN_LD_SAMPLES
+
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        self._with_pca(runner)
+        at_floor, below = tmp_path / "at_floor", tmp_path / "below"
+        _psam_with(at_floor, MIN_LD_SAMPLES)
+        _psam_with(below, MIN_LD_SAMPLES - 1)
+
+        assert runner._skip_reasons(["assoc"], str(at_floor)) == {}
+        assert "assoc" in runner._skip_reasons(["assoc"], str(below))
+
+    def test_assoc_not_requested_is_not_a_skip(self, tmp_path: Path) -> None:
+        runner, _, _ = _make_runner(tmp_path, warn_only=False)
+        self._with_pca(runner)
+        group = tmp_path / "tiny"
+        _psam_with(group, 3)
+
+        assert runner._skip_reasons(["geno", "hwe"], str(group)) == {}
+
+    def test_flat_run_on_a_small_cohort_skips_assoc(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The flat shape, at its call site: _run_qc_only decides the skip."""
+        runner, geno, _ = _make_runner(tmp_path, warn_only=False)
+        self._with_pca(runner)
+        _psam_with(geno, 11)
+        seen: Dict[str, Any] = {}
+
+        def fake_qc(**kwargs: Any) -> None:
+            seen.update(kwargs["skip_reasons"])
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_qc)
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+        runner._run_qc_only(["geno", "assoc"])
+
+        assert set(seen) == {"assoc"}
+
+    def test_ancestry_loop_skips_assoc_in_small_groups_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ancestry shape: the real r10 split had AMR 3,643 and EUR 11."""
+        runner, out, work = _ancestry_runner(tmp_path, full_output=False)
+        self._with_pca(runner)
+        _psam_with(work / "out_ancestry_AMR", 3643)
+        _psam_with(work / "out_ancestry_EUR", 11)
+
+        monkeypatch.setattr(runner, "_begin_section", lambda *a, **k: None)
+        monkeypatch.setattr(runner, "_end_section", lambda *a, **k: None)
+        monkeypatch.setattr(
+            runner,
+            "_run_ancestry_prediction_new",
+            lambda: {"data": {"labels_list": ["AMR", "EUR"]}},
+        )
+        monkeypatch.setattr(runner, "_build_output", lambda: None)
+        seen: Dict[str, Dict[str, str]] = {}
+
+        def fake_qc(**kwargs: Any) -> None:
+            seen[kwargs["ancestry_label"]] = kwargs["skip_reasons"]
+
+        monkeypatch.setattr(runner, "_run_qc_pipeline", fake_qc)
+        runner._run_with_ancestry(["geno", "assoc"])
+
+        assert seen["AMR"] == {}
+        assert set(seen["EUR"]) == {"assoc"}

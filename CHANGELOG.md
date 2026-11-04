@@ -65,6 +65,14 @@ history and the GitHub releases page.
 
 ### Fixed
 
+- **Association is skipped, not failed, on ancestry groups under 50 samples.**
+  PCA LD-prunes before computing PCs, and PLINK refuses to estimate LD from
+  fewer than 50 samples. Each small group (stray predictions, `CAH`) logged
+  an ERROR, was reported as a failed `assoc` step, and left
+  `_pca_pruned_tmp.*` and `_pca_pruned_hg38.exclusion` files beside the
+  run's real outputs. The step is now skipped with a reason, as `--het`
+  already was, whenever `--pca` is requested on fewer than 50 samples. PCA
+  also removes its intermediate files however PLINK exits.
 - **Training an ancestry model no longer floods the terminal with about 1,000
   UMAP warnings.** Each UMAP fit in the grid search warned that its `n_jobs`
   was being overridden to 1, because a UMAP with a fixed random seed always

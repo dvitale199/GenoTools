@@ -120,99 +120,100 @@ def run_pca_pruning(
         # Get initial variant count
         initial_variant_count = data.variant_count
 
-        # Write exclusion file for problematic regions
-        exclusion_file = _write_exclusion_file(out_path, build)
-
         # Create temp file names
         tmp_path = out_path.parent / f"{out_path.name}_tmp"
         pruned_path = out_path.parent / f"{out_path.name}_pruned"
 
-        plink2 = get_plink2()
-
-        # Step 1: Filter variants by MAF, missingness, HWE, and exclude regions
-        filter_cmd = [
-            str(plink2),
-            "--pfile" if data.format == "pfile" else "--bfile",
-            str(data.path),
-            "--maf", str(config.maf),
-            "--geno", str(config.geno),
-            "--hwe", str(config.hwe),
-            "--autosome",
-            "--exclude", "range", str(exclusion_file),
-            "--make-pgen", "psam-cols=fid,parents,sex,pheno1,phenos",
-            "--out", str(tmp_path),
-        ]
-        run_command(filter_cmd, tool_name="plink2")
-
-        # Step 2: LD pruning with --indep-pairwise
-        window, step, r2 = config.indep_pairwise_args
-        prune_cmd = [
-            str(plink2),
-            "--pfile", str(tmp_path),
-            "--indep-pairwise", str(window), str(step), str(r2),
-            "--autosome",
-            "--out", str(pruned_path),
-        ]
-        run_command(prune_cmd, tool_name="plink2")
-
-        prune_in_file = Path(f"{pruned_path}.prune.in")
-        success = prune_in_file.exists()
-
-        if success:
-            # Step 3: Extract pruned variants
-            extract_cmd = [
-                str(plink2),
-                "--pfile", str(tmp_path),
-                "--extract", str(prune_in_file),
-                "--make-pgen", "psam-cols=fid,parents,sex,pheno1,phenos",
-                "--out", str(out_path),
-            ]
-            run_command(extract_cmd, tool_name="plink2")
-
-            # Get final variant count
-            output = GenotypeData.from_path(out_path)
-            variants_after = output.variant_count
-
-            # Cleanup temp files
+        # Write exclusion file for problematic regions. From here on every
+        # intermediate is removed however PLINK exits: a failed command raises
+        # out of this function, and these files used to be left beside the
+        # run's real outputs (#329).
+        exclusion_file = _write_exclusion_file(out_path, build)
+        try:
+            return _prune(data, config, out_path, tmp_path, pruned_path, exclusion_file,
+                          initial_variant_count)
+        finally:
             _cleanup_temp_files(tmp_path, [".pgen", ".pvar", ".psam", ".log"])
             _cleanup_temp_files(pruned_path, [".prune.in", ".prune.out", ".log"])
-            if exclusion_file.exists():
-                exclusion_file.unlink()
+            exclusion_file.unlink(missing_ok=True)
 
-            logger.info(
-                f"PCA pruning complete: {initial_variant_count} -> {variants_after} variants "
-                f"({initial_variant_count - variants_after} removed)"
-            )
 
-            return PruningResult(
-                output_path=out_path,
-                variants_before=initial_variant_count,
-                variants_after=variants_after,
-                exclusion_file=None,  # Already cleaned up
-                success=True,
-                log="",
-            )
-        else:
-            # Pruning failed - likely too few samples for LD calculation
-            logger.warning(
-                f"PCA pruning failed - {prune_in_file} not found. "
-                "Likely too few samples (<50) for reliable LD calculations."
-            )
+def _prune(
+    data: GenotypeData,
+    config: PCAPruningConfig,
+    out_path: Path,
+    tmp_path: Path,
+    pruned_path: Path,
+    exclusion_file: Path,
+    initial_variant_count: int,
+) -> PruningResult:
+    """Filter, LD-prune and extract; the caller removes the intermediates."""
+    plink2 = get_plink2()
 
-            # Cleanup what we can
-            _cleanup_temp_files(tmp_path, [".pgen", ".pvar", ".psam", ".log"])
-            _cleanup_temp_files(pruned_path, [".log"])
-            if exclusion_file.exists():
-                exclusion_file.unlink()
+    # Step 1: Filter variants by MAF, missingness, HWE, and exclude regions
+    filter_cmd = [
+        str(plink2),
+        "--pfile" if data.format == "pfile" else "--bfile",
+        str(data.path),
+        "--maf", str(config.maf),
+        "--geno", str(config.geno),
+        "--hwe", str(config.hwe),
+        "--autosome",
+        "--exclude", "range", str(exclusion_file),
+        "--make-pgen", "psam-cols=fid,parents,sex,pheno1,phenos",
+        "--out", str(tmp_path),
+    ]
+    run_command(filter_cmd, tool_name="plink2")
 
-            return PruningResult(
-                output_path=out_path,
-                variants_before=initial_variant_count,
-                variants_after=0,
-                exclusion_file=None,
-                success=False,
-                log=RAW_LOG_HINT,
-            )
+    # Step 2: LD pruning with --indep-pairwise
+    window, step, r2 = config.indep_pairwise_args
+    prune_cmd = [
+        str(plink2),
+        "--pfile", str(tmp_path),
+        "--indep-pairwise", str(window), str(step), str(r2),
+        "--autosome",
+        "--out", str(pruned_path),
+    ]
+    run_command(prune_cmd, tool_name="plink2")
+
+    prune_in_file = Path(f"{pruned_path}.prune.in")
+    if not prune_in_file.exists():
+        # PLINK exited 0 but wrote no prune list. Too few samples cannot get
+        # here: --indep-pairwise exits 13 below 50, and the runner skips such
+        # a dataset before the step runs.
+        logger.warning(f"PCA pruning failed - {prune_in_file} not found.")
+        return PruningResult(
+            output_path=out_path,
+            variants_before=initial_variant_count,
+            variants_after=0,
+            exclusion_file=None,
+            success=False,
+            log=RAW_LOG_HINT,
+        )
+
+    # Step 3: Extract pruned variants
+    extract_cmd = [
+        str(plink2),
+        "--pfile", str(tmp_path),
+        "--extract", str(prune_in_file),
+        "--make-pgen", "psam-cols=fid,parents,sex,pheno1,phenos",
+        "--out", str(out_path),
+    ]
+    run_command(extract_cmd, tool_name="plink2")
+
+    variants_after = GenotypeData.from_path(out_path).variant_count
+    logger.info(
+        f"PCA pruning complete: {initial_variant_count} -> {variants_after} variants "
+        f"({initial_variant_count - variants_after} removed)"
+    )
+    return PruningResult(
+        output_path=out_path,
+        variants_before=initial_variant_count,
+        variants_after=variants_after,
+        exclusion_file=None,  # Removed by the caller
+        success=True,
+        log="",
+    )
 
 
 def run_pca(
@@ -281,7 +282,11 @@ def run_pca(
             "--pca", str(config.n_pcs),
             "--out", str(out_path),
         ]
-        result = run_command(pca_cmd, tool_name="plink2")
+        try:
+            result = run_command(pca_cmd, tool_name="plink2")
+        finally:
+            # The pruned pfiles are only PCA's input; drop them however it ends.
+            _cleanup_temp_files(pruned_path, [".pgen", ".pvar", ".psam", ".log"])
 
         eigenvec_path = Path(f"{out_path}.eigenvec")
         eigenval_path = Path(f"{out_path}.eigenval")
@@ -294,9 +299,6 @@ def run_pca(
             logger.info(
                 f"PCA complete: {config.n_pcs} PCs computed for {n_samples} samples"
             )
-
-            # Cleanup pruned files
-            _cleanup_temp_files(pruned_path, [".pgen", ".pvar", ".psam", ".log"])
 
             return PCAResult(
                 eigenvec_path=eigenvec_path,
