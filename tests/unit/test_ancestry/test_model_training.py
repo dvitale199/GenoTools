@@ -177,6 +177,36 @@ class TestClassifierConfigReachesTheBooster:
         assert _built_xgb(fake_grid_search).get_params()["random_state"] == 7
 
 
+
+def _umap_warnings(umap, X) -> list:
+    """The n_jobs override warnings umap-learn raises while fitting `umap`."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        umap.fit(X)
+    return [w for w in caught if "n_jobs" in str(w.message)]
+
+
+class TestUMAPIsBuiltQuiet:
+    """The seeded UMAP must not warn on every fit (#328).
+
+    Left at umap-learn's default `n_jobs=-1`, a seeded UMAP is forced to 1
+    with a UserWarning per fit: about 1,000 from one grid search, printed by
+    loky workers, so it cannot be filtered from the parent process.
+    """
+
+    def test_the_grid_search_umap_fits_without_the_n_jobs_warning(
+        self, fake_grid_search
+    ) -> None:
+        X, y = _tiny_training_arrays()
+        _model_with(ClassifierConfig())._train_classifier(X, X, y, y)
+        umap = fake_grid_search.captured[0].estimator.named_steps["umap"]
+        assert umap.get_params()["n_jobs"] == 1
+        umap.set_params(n_neighbors=5)
+        assert _umap_warnings(umap, X) == []
+
+
 class _StagedPipeline:
     """A pipeline whose fit outcome is dictated per learning rate.
 

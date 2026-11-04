@@ -335,6 +335,18 @@ class TestUMAPReducer:
         reducer = UMAPReducer(config=config)
         assert reducer.n_components == 3
 
+    def test_fit_does_not_warn_about_n_jobs(
+        self, sample_pca_data: np.ndarray  # type: ignore[type-arg]
+    ) -> None:
+        """A seeded fit raises no n_jobs override warning (#328)."""
+        import warnings
+
+        reducer = UMAPReducer()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            reducer.fit(sample_pca_data)
+        assert [w for w in caught if "n_jobs" in str(w.message)] == []
+
     def test_fit(self, sample_pca_data: np.ndarray) -> None:  # type: ignore[type-arg]
         """UMAPReducer fits on data."""
         reducer = UMAPReducer()

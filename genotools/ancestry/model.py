@@ -388,8 +388,11 @@ class AncestryModel:
         # Hogwild updater. See ClassifierConfig for the measurements. UMAP's
         # own config fields are deliberately not read here: the grid search
         # sets n_neighbors/n_components/a/b per candidate, and UMAPReducer
-        # reads the rest on the inference path.
-        umap = UMAP(random_state=self.config.umap.random_state)
+        # reads the rest on the inference path. `n_jobs=1` is what a seeded
+        # UMAP runs with anyway; left at its default of -1, umap-learn
+        # overrides it and warns on every fit -- about 1,000 warnings from a
+        # grid search, printed by worker processes no filter here can reach.
+        umap = UMAP(random_state=self.config.umap.random_state, n_jobs=1)
         xgb = XGBClassifier(
             booster=self.config.classifier.booster,
             random_state=self.config.classifier.random_state,

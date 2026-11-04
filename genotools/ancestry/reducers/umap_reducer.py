@@ -84,6 +84,9 @@ class UMAPReducer:
             "min_dist": self.config.min_dist,
             "metric": self.config.metric,
             "random_state": self.config.random_state,
+            # A seeded UMAP is single-threaded regardless; saying so stops
+            # umap-learn overriding its default of -1 and warning about it.
+            "n_jobs": 1,
         }
 
         # Only add a/b parameters if explicitly set
