@@ -2793,3 +2793,89 @@ class TestAncestryPlotData:
 
         src = inspect.getsource(PipelineRunner._run_ancestry_prediction_new)
         assert "_keep_ancestry_plot_data(actual_out, diagnostics)" in src
+
+
+class TestSampleFateWrittenInBothRunShapes:
+    """#303: ``{out}_sample_fate.tsv`` comes from the shared report tail.
+
+    Production runs ancestry once and then QCs each group as a flat job, so the
+    table has to exist in both shapes - and agree with ``pruned_samples``.
+    """
+
+    @staticmethod
+    def _runner(tmp_path: Path, ancestry: bool) -> tuple[PipelineRunner, Path]:
+        geno = tmp_path / "geno"
+        out = tmp_path / "cohort.v2"  # dotted on purpose: a prefix is not a filename
+        _touch_pfiles(geno)
+        Path(f"{geno}.psam").write_text(
+            "#FID\tIID\tSEX\n" + "".join(f"f{i}\ti{i}\t1\n" for i in range(4))
+        )
+        kwargs = {}
+        if ancestry:
+            kwargs["ancestry"] = AncestryArgs(run_ancestry=True)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+            **kwargs,
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        runner._skip_reasons = lambda *a, **k: {}  # type: ignore[method-assign]
+
+        def fake_step(step, step_input, step_output, legacy_args, ancestry_label="all", **_):
+            _touch_pfiles(Path(step_output))
+            outliers = Path(f"{step_output}.outliers")
+            outliers.write_text("#FID\tIID\nf1\ti1\n")
+            table = Path(f"{step_output}_plotdata_sample_missingness.tsv")
+            table.write_text("#FID\tIID\tF_MISS\nf0\ti0\t0.01\nf1\ti1\t0.5\n")
+            runner._collect_plot_data(step, {"sample_missingness": table}, ancestry_label)
+            return {
+                "pass": True, "step": step, "metrics": {"outlier_count": 1},
+                "output": {"pruned_samples": str(outliers)},
+            }
+
+        runner._run_single_step = fake_step  # type: ignore[method-assign]
+        return runner, out
+
+    @staticmethod
+    def _check(output, out: Path) -> None:
+        path = Path(f"{out}_sample_fate.tsv")
+        assert path.is_file(), "sample fate table was not written"
+        assert output.to_dict()["sample_fate"] == str(path)
+        fate = pd.read_csv(path, sep="\t", dtype=str)
+        assert sorted(fate["IID"]) == ["i0", "i1", "i2", "i3"]
+        assert dict(zip(fate["IID"], fate["removed_by"])) == {
+            "i0": "kept", "i1": "callrate", "i2": "kept", "i3": "kept",
+        }
+        pruned = output.to_dict()["pruned_samples"]
+        assert sorted(pruned["IID"].values()) == ["i1"]
+
+    def test_flat_run(self, tmp_path: Path) -> None:
+        runner, out = self._runner(tmp_path, ancestry=False)
+        output = runner._run_qc_only(["callrate"])
+        self._check(output, out)
+        fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t")
+        assert set(fate["ancestry"]) == {"all"}
+        assert fate.set_index("IID").loc["i1", "F_MISS"] == 0.5
+
+    def test_ancestry_run(self, tmp_path: Path) -> None:
+        runner, out = self._runner(tmp_path, ancestry=True)
+        for label in ("EUR",):
+            _touch_pfiles(Path(f"{out}_ancestry_{label}"))
+        ids = pd.DataFrame(
+            {"FID": [f"f{i}" for i in range(4)], "IID": [f"i{i}" for i in range(4)],
+             "label": ["EUR"] * 4}
+        )
+        runner._run_ancestry_prediction_new = lambda: {  # type: ignore[method-assign]
+            "data": {
+                "predict_data": {"ids": ids},
+                "labels_list": ["EUR"],
+                "pruned_samples": pd.DataFrame(columns=["FID", "IID", "step", "label"]),
+            },
+            "metrics": {},
+        }
+        output = runner._run_with_ancestry(["callrate"])
+        self._check(output, out)
+        fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t")
+        assert set(fate["ancestry"]) == {"EUR"}
+        assert fate.set_index("IID").loc["i0", "F_MISS"] == 0.01
