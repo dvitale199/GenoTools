@@ -137,6 +137,17 @@ examined whatever the flags.
     after the run. A plot the run produced no data for is listed as not
     plotted; a plotting failure is logged as a warning and never fails the run.
 
+#### Per-sample fate table
+
+Every run that has an input sample table also writes `{out}_sample_fate.tsv`
+(path recorded as `sample_fate` in the JSON report): one row per input sample,
+answering "why did my sample disappear?". Columns are `FID`, `IID`, `ancestry`
+(predicted label, or `all`), `removed_by` (the step that removed it, or `kept`;
+samples dropped by `--min-samples` read `insufficient_ancestry_sample_n`), and
+where kept, `F_MISS`, `sex_F`, `het_F` and `max_kinship`, `NA` when unavailable.
+`removed_by` always agrees with the report's `pruned_samples`. See
+`sample_fate` in `docs/json_output_overview.md`.
+
 ---
 
 ### Plotting a finished run: `genotools-plot`
@@ -210,6 +221,7 @@ reference panel.
 | `ancestry_confusion_matrix` | The reference test set's confusion matrix, each true label's row normalised to sum to 1, with the held-out balanced accuracy (training runs only) and accuracy in the title. |
 | `ancestry_label_counts` | Cohort samples predicted as each label. |
 | `ancestry_pc_drift` | Per PC, how far the cohort centre sits from the reference (in reference SD) and its spread relative to the reference's, against the band the run warned outside of. The band is read from `ancestry_diagnostics.pc_drift_limits`; a report that did not record it is drawn without one. |
+| `ancestry_af_concordance` | Reference against cohort allele frequency for the model SNPs, with y = x and the faint y = 1 - x line a strand or allele flip lands on; flip-signature and other discordant SNPs get their own colour and marker. Draws the retained sample (at most 5,000 SNPs, `ancestry/allele_frequencies.tsv`); the annotated correlation and flip fraction come from `ancestry_diagnostics.allele_frequency` (all matched SNPs) when recorded, else from the sample. |
 | `ancestry_cah_margins` | Per sample, the distance to the global centroid minus the distance to the nearest ancestry centroid, as a histogram with a dashed line at 0 and one panel per nearest ancestry centroid. At or left of 0 the global centroid is nearest and the sample is `CAH`; the title counts the `CAH` samples. A cohort piled just left of 0 is a threshold question, one far to the left a projection question. Read from `{out}_plot_data/ancestry/centroid_margins.tsv`, so it needs admixture detection (not `--no-admixture-detection`). |
 
 An all-`CAH` cohort or a collapsed projection shows up here first: the cohort
@@ -218,7 +230,18 @@ lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in
 
 #### GWAS
 
-None yet.
+Drawn when the run did `--gwas` and the files the report points at still exist
+(the `assoc` step's `gwas_output_path`, `eigenvec_path` and `eigenval_path`
+parameters, which are absolute paths). Logistic (`.glm.logistic[.hybrid]`) and
+linear (`.glm.linear`) output draw alike; only the `ADD` test rows are used.
+
+| Plot | Shows |
+|---|---|
+| `gwas_manhattan` | -log10(p) by genome position, chromosomes alternating colour, with the genome-wide line at 5e-8. The PNG keeps every variant; the interactive figure thins the non-significant bulk of a very large GWAS. |
+| `gwas_qq` | Observed against expected -log10(p), annotated with the report's `lambda`, `lambda1000` and, when `--maf-lambdas` was used, the MAF-filtered values. |
+| `gwas_pcs_by_phenotype` | GWAS PC1 vs PC2 coloured by the phenotype in the report's `input_samples` (case/control with distinct shapes, or a colour scale for a quantitative phenotype), to check for case/control confounding. |
+| `gwas_pca_scree` | Eigenvalue of each GWAS covariate PC. |
+| `ancestry_pca_scree` | Eigenvalue of each PC of the ancestry reference PCA, with explained variance on hover. Only for runs that trained the ancestry model: it reads `{out}_plot_data/ancestry/pca_eigenvalues.tsv`, which a run using a saved model does not write. |
 
 ---
 

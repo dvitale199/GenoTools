@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from .. import __version__
+from .sample_fate import write_sample_fate
 
 if TYPE_CHECKING:
     from .parser import PipelineArgs
@@ -139,6 +140,8 @@ class PipelineOutput:
         pruned_samples: DataFrame of pruned samples.
         related_samples: DataFrame of related samples.
         pass_fail: Step pass/fail status by ancestry.
+        plot_data: Path to the ``{out}_plot_data/`` directory.
+        sample_fate: Path to ``{out}_sample_fate.tsv``, one row per input sample.
     """
 
     input_samples: Optional[pd.DataFrame] = None
@@ -162,6 +165,7 @@ class PipelineOutput:
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     plot_data: Optional[str] = None
+    sample_fate: Optional[str] = None
 
     @property
     def success(self) -> bool:
@@ -225,6 +229,15 @@ class PipelineOutput:
         output.parameters = list(state.parameters)
         if state.plot_data_dir is not None:
             output.plot_data = str(state.plot_data_dir)
+        fate_path = write_sample_fate(
+            args.out_path,
+            output.input_samples,
+            output.pruned_samples,
+            output.ancestry_labels,
+            state.plot_data_dir,
+        )
+        if fate_path is not None:
+            output.sample_fate = str(fate_path)
         output.run_info = {"version": __version__}
         if args.invocation:
             output.run_info["invocation"] = args.invocation
@@ -611,6 +624,10 @@ class PipelineOutput:
         # Plot-ready QC tables for genotools-plot, collected per ancestry group
         if self.plot_data is not None:
             result["plot_data"] = self.plot_data
+
+        # Per-sample fate table
+        if self.sample_fate is not None:
+            result["sample_fate"] = self.sample_fate
 
         # Pass/fail status
         result.update(self.pass_fail)

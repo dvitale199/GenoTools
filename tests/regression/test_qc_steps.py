@@ -503,6 +503,21 @@ def assert_plot_data_matches_golden(golden_prefix: Path, output_prefix: Path) ->
         )
 
 
+def assert_sample_fate_matches_golden(golden_prefix: Path, output_prefix: Path) -> None:
+    """The run's {out}_sample_fate.tsv matches the golden run's, row for row."""
+    golden = Path(f"{golden_prefix}_sample_fate.tsv")
+    output = Path(f"{output_prefix}_sample_fate.tsv")
+    assert golden.is_file(), f"no golden sample fate table at {golden}"
+    assert output.is_file(), f"run wrote no sample fate table at {output}"
+    pd.testing.assert_frame_equal(
+        pd.read_csv(output, sep="\t", dtype={"FID": str, "IID": str}),
+        pd.read_csv(golden, sep="\t", dtype={"FID": str, "IID": str}),
+        check_exact=False,
+        rtol=1e-5,
+        obj="sample_fate",
+    )
+
+
 class TestAllSamplePipeline:
     """Integration tests for the --all_sample pipeline."""
 
@@ -543,6 +558,7 @@ class TestAllSamplePipeline:
             f"  {comparison.message}"
         )
         assert_plot_data_matches_golden(golden_output, output_prefix)
+        assert_sample_fate_matches_golden(golden_output, output_prefix)
 
     def test_all_sample_is_deterministic(
         self, test_geno_path: Path, tmp_output_dir: Path
@@ -621,6 +637,7 @@ class TestAllVariantPipeline:
             f"  {comparison.message}"
         )
         assert_plot_data_matches_golden(golden_output, output_prefix)
+        assert_sample_fate_matches_golden(golden_output, output_prefix)
 
 
 class TestFullPipeline:
