@@ -720,6 +720,49 @@ def admixture_warnings(
 
 
 # ---------------------------------------------------------------------------
+# Centroid margins (plot data)
+# ---------------------------------------------------------------------------
+
+CENTROID_MARGIN_COLUMNS = [
+    "FID",
+    "IID",
+    "nearest_centroid",
+    "nearest_ancestry",
+    "margin_to_all",
+    "label",
+]
+
+
+def centroid_margin_table(decisions: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+    """The slice of the admixture decisions the margin histogram needs.
+
+    `margin_to_all` is the distance to the global centroid minus the distance
+    to the nearest *ancestry* centroid. The CAH rule is "the global centroid is
+    the nearest of all centroids", i.e. a margin at or below zero (an exact tie
+    goes to the global centroid, which is listed first).
+    `nearest_centroid` is the winner including the global centroid, so it is
+    ``ALL`` for every CAH sample; `nearest_ancestry` is the nearest ancestry
+    centroid alone, which says which group a CAH sample was nearly assigned to.
+
+    Args:
+        decisions: Frame from `AncestryModel._predict_admixed`, or None.
+
+    Returns:
+        A frame with `CENTROID_MARGIN_COLUMNS`, or None when there is nothing to
+        keep (detection did not run, or the panel had no ancestry centroid to
+        take a margin against).
+    """
+    if decisions is None or decisions.empty:
+        return None
+    if any(c not in decisions.columns for c in CENTROID_MARGIN_COLUMNS):
+        return None
+    table = decisions[CENTROID_MARGIN_COLUMNS].copy()
+    for column in ("FID", "IID", "nearest_centroid", "nearest_ancestry", "label"):
+        table[column] = table[column].astype(str)
+    return table.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
 # Aggregate
 # ---------------------------------------------------------------------------
 
@@ -739,6 +782,10 @@ class AncestryDiagnostics:
     # Bounded per-SNP rows behind `allele_frequency`, for the plot-data
     # directory. Deliberately not in `to_dict()`: it is a table, not a finding.
     allele_frequency_sample: Optional[pd.DataFrame] = None
+    # The per-sample admixture decisions, for the plot-data directory. Like
+    # `allele_frequency_sample` it is a table, not a finding, and stays out of
+    # `to_dict()`. None when admixture detection did not run.
+    admixture_decisions: Optional[pd.DataFrame] = None
     pc_drift: Optional[pd.DataFrame] = None
     admixture: Optional[Dict[str, Any]] = None
     self_test: Optional[Dict[str, Any]] = None

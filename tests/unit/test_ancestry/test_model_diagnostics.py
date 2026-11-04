@@ -252,3 +252,28 @@ def test_self_test_reports_the_cah_rate_per_true_label():
     by_label = model.self_test(ref)["cah_fraction_by_label"]
     assert by_label["EAS"] == 1.0
     assert by_label["EUR"] == 0.0
+
+
+def test_predict_hands_the_decisions_to_the_diagnostics_collector() -> None:
+    """The runner writes `centroid_margins.tsv` from this attribute, so
+    `_report_prediction_diagnostics` has to set it (and only when detection ran)."""
+    import pandas as pd
+
+    from genotools.ancestry.diagnostics import AncestryDiagnostics
+    from genotools.ancestry.model import AncestryModel
+
+    decisions = pd.DataFrame(
+        {"FID": ["a"], "IID": ["a"], "label_pre_admixture": ["EUR"], "label": ["CAH"],
+         "nearest_centroid": ["ALL"], "dist_to_all": [1.0], "nearest_ancestry": ["EUR"],
+         "dist_to_nearest_ancestry": [2.0], "margin_to_all": [-1.0]}
+    )
+    model = AncestryModel.__new__(AncestryModel)
+    model._train_pca = None
+    diagnostics = AncestryDiagnostics()
+    model._report_prediction_diagnostics(diagnostics, pd.DataFrame(), decisions, None)
+    assert diagnostics.admixture_decisions is decisions
+    assert "admixture_decisions" not in diagnostics.to_dict()
+
+    fresh = AncestryDiagnostics()
+    model._report_prediction_diagnostics(fresh, pd.DataFrame(), None, None)
+    assert fresh.admixture_decisions is None

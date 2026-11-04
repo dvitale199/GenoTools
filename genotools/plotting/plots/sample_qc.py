@@ -40,6 +40,7 @@ from genotools.plotting.style import (
     INK_SECONDARY,
     NEUTRAL,
     SERIES,
+    OUTCOME_COLORS,
     SURFACE,
     THRESHOLD,
     grid,
@@ -49,6 +50,10 @@ from genotools.plotting.style import (
 )
 
 BINS = 40
+
+# Flagged samples take the fail status colour: being flagged is an outcome, and
+# a status colour is never reused for a series, so it cannot read as one.
+FLAGGED = OUTCOME_COLORS["fail"]
 
 # KING's kinship boundaries between degrees of relationship (Manichaikul et
 # al. 2010). Definitional constants, not settings: the step's own cutoffs are
@@ -107,14 +112,23 @@ def above_threshold(frame: pd.DataFrame, column: str, bound: Optional[float]) ->
 
 
 def outside_bounds(
-    frame: pd.DataFrame, column: str, lower: Optional[float], upper: Optional[float]
+    frame: pd.DataFrame,
+    column: str,
+    lower: Optional[float],
+    upper: Optional[float],
+    inclusive: bool = False,
 ) -> pd.DataFrame:
-    """Rows whose `column` is outside the keep band; an absent side flags nothing."""
+    """Rows whose `column` is outside the keep band; an absent side flags nothing.
+
+    `inclusive` also flags a value equal to a bound, as the het step does in
+    fixed mode (`F <= lower | F >= upper`, as in 1.x); its sd mode is strict.
+    """
+    below, above = (np.less_equal, np.greater_equal) if inclusive else (np.less, np.greater)
     mask = pd.Series(False, index=frame.index)
     if lower is not None:
-        mask |= frame[column] < lower
+        mask |= below(frame[column], lower)
     if upper is not None:
-        mask |= frame[column] > upper
+        mask |= above(frame[column], upper)
     return frame[mask]
 
 
@@ -291,7 +305,11 @@ def het_panels(report: Report) -> List[HistPanel]:
     panels = []
     for ancestry, frame in plot_tables(report, "het_f").items():
         lower, upper = het_bounds(report, ancestry)
-        outliers = outside_bounds(frame, "F", lower, upper)
+        # Fixed bounds prune a sample sitting exactly on one; derived (sd)
+        # bounds do not. Count the way the step did, or the title disagrees
+        # with the report's pruned_count.
+        fixed = parameter(report, "het_prune", "het_mode", ancestry) == "fixed"
+        outliers = outside_bounds(frame, "F", lower, upper, inclusive=fixed)
         lines = []
         if lower is not None:
             lines.append((lower, f"lower {lower:.3g}"))
@@ -350,12 +368,19 @@ def hist_png(panels: List[HistPanel], xlabel: str, plt, out_path: Path) -> Path:
                 color=INK_SECONDARY,
             )
         if len(panel.flagged_x):
-            # A rug along the baseline: marks which samples, without a second
-            # colour competing with the quantity.
+            # The flagged share of each bin, drawn over the bars on the same
+            # edges, so a flagged tail reads as part of the distribution.
+            ax.hist(
+                panel.flagged_x, bins=edges, color=FLAGGED, histtype="bar",
+                edgecolor=SURFACE, linewidth=1.0, zorder=2, label=panel.flag_label,
+            )
+            # A one-sample bin is a sliver at this scale, so a rug below the
+            # axis still marks every flagged sample. Translucent, so a dense
+            # run reads as a band rather than a solid block.
             ax.plot(
-                panel.flagged_x, np.zeros(len(panel.flagged_x)), "|", color=INK,
-                markersize=9, markeredgewidth=1.2, clip_on=False, zorder=4,
-                label=panel.flag_label,
+                panel.flagged_x, np.full(len(panel.flagged_x), -0.04), "|",
+                color=FLAGGED, alpha=0.5, markersize=7, markeredgewidth=1.0,
+                transform=ax.get_xaxis_transform(), clip_on=False, zorder=4,
             )
         if multi or len(panel.flagged_x):
             # Below the axis: inside, it lands on a threshold label or a tall bar.
@@ -402,15 +427,27 @@ def hist_plotly(panels: List[HistPanel], xlabel: str):
             fig.add_vline(
                 x=x, line_dash="dash", line_color=THRESHOLD, line_width=1.2,
                 annotation_text=label, annotation_font_size=10,
-                annotation_font_color=INK_SECONDARY, annotation_position="top",
+                annotation_font_color=INK_SECONDARY,
+                # Inside the panel, rotated beside the line as in the PNG:
+                # "top" puts it above the panel, on the subplot title.
+                annotation_position="top right", annotation_yanchor="top",
+                annotation_textangle=-90,
                 row=row, col=col,
             )
         if len(panel.flagged_x):
             fig.add_trace(
+                go.Histogram(
+                    x=panel.flagged_x, xbins=xbins, marker_color=FLAGGED,
+                    name=panel.flag_label.split(" (")[0], legendgroup="flagged",
+                    showlegend=False, hoverinfo="skip",
+                ),
+                row=row, col=col,
+            )
+            fig.add_trace(
                 go.Scatter(
                     x=panel.flagged_x, y=np.zeros(len(panel.flagged_x)), mode="markers",
-                    marker={"symbol": "line-ns-open", "color": INK, "size": 12,
-                            "line": {"width": 1.5, "color": INK}},
+                    marker={"symbol": "line-ns-open", "color": FLAGGED, "size": 12,
+                            "opacity": 0.6, "line": {"width": 1.5, "color": FLAGGED}},
                     name="flagged", legendgroup="flagged", showlegend=i == 0,
                     hovertext=panel.flagged_hover, hoverinfo="text",
                 ),
@@ -576,7 +613,8 @@ PLOTS: List[Plot] = [
         title="Sample missingness",
         description=(
             "Distribution of per-sample missing-call rate, with the call-rate "
-            "cutoff (--mind). Ticks along the baseline mark samples above it."
+            "cutoff (--mind). Samples above it are drawn in red, with a tick for each "
+            "along the axis."
         ),
         available=_has_table("callrate_sample_missingness"),
         png=lambda r, plt, p: hist_png(missingness_panels(r), "F_MISS", plt, p),
@@ -587,7 +625,7 @@ PLOTS: List[Plot] = [
         title="Sex check",
         description=(
             "X-chromosome F by reported sex (the QC-filtered X pass), with the "
-            "female and male cutoffs. Ticks mark every sample PLINK flagged in "
+            "female and male cutoffs. Red marks every sample PLINK flagged in "
             "either pass, which is what the step prunes; hover for reported "
             "and genetic sex and the pass that flagged it."
         ),
@@ -600,8 +638,8 @@ PLOTS: List[Plot] = [
         title="Heterozygosity",
         description=(
             "Per-sample heterozygosity F with the keep band this group was "
-            "pruned against (these differ by group under --het sd). Ticks mark "
-            "outliers."
+            "pruned against (these differ by group under --het sd). Outliers are "
+            "drawn in red, with a tick for each along the axis."
         ),
         available=_has_table("het_f"),
         png=lambda r, plt, p: hist_png(het_panels(r), "heterozygosity F", plt, p),

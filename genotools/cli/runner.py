@@ -909,9 +909,10 @@ class PipelineRunner:
     ) -> None:
         """Keep ancestry tables that die with the temp dir in ``{out}_plot_data/ancestry/``.
 
-        The PCA eigenvalues and the per-SNP allele frequencies are computed
-        during ancestry and, without ``--full-output``, deleted with the temp
-        directory. They are for ``genotools-plot`` only, so a failure to keep
+        The PCA eigenvalues, the per-SNP allele frequencies and the per-sample
+        centroid margins are computed during ancestry and, without
+        ``--full-output``, deleted with the temp directory (the margins live
+        only in memory until written here). They are for ``genotools-plot`` only, so a failure to keep
         them is a warning, never a failed run. The projected cohort PCs are not
         copied: the report already carries them whole as ``projected_pcs``.
 
@@ -922,14 +923,18 @@ class PipelineRunner:
         Args:
             actual_out: Output prefix ancestry wrote to (temp dir unless
                 ``--full-output``).
-            diagnostics: Collector; its ``allele_frequency_sample`` is written.
+            diagnostics: Collector; its ``allele_frequency_sample`` and, when
+                admixture detection ran, ``admixture_decisions`` are written.
         """
+        from ..ancestry.diagnostics import centroid_margin_table
+
         assert self.state is not None
         eigenvalues = Path(f"{actual_out}_pca_eigenvalues.txt")
         sample = diagnostics.allele_frequency_sample
         has_sample = sample is not None and not sample.empty
+        margins = centroid_margin_table(diagnostics.admixture_decisions)
         # Inference from a saved model fits no PCA, so there are no eigenvalues.
-        if not eigenvalues.is_file() and not has_sample:
+        if not eigenvalues.is_file() and not has_sample and margins is None:
             return
 
         root = Path(f"{self.args.output.out_path}_plot_data")
@@ -940,6 +945,8 @@ class PipelineRunner:
                 shutil.copy2(eigenvalues, dest / "pca_eigenvalues.tsv")
             if has_sample:
                 sample.to_csv(dest / "allele_frequencies.tsv", sep="\t", index=False)
+            if margins is not None:
+                margins.to_csv(dest / "centroid_margins.tsv", sep="\t", index=False)
         except OSError as e:
             logger.warning(f"Ancestry plot data not kept: {e}")
             return

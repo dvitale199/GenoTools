@@ -210,6 +210,22 @@ class TestThresholds:
         assert panel.threshold == 0.003
 
 
+    @pytest.mark.parametrize("name", ["hwe", "case_control", "haplotype"])
+    def test_a_group_with_no_tests_gets_no_panel(self, tmp_path: Path, name: str) -> None:
+        # A small ancestry group can keep an all-zero histogram (haplotype in a
+        # group with no cases). Its empty points frame used to break both
+        # renders with KeyError: 'expected', losing every group's panel.
+        spec = QQ_SPECS[name]
+        report = _write_tables(tmp_path, {spec.bins_table: bins([4, 3, 2, 1]).assign(test="ALL")},
+                               groups=("AMR", "EUR"))
+        root = tmp_path / "run_plot_data" / "EUR"
+        bins([0, 0, 0, 0]).assign(test="ALL").to_csv(root / f"{spec.bins_table}.tsv", sep="\t", index=False)
+        loaded = load_report(report)
+        assert [p.ancestry for p in qq_panels(loaded, spec)] == ["AMR"]
+        plot = next(p for p in PLOTS if p.name == f"{name}_qq")
+        assert plot.png(loaded, plt, tmp_path / "qq.png").stat().st_size > 0
+        assert len(plot.plotly(loaded).data) > 0
+
 class TestAvailable:
     @pytest.mark.parametrize("name", NAMES)
     def test_false_without_tables(self, ancestry_report: Path, name: str) -> None:
@@ -284,6 +300,18 @@ class TestRemovedCounts:
         hwe = QQ_SPECS["hwe"]
         (panel,) = qq_panels(load_report(golden_variant_report), hwe)
         assert vq._qq_title(panel, hwe) == "all: UNAFF test, 899 variants removed"
+
+
+    def test_a_capped_failing_table_is_titled_as_a_floor(self) -> None:
+        # The step keeps at most MAX_FAILING_ROWS failing tests, so a full
+        # table means at least that many, not exactly that many.
+        from genotools.qc.plot_data import MAX_FAILING_ROWS
+        assert vq.MAX_FAILING_ROWS == MAX_FAILING_ROWS
+        spec = QQ_SPECS["haplotype"]
+        panel = vq.QQPanel("AMR", pd.DataFrame(), None, 5, MAX_FAILING_ROWS, None)
+        assert vq._qq_title(panel, spec) == f"AMR: {MAX_FAILING_ROWS:,}+ significant tests, 5 variants removed"
+        panel = vq.QQPanel("AMR", pd.DataFrame(), None, 5, MAX_FAILING_ROWS - 1, None)
+        assert vq._qq_title(panel, spec).startswith(f"AMR: {MAX_FAILING_ROWS - 1:,} significant")
 
     def test_steps_metrics_are_summed(self, tmp_path: Path) -> None:
         qc = [qc_row("hwe_prune", 5, "a", level="variant"), qc_row("hwe_prune", 7, "b", level="variant"),

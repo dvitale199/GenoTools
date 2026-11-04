@@ -966,6 +966,7 @@ class AncestryModel:
 
         summary = diagnostics_mod.admixture_summary(decisions)
         diagnostics.admixture = summary
+        diagnostics.admixture_decisions = decisions
         logger.info(
             f"Admixture detection: {summary['n_cah']}/{summary['n_samples']} "
             f"labeled CAH; classifier labels before the override: "

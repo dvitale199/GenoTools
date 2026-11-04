@@ -222,6 +222,7 @@ reference panel.
 | `ancestry_label_counts` | Cohort samples predicted as each label. |
 | `ancestry_pc_drift` | Per PC, how far the cohort centre sits from the reference (in reference SD) and its spread relative to the reference's, against the band the run warned outside of. The band is read from `ancestry_diagnostics.pc_drift_limits`; a report that did not record it is drawn without one. |
 | `ancestry_af_concordance` | Reference against cohort allele frequency for the model SNPs, with y = x and the faint y = 1 - x line a strand or allele flip lands on; flip-signature and other discordant SNPs get their own colour and marker. Draws the retained sample (at most 5,000 SNPs, `ancestry/allele_frequencies.tsv`); the annotated correlation and flip fraction come from `ancestry_diagnostics.allele_frequency` (all matched SNPs) when recorded, else from the sample. |
+| `ancestry_cah_margins` | Per sample, the distance to the global centroid minus the distance to the nearest ancestry centroid, as a histogram with a dashed line at 0 and one panel per nearest ancestry centroid. At or left of 0 the global centroid is nearest and the sample is `CAH`; the title counts the `CAH` samples. A cohort piled just left of 0 is a threshold question, one far to the left a projection question. Read from `{out}_plot_data/ancestry/centroid_margins.tsv`, so it needs admixture detection (not `--no-admixture-detection`). |
 
 An all-`CAH` cohort or a collapsed projection shows up here first: the cohort
 lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in
@@ -560,8 +561,8 @@ silent no-op.
     `{anc}_pca_diagnostic.png` or `{anc}_centroid_distance.png`. The
     reference-and-cohort PC picture is replaced by the ancestry plots in
     `{out}_plots/` (see [Ancestry](#ancestry) under `genotools-plot`); the
-    centroid-margin histogram has no replacement yet, and `{anc}_decisions.txt`
-    still records every sample's margin. It no longer requires
+    centroid-margin histogram is now `ancestry_cah_margins`, and
+    `{anc}_decisions.txt` still records every sample's margin. It no longer requires
     `--ancestry`, since `--plots` does not.
 
 - **`--ancestry-self-test`**
