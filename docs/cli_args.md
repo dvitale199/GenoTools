@@ -72,7 +72,8 @@ over `--bfile`, which wins over `--vcf`.
   - *Type*: `flag`
   - *Default*: `False`
   - *Description*: Keep every intermediate pfile instead of only the final
-    output. Does **not** affect logs — the consolidated and per-step logs are
+    output. Plot-ready QC tables are kept in `{out}_plot_data/`
+    either way (see `plot_data` in `docs/json_output_overview.md`). Does **not** affect logs — the consolidated and per-step logs are
     always written. This is the **only** switch governing disk retention: at
     defaults each step's input pfile is deleted once the step has passed and
     written its own output, so peak disk is roughly one working copy rather
@@ -125,6 +126,122 @@ examined whatever the flags.
     and the consolidated log, and re-raise errors so the full Python traceback is
     shown (without it, expected failures print a one-line `ERROR:` message).
     Combine with `--quiet` for verbose file-only logs.
+
+- **`--plots`**
+  - *Type*: `flag`
+  - *Default*: `False`
+  - *Description*: Once the run has written its JSON report, render plots from
+    it into `{out}_plots/`: one PNG per plot under `static/`, plus a
+    self-contained `report.html` with interactive versions (hover a cell or bar
+    for its detail). Identical to running `genotools-plot --report {out}.json`
+    after the run. A plot the run produced no data for is listed as not
+    plotted; a plotting failure is logged as a warning and never fails the run.
+
+#### Per-sample fate table
+
+Every run that has an input sample table also writes `{out}_sample_fate.tsv`
+(path recorded as `sample_fate` in the JSON report): one row per input sample,
+answering "why did my sample disappear?". Columns are `FID`, `IID`, `ancestry`
+(predicted label, or `all`), `removed_by` (the step that removed it, or `kept`;
+samples dropped by `--min-samples` read `insufficient_ancestry_sample_n`), and
+where kept, `F_MISS`, `sex_F`, `het_F` and `max_kinship`, `NA` when unavailable.
+`removed_by` always agrees with the report's `pruned_samples`. See
+`sample_fate` in `docs/json_output_overview.md`.
+
+---
+
+### Plotting a finished run: `genotools-plot`
+
+Renders the same `{out}_plots/` directory as `--plots`, from an existing report,
+without rerunning anything. Use it to plot a run that was not started with
+`--plots`, or to re-render after upgrading GenoTools.
+
+```bash
+genotools-plot --report results/output.json                    # -> results/output_plots/
+genotools-plot --report results/output.json --out-dir figs/    # -> figs/
+```
+
+| Argument | Description |
+|---|---|
+| `--report` | The `{out}.json` report a `genotools` run wrote. Required. |
+| `--out-dir` | Where to write. Default: `{out}_plots` beside the report. |
+| `--debug` | Show the full traceback on error. |
+
+Plots rendered today, in the order `report.html` shows them. Thresholds drawn
+on a plot come from the report's `parameters` section, so they match what the
+run actually applied.
+
+#### QC summary
+
+| Plot | Shows |
+|---|---|
+| `sample_attrition` | Samples entering QC and removed at each step, per ancestry group, as a waterfall. Skipped and failed steps are labelled as such. |
+| `variant_attrition` | Variants removed at each step, per ancestry group. Removals only: the report does not record the input variant count. |
+| `step_outcomes` | Step × ancestry grid of pass / fail / skipped, with the reason on hover in the HTML. |
+
+#### Sample QC
+
+Each plot is one panel per ancestry group (`all` first). Thresholds are read from the report's `parameters` section for that group; a threshold the report does not record is not drawn. A plot is skipped when its table is absent (step not requested, or skipped for that group).
+
+| Plot | Shows |
+|---|---|
+| `sample_missingness` | Per-sample `F_MISS` histogram with the `--mind` line. Samples above it are drawn in red, with a tick for each along the axis. |
+| `sex_check` | X-chromosome F by reported sex, with the `female_max_f` and `male_min_f` cutoffs. Shows the QC-filtered X pass (`filtered_x`: non-PAR, MAF/geno/HWE-filtered), falling back to `all_x`; the step prunes a sample flagged in either pass. Red marks every sample PLINK flagged in either pass, so the count equals what the step pruned; hover gives reported and genetic sex and which pass flagged it. |
+| `heterozygosity` | Per-sample F histogram with the keep band (`het_lower` to `het_upper`) that group was actually pruned against, which differs by group under `--het sd`. Outliers are drawn in red, with a tick for each along the axis; under fixed bounds a sample exactly on a bound counts as an outlier, as the step prunes it. |
+| `relatedness` | KING kinship against IBS0 for the pairs kept in `related_kinship`, with the standard degree boundaries (0.354 duplicate/MZ, 0.177 1st, 0.0884 2nd, 0.0442 3rd) and the step's own `related_cutoff` and `duplicated_cutoff`. Hover names both samples. |
+
+#### Variant QC
+
+| Plot | Shows |
+|---|---|
+| `variant_missingness` | Per-variant missingness histogram per ancestry group (count on a log axis), with a line at the run's `--geno` and the number of variants removed. |
+| `hwe_qq` | QQ plot of Hardy-Weinberg p-values for the test the filter used (`UNAFF`, i.e. controls, on case/control data; otherwise `ALL`), with the `--hwe` threshold. |
+| `case_control_qq` | QQ plot of case-control missingness p-values, with the step's p threshold. |
+| `haplotype_qq` | QQ plot of haplotype-missingness (`--test-mishap`) p-values, with the step's p threshold. Points are haplotype tests, not variants. |
+
+These are drawn from the binned `plot_data` tables, so they stay fast on large
+arrays. In a QQ plot the bulk is quantised to the histogram's 0.05-wide
+-log10(p) bins and the tail is exact: the tests that failed are plotted
+individually (hover names the variant in the HTML). A hollow triangle is a
+floor, not a value: the open last bin (-log10(p) of 50 or more) or a p of
+exactly 0. A step that was not run, or kept no tables, is skipped.
+
+#### Ancestry
+
+Principal components only: the report's UMAP embedding has 15-25 dimensions
+(the grid search chooses), so a 2D or 3D view of it would show an arbitrary
+slice of what the classifier sees. Every label has a fixed colour *and* marker
+shape, the same in every plot of a run, including labels outside the default
+reference panel.
+
+| Plot | Shows |
+|---|---|
+| `ancestry_pc_pairs` | PC1/PC2, PC1/PC3 and PC2/PC3: the reference panel faded, the cohort solid, both coloured by label. |
+| `ancestry_pc_3d` | PC1-3 in three dimensions. In `report.html` it rotates and hover names the sample and label; the PNG is one fixed view, and uses only the marker shapes plotly's 3D scatter supports. |
+| `ancestry_confusion_matrix` | The reference test set's confusion matrix, each true label's row normalised to sum to 1, with the held-out balanced accuracy (training runs only) and accuracy in the title. |
+| `ancestry_label_counts` | Cohort samples predicted as each label. |
+| `ancestry_pc_drift` | Per PC, how far the cohort centre sits from the reference (in reference SD) and its spread relative to the reference's, against the band the run warned outside of. The band is read from `ancestry_diagnostics.pc_drift_limits`; a report that did not record it is drawn without one. |
+| `ancestry_af_concordance` | Reference against cohort allele frequency for the model SNPs, with y = x and the faint y = 1 - x line a strand or allele flip lands on; flip-signature and other discordant SNPs get their own colour and marker. Draws the retained sample (at most 5,000 SNPs, `ancestry/allele_frequencies.tsv`); the annotated correlation and flip fraction come from `ancestry_diagnostics.allele_frequency` (all matched SNPs) when recorded, else from the sample. |
+| `ancestry_cah_margins` | Per sample, the distance to the global centroid minus the distance to the nearest ancestry centroid, as a histogram with a dashed line at 0 and one panel per nearest ancestry centroid. At or left of 0 the global centroid is nearest and the sample is `CAH`; the title counts the `CAH` samples. A cohort piled just left of 0 is a threshold question, one far to the left a projection question. Read from `{out}_plot_data/ancestry/centroid_margins.tsv`, so it needs admixture detection (not `--no-admixture-detection`). |
+
+An all-`CAH` cohort or a collapsed projection shows up here first: the cohort
+lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in
+`ancestry_pc_drift`.
+
+#### GWAS
+
+Drawn when the run did `--gwas` and the files the report points at still exist
+(the `assoc` step's `gwas_output_path`, `eigenvec_path` and `eigenval_path`
+parameters, which are absolute paths). Logistic (`.glm.logistic[.hybrid]`) and
+linear (`.glm.linear`) output draw alike; only the `ADD` test rows are used.
+
+| Plot | Shows |
+|---|---|
+| `gwas_manhattan` | -log10(p) by genome position, chromosomes alternating colour, with the genome-wide line at 5e-8. The PNG keeps every variant; the interactive figure thins the non-significant bulk of a very large GWAS. |
+| `gwas_qq` | Observed against expected -log10(p), annotated with the report's `lambda`, `lambda1000` and, when `--maf-lambdas` was used, the MAF-filtered values. |
+| `gwas_pcs_by_phenotype` | GWAS PC1 vs PC2 coloured by the phenotype in the report's `input_samples` (case/control with distinct shapes, or a colour scale for a quantitative phenotype), to check for case/control confounding. |
+| `gwas_pca_scree` | Eigenvalue of each GWAS covariate PC. |
+| `ancestry_pca_scree` | Eigenvalue of each PC of the ancestry reference PCA, with explained variance on hover. Only for runs that trained the ancestry model: it reads `{out}_plot_data/ancestry/pca_eigenvalues.tsv`, which a run using a saved model does not write. |
 
 ---
 
@@ -433,15 +550,20 @@ silent no-op.
     `CAH` the samples that sit nearer the global centroid than any ancestry
     centroid. The first thing to try on an all-`CAH` result: it separates a
     broken classifier from a broken override. The per-sample
-    `{out}_decisions.txt` file records both labels either way.
+    `{anc}_decisions.txt` file records both labels either way (`{anc}` is
+    defined under "Files an ancestry run writes" below).
 
 - **`--ancestry-plots`**
   - *Type*: `flag`
   - *Default*: `False`
-  - *Description*: Write two diagnostic PNGs: `{out}_pca_diagnostic.png`, the
-    reference panel coloured by label with the cohort overlaid across the three
-    leading PC pairs, and `{out}_centroid_distance.png`, the margin behind each
-    `CAH` decision against the line where the decision flips.
+  - *Description*: **Deprecated alias for `--plots`.** Logs a deprecation
+    warning and turns on the post-run plot report. It no longer writes
+    `{anc}_pca_diagnostic.png` or `{anc}_centroid_distance.png`. The
+    reference-and-cohort PC picture is replaced by the ancestry plots in
+    `{out}_plots/` (see [Ancestry](#ancestry) under `genotools-plot`); the
+    centroid-margin histogram is now `ancestry_cah_margins`, and
+    `{anc}_decisions.txt` still records every sample's margin. It no longer requires
+    `--ancestry`, since `--plots` does not.
 
 - **`--ancestry-self-test`**
   - *Type*: `flag`
@@ -455,14 +577,14 @@ silent no-op.
     leaves only the cohort's own preprocessing to blame.
 
 **Files an ancestry run writes for debugging** (alongside the report, at the
-final output prefix — they survive a run without `--full-output`):
+final output prefix — they survive a run without `--full-output`). `{anc}` is
+`{out}_ancestry` when QC steps run alongside ancestry (`{out}` itself carries
+the QC output there) and plain `{out}` for an ancestry-only run:
 
 | File | Contents |
 |---|---|
-| `{out}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
-| `{out}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
-| `{out}_pca_diagnostic.png` | With `--ancestry-plots` |
-| `{out}_centroid_distance.png` | With `--ancestry-plots` |
+| `{anc}_decisions.txt` | Per sample: the classifier's label, the label after the `CAH` override, the nearest centroid, and one distance column per centroid |
+| `{anc}_filled_snps.txt` | IDs of the model SNPs the cohort did not carry |
 
 #### Fit validation
 
@@ -563,9 +685,14 @@ genotools --pfile data/mydata --out results/output \
           --callrate 0.05 --geno 0.01 --hwe 1e-6 \
           --pca 20 --gwas --quiet
 
+# Full pipeline with plots in results/output_plots/
+genotools --pfile data/mydata --out results/output --ancestry \
+          --ref-panel refs/panel --ref-labels refs/labels.txt \
+          --all-sample --all-variant --plots
+
 # Debugging a prediction that came back one label for every sample
 genotools --pfile data/mydata --out results/debug --ancestry \
           --model models/my_model --ref-panel refs/panel \
           --ref-labels refs/labels.txt \
-          --ancestry-self-test --ancestry-plots --no-admixture-detection
+          --ancestry-self-test --plots --no-admixture-detection
 ```

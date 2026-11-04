@@ -60,6 +60,7 @@ setup(
         'console_scripts': [
             'genotools=genotools.cli:main',
             'genotools-download=genotools.download_refs:handle_download',
+            'genotools-plot=genotools.plotting.cli:main',
         ]
     },
     install_requires = [

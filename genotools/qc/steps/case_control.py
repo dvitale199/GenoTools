@@ -28,6 +28,7 @@ from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import CaseControlConfig
+from genotools.qc.plot_data import failing_rows, pvalue_histogram, write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -112,8 +113,17 @@ def filter_case_control(
         missing_file = Path(f"{mis_tmp}.missing")
         if missing_file.exists():
             # Read missing file and identify variants to exclude
-            mis = pd.read_csv(missing_file, sep=r"\s+")
+            mis = pd.read_csv(missing_file, sep=r"\s+", dtype={"SNP": str})
             exclude = mis[mis.P <= config.p_threshold].loc[:, "SNP"]
+            plot_tables = {
+                "pvalue_bins": pvalue_histogram(mis["P"]),
+                "failing": failing_rows(
+                    mis.loc[:, ["SNP", "F_MISS_A", "F_MISS_U", "P"]],
+                    mis.P <= config.p_threshold,
+                    "P",
+                    ascending=True,
+                ),
+            }
             exclude_file = Path(f"{mis_tmp}.exclude")
             exclude.to_csv(exclude_file, sep="\t", header=False, index=False)
 
@@ -160,6 +170,7 @@ def filter_case_control(
                 },
                 log="",
                 pruned_samples_file=None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

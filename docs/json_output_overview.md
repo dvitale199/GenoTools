@@ -66,6 +66,15 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     | `n_failed_candidates` | Grid candidates that raised and were scored `NaN`. They rank last silently, so the search chose among fewer than it evaluated |
     | `n_grid_candidates` | Candidates the search evaluated |
  
+- **`ancestry_diagnostics`**  
+  - *Process*: `Ancestry`  
+  - *Description*: What the prediction path measured about itself. `pc_drift`
+    is one list per column (`pc`, `train_mean`, `train_sd`, `cohort_mean`,
+    `cohort_sd`, `shift_sd`, `sd_ratio`); `pc_drift_limits` records the
+    thresholds the run's drift warnings applied (`max_shift_sd`, and
+    `sd_ratio_range` as `[low, high]`), which the PC drift plot draws as its
+    band. Reports from before `pc_drift_limits` was recorded lack it.
+
 - **`ref_pcs`**  
   - *Process*: `Ancestry`  
   - *Description*: DataFrame containing the reference panel prinicpal components.
@@ -126,8 +135,27 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     are present but inert, and the `resolved` row `het_mode` says which pair
     was live.
 
-    Only the heterozygosity step derives anything today, so it is the only one
-    with `resolved` rows. Every step contributes `requested` rows.
+    The heterozygosity step derives its bounds, the haplotype step records the
+    `p_threshold` it applied (`0.05 / n_samples` above 10,000 samples, the configured
+    value otherwise), and the `assoc`
+    step records where its output files went, so those are the steps with
+    `resolved` rows.
+    Every step contributes `requested` rows.
+
+    **Where the association files are.** After `assoc`, `step` = `assoc` carries
+    `resolved` rows naming the files a plot needs, as absolute paths so they
+    open from any working directory:
+
+    | `parameter` | File |
+    |---|---|
+    | `eigenvec_path` | `{out}.eigenvec`, the PCA projections (with `--pca`) |
+    | `eigenval_path` | `{out}.eigenval`, the PCA eigenvalues, for the scree plot (with `--pca`) |
+    | `gwas_output_path` | The `.glm.logistic.hybrid` / `.glm.linear` association table (with `--gwas`) |
+
+    They are parameters rather than `GWAS` rows because `GWAS` holds numbers
+    about the analysis; a path is a setting. In an `--ancestry` run there is one
+    set per group, at that group's own prefix. (`pass_fail[...]["assoc"]["output"]`
+    is the output *prefix*, not a pfile.)
 
 - **`QC`**  
   - *Process*: `Quality Control (QC)`  
@@ -160,14 +188,75 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
 - **`GWAS`**  
   - *Process*: `Genome-wide Assoication Study (GWAS)`  
   - *Description*: DataFrame containing lambda and lambda1000 values from completed association analysis/analyses.
+    One row per (metric, ancestry), with columns `value`, `metric` and
+    `ancestry` (`all` for a run without `--ancestry`). Present in both run
+    shapes; before 2.3.0 a run without `--ancestry` dropped it. Paths to the
+    `.glm` and `.eigenval` files are in `parameters`, not here.
 
 - **`pruned_samples`**  
   - *Process*: `Ancestry/Quality Control (QC)`  
   - *Description*: DataFrame containing samples pruned due to insufficient ancestry count or sample-level QC.
+    Columns `FID`, `IID`, `step` and, in an `--ancestry` run, `label`. `step` is
+    a QC step key (`callrate`, `sex`, `het`, `related`) or
+    `insufficient_ancestry_sample_n`: the sample's predicted group had fewer
+    than `--min-samples` members, so it was dropped before QC (`label` is that
+    group). *New in 2.3.0:* these were previously left out of the report.
 
 - **`related_samples`**  
   - *Process*: `Quality Control (QC)`  
   - *Description*: DataFrame containing relatedness information output by PLINK/KING from completed relatedness pruning.
+
+- **`sample_fate`**  
+  - *Process*: `Quality Control (QC)`  
+  - *Description*: *New in 2.3.0.* Path to `{out}_sample_fate.tsv`, one row per
+    input sample saying what happened to it. Written in every run shape
+    (`--ancestry` or not), and omitted when the run has no input sample table.
+    Columns: `FID`, `IID`; `ancestry` (the predicted label, or `all` without
+    `--ancestry`); `removed_by` (the step that removed the sample, or `kept`);
+    and, where the run kept them, `F_MISS` (sample missingness), `sex_F` (X
+    chromosome F from the all-X `--check-sex` pass), `het_F` and `max_kinship`
+    (the sample's largest KING kinship in `related_kinship`, which keeps only
+    pairs at 3rd degree or closer, so most samples have none). A statistic is
+    `NA` when its step did not run or never saw the sample (a sample removed
+    by `callrate` has no `het_F`). `removed_by` is taken from `pruned_samples`,
+    so it agrees with that table exactly, including
+    `insufficient_ancestry_sample_n`; a sample listed by more than one step
+    reports the first.
+
+- **`plot_data`**  
+  - *Process*: `Quality Control (QC)`  
+  - *Description*: *New in 2.3.0.* Path to `{out}_plot_data/`, the plot-ready
+    tables the QC steps (and, in an `--ancestry` run, the ancestry step) kept from the statistics they computed, for
+    `genotools-plot`. One subdirectory per ancestry group (`all` for a run
+    without `--ancestry`), one TSV per table, named `{step}_{table}.tsv`:
+
+    | File | Contents |
+    |---|---|
+    | `callrate_sample_missingness.tsv` | `#FID`, `IID`, `F_MISS` for every sample entering the step |
+    | `sex_check.tsv` | Both `--check-sex` passes: `#FID`, `IID`, `PEDSEX`, `SNPSEX`, `STATUS`, `F`, and `check` (`all_x`, or `filtered_x` for the QC-filtered X pass) |
+    | `het_f.tsv` | `#FID`, `IID`, `F` from `--het` on the LD-pruned variants |
+    | `related_kinship.tsv` | KING pairs with kinship ≥ 0.0442 (3rd degree), or the step's cutoff if lower: `#FID1`, `IID1`, `FID2`, `IID2`, `IBS0`, `KINSHIP` |
+    | `geno_missingness_bins.tsv` | Variant `F_MISS` histogram, 200 bins of 0.005 |
+    | `{geno,case_control,haplotype,hwe}_failing.tsv` | The variants (or, for `haplotype`, the tests) that failed, most extreme first, capped at 10,000 |
+    | `{case_control,haplotype,hwe}_pvalue_bins.tsv` | Histogram of -log10(p) in bins of 0.05 up to 50, then one open bin. HWE has one histogram per `test` (`ALL`, `AFF`, `UNAFF`) |
+
+    An `--ancestry` run adds `ancestry/` beside the group directories, holding
+    what the ancestry step computes and would otherwise delete with the temp
+    directory (a group literally labelled `ancestry` would share it):
+
+    | File | Contents |
+    |---|---|
+    | `ancestry/pca_eigenvalues.tsv` | The reference PCA: `PC`, `eigenvalue`, `explained_variance_ratio`. Training runs only; a `--model` run fits no PCA |
+    | `ancestry/allele_frequencies.tsv` | Panel vs cohort frequency of the counted allele, for a random sample of at most 5,000 of the matched SNPs (fixed seed, in panel order): `snp`, `counted_allele` / `other_allele` (the panel's), `cohort_a1` / `cohort_a2` (the cohort's own pair before alignment), `ref_freq`, `cohort_freq`, `abs_delta`, `discordant` (delta > 0.2), `flip_signature` (discordant and the cohort frequency within 0.05 of `1 - ref_freq`) |
+    | `ancestry/centroid_margins.tsv` | One row per cohort sample, when admixture detection ran: `FID`, `IID`, `nearest_centroid` (nearest of all centroids, `ALL` for every `CAH` sample), `nearest_ancestry` (nearest ancestry centroid alone; can be a sub-centroid such as `CAS2` that is never a label), `margin_to_all` (distance to the global centroid minus distance to `nearest_ancestry`; at or below 0 is `CAH`), `label` (final) |
+
+    The cohort's projected PCs are not written here: `projected_pcs` in this
+    report already holds them whole.
+
+    Per-sample tables are kept whole; per-variant ones are binned, so the
+    directory's size does not grow with the array. HWE's failing variants carry
+    the `UNAFF` p-value on case/control data, because that is the test PLINK
+    1.9's `--hwe` filters on. Absent when no step kept any tables.
 
 - **`pass_fail`** / **`{ANCESTRY}_pass_fail`**  
   - *Process*: `Quality Control (QC)`  

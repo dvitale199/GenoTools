@@ -19,3 +19,7 @@ geno_tools.egg-info/*
 # real golden diff in churn. No test reads them: tests/regression/test_logging.py
 # owns the log contract and asserts it against a fresh run in tmp_path.
 tests/regression/golden/**/*.log
+# Plot tables the per-step golden generators leave beside each step's output.
+# The pipeline goldens' {out}_plot_data/ directories carry the same tables and
+# are compared by tests/regression/test_qc_steps.py; these copies are not.
+tests/regression/golden/*/output_plotdata_*.tsv

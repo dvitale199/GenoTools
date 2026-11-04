@@ -20,11 +20,19 @@ Removes variants with high missing genotype rates using PLINK2 --geno.
 
 from pathlib import Path
 
+import pandas as pd
+
 from genotools.core.exceptions import ValidationError
 from genotools.core.executors import run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import GenoConfig
+from genotools.qc.plot_data import (
+    MISSINGNESS_EDGES,
+    failing_rows,
+    histogram,
+    write_plot_data,
+)
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
@@ -70,6 +78,28 @@ def filter_variant_missingness(
         # Get initial variant count
         initial_variant_count = data.variant_count
 
+        # Per-variant missingness, for plotting: binned, plus the variants
+        # --geno removes. A separate report-only call, since --missing
+        # alongside --geno would report only the variants that passed.
+        miss_tmp = out_path.parent / f"{out_path.name}_miss_tmp"
+        run_plink2(
+            input_path=data.path,
+            output_path=miss_tmp,
+            input_format=data.format,
+            extra_args=["--missing", "variant-only"],
+            make_pgen=False,
+        )
+        vmiss_file = Path(f"{miss_tmp}.vmiss")
+        plot_tables = {}
+        if vmiss_file.exists():
+            vmiss = pd.read_csv(vmiss_file, sep=r"\s+", usecols=["ID", "F_MISS"], dtype={"ID": str})
+            plot_tables["missingness_bins"] = histogram(vmiss["F_MISS"], MISSINGNESS_EDGES)
+            plot_tables["failing"] = failing_rows(
+                vmiss, vmiss["F_MISS"] > config.geno, "F_MISS", ascending=False
+            )
+            vmiss_file.unlink()
+        Path(f"{miss_tmp}.log").unlink(missing_ok=True)
+
         # Run PLINK2 with --geno
         result = run_plink2(
             input_path=data.path,
@@ -96,5 +126,6 @@ def filter_variant_missingness(
             },
             log=result.stderr,
             pruned_samples_file=None,
+            plot_data=write_plot_data(plot_tables, out_path),
             step_name=step_name,
         )

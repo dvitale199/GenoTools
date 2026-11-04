@@ -334,6 +334,40 @@ def save_genotypes_pgenlib(genotypes, output_prefix, pvar_path, psam_path):
     return output_prefix
 
 
+def make_males_hemizygous(genotypes, psam, skip=()):
+    """
+    Give reported males one X allele, as real males have outside the PARs.
+
+    `plink2 --dummy` draws every sample's X as if diploid, so without this
+    every male is heterozygous on X and fails --check-sex - which hid the 12
+    injected sex-discordant samples among ~250 males (#311). Each male call is
+    redrawn as 0 or 2 at the variant's ALT frequency; missing calls stay
+    missing. All X variants sit between X_START and X_END, outside both PARs.
+
+    Must run before inject_sex_discordance, which then makes its males
+    heterozygous on purpose.
+
+    Args:
+        genotypes: (variants, samples) matrix; X variants follow the autosomes.
+        psam: Sample table with SEX (1 = male).
+        skip: Sample indices to leave untouched.
+    """
+    print("\n  Making reported males hemizygous on X...")
+
+    set_seed(5)
+    x_genos = genotypes[N_AUTOSOMAL_VARIANTS:]  # a view: edits land in genotypes
+    called = x_genos != -9
+    alt_freq = np.where(called, x_genos, 0).sum(axis=1) / np.maximum(2 * called.sum(axis=1), 1)
+
+    males = [i for i in np.flatnonzero(psam['SEX'].to_numpy() == 1) if i not in set(skip)]
+    for idx in males:
+        draw = np.where(np.random.random(len(alt_freq)) < alt_freq, 2, 0).astype(np.int8)
+        x_genos[:, idx] = np.where(called[:, idx], draw, -9)
+
+    print(f"    {len(males)} males now carry one X allele per call")
+    return genotypes
+
+
 def inject_callrate_outliers(genotypes, outlier_manifest, used_samples):
     """
     Inject high missingness into selected samples (>10% missing).
@@ -466,7 +500,9 @@ def inject_related_pairs(genotypes, outlier_manifest, used_samples):
     set_seed(13)
     n_duplicates = OUTLIER_CONFIG['duplicate_pairs']
     n_related = OUTLIER_CONFIG['related_pairs']
-    n_variants = genotypes.shape[0]
+    # Autosomes only: KING relatedness is autosomal, and copying X would carry
+    # one sample's X onto a target of the other sex.
+    n_variants = N_AUTOSOMAL_VARIANTS
 
     # Select samples for pairs
     available = [i for i in range(N_SAMPLES) if i not in used_samples]
@@ -487,7 +523,7 @@ def inject_related_pairs(genotypes, outlier_manifest, used_samples):
         tgt_idx = selected[i * 2 + 1]
 
         # Copy genotypes with ~1% difference
-        genotypes[:, tgt_idx] = genotypes[:, src_idx].copy()
+        genotypes[:n_variants, tgt_idx] = genotypes[:n_variants, src_idx].copy()
         n_diff = int(n_variants * 0.01)
         diff_indices = np.random.choice(n_variants, n_diff, replace=False)
         genotypes[diff_indices, tgt_idx] = np.random.choice([0, 1, 2], n_diff)
@@ -502,7 +538,7 @@ def inject_related_pairs(genotypes, outlier_manifest, used_samples):
         tgt_idx = selected[offset + i * 2 + 1]
 
         # Share ~50% of genotypes (first-degree relative simulation)
-        genotypes[:, tgt_idx] = genotypes[:, src_idx].copy()
+        genotypes[:n_variants, tgt_idx] = genotypes[:n_variants, src_idx].copy()
         n_diff = int(n_variants * 0.50)  # 50% different
         diff_indices = np.random.choice(n_variants, n_diff, replace=False)
         genotypes[diff_indices, tgt_idx] = np.random.choice([0, 1, 2], n_diff)
@@ -726,6 +762,9 @@ def main():
     raw_pgen = Path(str(raw_prefix) + ".pgen")
     genotypes = load_genotypes(raw_pgen, N_SAMPLES, N_TOTAL_VARIANTS)
     print(f"    Loaded genotype matrix: {genotypes.shape}")
+
+    # Before the injections: sex discordance builds on hemizygous males.
+    genotypes = make_males_hemizygous(genotypes, psam)
 
     # Step 6: Inject outliers
     genotypes = inject_all_outliers(genotypes, psam, outlier_manifest)

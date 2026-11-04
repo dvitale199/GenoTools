@@ -273,3 +273,28 @@ def test_clean_up_files_removes_extensions(tmp_path):
     clean_up_files([str(prefix)])
     for ext in ("bed", "bim", "fam", "raw"):
         assert not (tmp_path / f"junk.{ext}").exists()
+
+
+def test_get_raw_files_keeps_per_snp_allele_frequencies(
+    ref21_22_bfile, ref21_22_labels, geno21_22_pfile, tmp_path
+):
+    """The per-SNP rows behind the concordance summary are kept, with alleles."""
+    from genotools.ancestry.diagnostics import AncestryDiagnostics
+    from genotools.ancestry.preprocessing import get_raw_files
+
+    diagnostics = AncestryDiagnostics()
+    get_raw_files(
+        geno_path=str(geno21_22_pfile), ref_panel=str(ref21_22_bfile),
+        ref_labels=str(ref21_22_labels), out_path=str(tmp_path / "out"),
+        train=True, diagnostics=diagnostics,
+    )
+    table = diagnostics.allele_frequency_sample
+    assert table is not None and not table.empty
+    assert len(table) <= 5000
+    assert {"snp", "counted_allele", "other_allele", "cohort_a1", "cohort_a2",
+            "ref_freq", "cohort_freq", "discordant", "flip_signature"} <= set(table.columns)
+    assert table["counted_allele"].notna().all()
+    summary = diagnostics.allele_frequency
+    if summary["n_snps"] <= 5000:
+        assert len(table) == summary["n_snps"]
+        assert int(table["flip_signature"].sum()) == summary["n_flip_signature"]

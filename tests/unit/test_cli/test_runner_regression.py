@@ -2221,7 +2221,6 @@ class TestAncestryDiagnosticsWiring:
         ancestry: AncestryArgs, **stub_overrides: Any,
     ) -> Dict[str, Any]:
         import genotools.ancestry.cohort as cohort_mod
-        import genotools.ancestry.plots as plots_mod
         import genotools.ancestry.preprocessing as prep_mod
         import genotools.ancestry.reducers.umap_reducer as umap_mod
 
@@ -2259,14 +2258,8 @@ class TestAncestryDiagnosticsWiring:
                 "diagnostics": kwargs["diagnostics"],
             }
 
-        plot_calls: List[Dict[str, Any]] = []
-
         monkeypatch.setattr(prep_mod, "get_raw_files", fake_get_raw_files)
         monkeypatch.setattr(prep_mod, "clean_up_files", lambda files: None)
-        monkeypatch.setattr(
-            plots_mod, "plot_ancestry_diagnostics",
-            lambda **kwargs: (plot_calls.append(kwargs), ["/tmp/plot.png"])[1],
-        )
         monkeypatch.setattr(
             umap_mod, "run_umap",
             lambda **kwargs: {"total_umap": None, "ref_umap": None, "new_umap": None},
@@ -2282,7 +2275,6 @@ class TestAncestryDiagnosticsWiring:
         return {
             "result": result,
             "raw_calls": raw_calls,
-            "plot_calls": plot_calls,
             "out": out,
         }
 
@@ -2367,21 +2359,6 @@ class TestAncestryDiagnosticsWiring:
             tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, self_test=True)
         )
         assert run["result"]["diagnostics"]["self_test"]["n_samples"] == 1
-
-    @pytest.mark.parametrize("mode", ["training", "inference"])
-    def test_plots_are_opt_in_and_get_the_decisions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
-    ) -> None:
-        run = self._run(tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode))
-        assert run["plot_calls"] == []
-
-        run = self._run(
-            tmp_path, monkeypatch, self._ancestry_args(tmp_path, mode, write_plots=True)
-        )
-        (call,) = run["plot_calls"]
-        assert call["out_prefix"] == str(run["out"])
-        assert list(call["decisions"]["label_pre_admixture"]) == ["EUR"]
-        assert run["result"]["diagnostics"]["plots"] == ["/tmp/plot.png"]
 
     @pytest.mark.parametrize("mode", ["training", "inference"])
     def test_diagnostics_reach_the_json_report(
@@ -2568,3 +2545,369 @@ class TestIntermediateCleanupIsNotWeldedToWarnMode:
 
         assert (tmp_path / "out.pgen").exists()
         assert "sex" in (tmp_path / "out.pgen").read_text()
+
+
+class TestPlotDataCollected:
+    """#302: steps' plot-ready tables reach {out}_plot_data/{ancestry}/.
+
+    Collection lives in _run_single_step's shared tail, which both run shapes
+    reach, so these drive that tail rather than a helper.
+    """
+
+    def _runner_with_step(self, tmp_path: Path, plot_data: Dict[str, Path]):
+        from genotools.qc.results import FilterResult
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        result = FilterResult(
+            output=SimpleNamespace(path=tmp_path / "step_out"),
+            samples_removed=0,
+            variants_removed=0,
+            plot_data=plot_data,
+            step_name="callrate_prune",
+        )
+        runner._new_modules["filter_callrate"] = lambda data, config, out_path: result
+        runner._new_modules["GenotypeData"] = SimpleNamespace(
+            from_path=lambda path: SimpleNamespace(path=path)
+        )
+        return runner, geno, out
+
+    def test_tables_move_under_the_group(self, tmp_path: Path) -> None:
+        table = tmp_path / "step_out_plotdata_sample_missingness.tsv"
+        table.write_text("#FID\tIID\tF_MISS\n")
+        runner, geno, out = self._runner_with_step(
+            tmp_path, {"sample_missingness": table}
+        )
+
+        runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"),
+            {"callrate": 0.05}, ancestry_label="EUR",
+        )
+
+        kept = Path(f"{out}_plot_data") / "EUR" / "callrate_sample_missingness.tsv"
+        assert kept.read_text() == "#FID\tIID\tF_MISS\n"
+        assert not table.exists()
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+
+    def test_a_step_without_tables_leaves_no_directory(self, tmp_path: Path) -> None:
+        runner, geno, out = self._runner_with_step(tmp_path, {})
+        runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"), {"callrate": 0.05}
+        )
+        assert not Path(f"{out}_plot_data").exists()
+        assert runner.state.plot_data_dir is None
+
+    def test_failure_to_keep_tables_does_not_fail_the_step(self, tmp_path: Path) -> None:
+        runner, geno, out = self._runner_with_step(
+            tmp_path, {"sample_missingness": tmp_path / "never_written.tsv"}
+        )
+        result = runner._run_single_step(
+            "callrate", str(geno), str(tmp_path / "step_out"), {"callrate": 0.05}
+        )
+        assert result["pass"] is True
+        assert runner.state.plot_data_dir is None
+
+    @pytest.mark.skipif(not _plink2_available(), reason="plink2 not available")
+    def test_real_steps_keep_tables_without_full_output(self, tmp_path: Path) -> None:
+        """Every sample and variant step, run in the temp dir as at defaults."""
+        if not SYNTHETIC.with_suffix(".pgen").exists():
+            pytest.skip("synthetic test data not found")
+        from genotools.cli import parse_args
+
+        out = tmp_path / "cohort.v2"
+        args = parse_args([
+            "--pfile", str(SYNTHETIC), "--out", str(out),
+            "--all-sample", "--all-variant",
+        ])
+        runner = PipelineRunner(args)
+        runner._initialize_modules()
+        runner.state = PipelineState(
+            geno_path=SYNTHETIC, out_path=out,
+            tmp_dir=tempfile.TemporaryDirectory(dir=tmp_path),
+        )
+        steps = ["callrate", "sex", "het", "related",
+                 "geno", "case_control", "haplotype", "hwe"]
+        runner._run_qc_pipeline(steps, str(SYNTHETIC), str(out))
+        runner.state.tmp_dir.cleanup()
+
+        kept = Path(f"{out}_plot_data") / "all"
+        assert sorted(p.name for p in kept.iterdir()) == sorted([
+            "callrate_sample_missingness.tsv",
+            "sex_check.tsv",
+            "het_f.tsv",
+            "related_kinship.tsv",
+            "geno_missingness_bins.tsv", "geno_failing.tsv",
+            "case_control_pvalue_bins.tsv", "case_control_failing.tsv",
+            "haplotype_pvalue_bins.tsv", "haplotype_failing.tsv",
+            "hwe_pvalue_bins.tsv", "hwe_failing.tsv",
+        ])
+        # Failing rows agree with what the step reported removing.
+        geno_failing = pd.read_csv(kept / "geno_failing.tsv", sep="\t")
+        hwe_failing = pd.read_csv(kept / "hwe_failing.tsv", sep="\t")
+        results = runner.state.step_results
+        assert len(geno_failing) == results["geno"].metrics["geno_removed_count"] > 0
+        assert len(hwe_failing) == results["hwe"].metrics["hwe_removed_count"] > 0
+        # The callrate table covers every input sample, not just survivors.
+        smiss = pd.read_csv(kept / "callrate_sample_missingness.tsv", sep="\t")
+        assert len(smiss) == 500
+        # Nothing left behind beside the output.
+        assert not list(tmp_path.glob("*_plotdata_*"))
+
+
+def _assoc_aware_steps(step: str, step_input: str, step_output: str, legacy_args: Dict[str, Any], **_: Any) -> Dict[str, Any]:
+    """Fake steps: QC steps write traceable pfiles, assoc writes none (like the real one)."""
+    if step == "assoc":
+        return {"pass": True, "step": "assoc", "metrics": {}, "output": {}}
+    _write_traceable_pfiles(Path(step_output))
+    return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+
+class TestFinalPfileAfterAssoc:
+    """Regression: ``assoc`` writes eigenvec/glm but no pfile, so a run whose last
+    step was ``assoc`` ended with no ``{out}.pgen`` - the final dataset was left in
+    the temp dir and deleted with it.
+    """
+
+    @pytest.mark.parametrize("full_output", [True, False])
+    def test_last_step_assoc_leaves_final_pfile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, full_output: bool
+    ) -> None:
+        import tempfile
+
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, warn_only=True, full_output=full_output),
+        )
+        runner = PipelineRunner(args)
+        tmp = tempfile.TemporaryDirectory(dir=tmp_path)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=tmp)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "assoc"], geno_path=str(geno), out_path=str(out)
+        )
+
+        # The dataset assoc analysed is the final dataset: the sex output.
+        for ext in (".pgen", ".pvar", ".psam"):
+            assert Path(f"{out}{ext}").read_text() == f"out_callrate_sex{ext}"
+        tmp.cleanup()
+
+    def test_assoc_only_run_copies_the_input_and_keeps_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _assoc_aware_steps)
+
+        runner._run_qc_pipeline(steps=["assoc"], geno_path=str(geno), out_path=str(out))
+
+        assert Path(f"{out}.pgen").exists()
+        assert Path(f"{geno}.pgen").exists()  # the caller's input is never moved
+
+
+class TestAssocParametersReachReport:
+    """The shared tail records ``AssocResult`` paths as resolved parameters."""
+
+    def test_output_paths_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from genotools.gwas.results import AssocResult, GWASResult
+
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        runner._initialize_modules()
+        glm = tmp_path / "out.PHENO1.glm.logistic.hybrid"
+        monkeypatch.setitem(
+            runner._new_modules,
+            "run_gwas_association",
+            lambda data, out_path, config: AssocResult(
+                gwas_result=GWASResult(output_path=glm, phenotype_type="binary")
+            ),
+        )
+        runner._run_single_step(
+            "assoc", str(geno), f"{out}_assoc", _gwas_legacy_args(gwas=True)
+        )
+        recorded = {
+            p.parameter: p.value
+            for p in runner.state.parameters
+            if p.source == "resolved"
+        }
+        assert recorded["gwas_output_path"] == str(glm)
+
+
+class TestAncestryPlotData:
+    """Ancestry tables that die with the temp dir are kept under
+    ``{out}_plot_data/ancestry/`` - eigenvalues and the allele-frequency sample."""
+
+    @staticmethod
+    def _runner(tmp_path: Path):
+        runner, _geno, out = _make_runner(tmp_path, warn_only=True)
+        actual = tmp_path / "tmpdir" / "out"
+        actual.parent.mkdir()
+        return runner, out, str(actual)
+
+    def test_keeps_eigenvalues_and_allele_frequencies(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        Path(f"{actual}_pca_eigenvalues.txt").write_text("PC\teigenvalue\nPC1\t3.0\n")
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"], "ref_freq": [0.1]})
+        )
+
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "pca_eigenvalues.tsv").read_text().startswith("PC\teigenvalue")
+        assert pd.read_csv(dest / "allele_frequencies.tsv", sep="\t")["snp"].tolist() == ["rs1"]
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+        # Copied, not moved: --full-output's own copy must survive.
+        assert Path(f"{actual}_pca_eigenvalues.txt").exists()
+
+    def test_inference_run_without_eigenvalues_keeps_what_it_has(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        diagnostics = AncestryDiagnostics(
+            allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]})
+        )
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+        dest = Path(f"{out}_plot_data") / "ancestry"
+        assert (dest / "allele_frequencies.tsv").exists()
+        assert not (dest / "pca_eigenvalues.tsv").exists()
+
+    def test_nothing_to_keep_creates_nothing(self, tmp_path: Path) -> None:
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        runner._keep_ancestry_plot_data(actual, AncestryDiagnostics())
+        assert not Path(f"{out}_plot_data").exists()
+        assert runner.state.plot_data_dir is None
+
+    def test_keeps_centroid_margins_when_admixture_detection_ran(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        decisions = pd.DataFrame(
+            {
+                "FID": ["a", "b"], "IID": ["a", "b"],
+                "label_pre_admixture": ["EUR", "AFR"], "label": ["CAH", "AFR"],
+                "nearest_centroid": ["ALL", "AFR"], "nearest_ancestry": ["EUR", "AFR"],
+                "margin_to_all": [-0.5, 1.5],
+            }
+        )
+        runner._keep_ancestry_plot_data(
+            actual, AncestryDiagnostics(admixture_decisions=decisions)
+        )
+        kept = pd.read_csv(Path(f"{out}_plot_data") / "ancestry" / "centroid_margins.tsv", sep="\t")
+        assert kept["margin_to_all"].tolist() == [-0.5, 1.5]
+        assert kept["label"].tolist() == ["CAH", "AFR"]
+        assert runner.state.plot_data_dir == Path(f"{out}_plot_data")
+
+    def test_no_margin_table_without_admixture_detection(self, tmp_path: Path) -> None:
+        import pandas as pd
+
+        from genotools.ancestry.diagnostics import AncestryDiagnostics
+
+        runner, out, actual = self._runner(tmp_path)
+        diagnostics = AncestryDiagnostics(allele_frequency_sample=pd.DataFrame({"snp": ["rs1"]}))
+        runner._keep_ancestry_plot_data(actual, diagnostics)
+        assert not (Path(f"{out}_plot_data") / "ancestry" / "centroid_margins.tsv").exists()
+
+    def test_runner_calls_it_during_ancestry_prediction(self) -> None:
+        """Gate the call site, not just the helper (round-7 lesson)."""
+        import inspect
+
+        src = inspect.getsource(PipelineRunner._run_ancestry_prediction_new)
+        assert "_keep_ancestry_plot_data(actual_out, diagnostics)" in src
+
+
+class TestSampleFateWrittenInBothRunShapes:
+    """#303: ``{out}_sample_fate.tsv`` comes from the shared report tail.
+
+    Production runs ancestry once and then QCs each group as a flat job, so the
+    table has to exist in both shapes - and agree with ``pruned_samples``.
+    """
+
+    @staticmethod
+    def _runner(tmp_path: Path, ancestry: bool) -> tuple[PipelineRunner, Path]:
+        geno = tmp_path / "geno"
+        out = tmp_path / "cohort.v2"  # dotted on purpose: a prefix is not a filename
+        _touch_pfiles(geno)
+        Path(f"{geno}.psam").write_text(
+            "#FID\tIID\tSEX\n" + "".join(f"f{i}\ti{i}\t1\n" for i in range(4))
+        )
+        kwargs = {}
+        if ancestry:
+            kwargs["ancestry"] = AncestryArgs(run_ancestry=True)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+            **kwargs,
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        runner._skip_reasons = lambda *a, **k: {}  # type: ignore[method-assign]
+
+        def fake_step(step, step_input, step_output, legacy_args, ancestry_label="all", **_):
+            _touch_pfiles(Path(step_output))
+            outliers = Path(f"{step_output}.outliers")
+            outliers.write_text("#FID\tIID\nf1\ti1\n")
+            table = Path(f"{step_output}_plotdata_sample_missingness.tsv")
+            table.write_text("#FID\tIID\tF_MISS\nf0\ti0\t0.01\nf1\ti1\t0.5\n")
+            runner._collect_plot_data(step, {"sample_missingness": table}, ancestry_label)
+            return {
+                "pass": True, "step": step, "metrics": {"outlier_count": 1},
+                "output": {"pruned_samples": str(outliers)},
+            }
+
+        runner._run_single_step = fake_step  # type: ignore[method-assign]
+        return runner, out
+
+    @staticmethod
+    def _check(output, out: Path) -> None:
+        path = Path(f"{out}_sample_fate.tsv")
+        assert path.is_file(), "sample fate table was not written"
+        assert output.to_dict()["sample_fate"] == str(path)
+        fate = pd.read_csv(path, sep="\t", dtype=str)
+        assert sorted(fate["IID"]) == ["i0", "i1", "i2", "i3"]
+        assert dict(zip(fate["IID"], fate["removed_by"])) == {
+            "i0": "kept", "i1": "callrate", "i2": "kept", "i3": "kept",
+        }
+        pruned = output.to_dict()["pruned_samples"]
+        assert sorted(pruned["IID"].values()) == ["i1"]
+
+    def test_flat_run(self, tmp_path: Path) -> None:
+        runner, out = self._runner(tmp_path, ancestry=False)
+        output = runner._run_qc_only(["callrate"])
+        self._check(output, out)
+        fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t")
+        assert set(fate["ancestry"]) == {"all"}
+        assert fate.set_index("IID").loc["i1", "F_MISS"] == 0.5
+
+    def test_ancestry_run(self, tmp_path: Path) -> None:
+        runner, out = self._runner(tmp_path, ancestry=True)
+        for label in ("EUR",):
+            _touch_pfiles(Path(f"{out}_ancestry_{label}"))
+        ids = pd.DataFrame(
+            {"FID": [f"f{i}" for i in range(4)], "IID": [f"i{i}" for i in range(4)],
+             "label": ["EUR"] * 4}
+        )
+        runner._run_ancestry_prediction_new = lambda: {  # type: ignore[method-assign]
+            "data": {
+                "predict_data": {"ids": ids},
+                "labels_list": ["EUR"],
+                "pruned_samples": pd.DataFrame(columns=["FID", "IID", "step", "label"]),
+            },
+            "metrics": {},
+        }
+        output = runner._run_with_ancestry(["callrate"])
+        self._check(output, out)
+        fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t")
+        assert set(fate["ancestry"]) == {"EUR"}
+        assert fate.set_index("IID").loc["i0", "F_MISS"] == 0.01

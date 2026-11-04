@@ -4,7 +4,7 @@
   "reason": null,
   "step": "het_prune",
   "metrics": {
-    "outlier_count": 3
+    "outlier_count": 8
   },
   "parameters": {
     "het_mode": "fixed",

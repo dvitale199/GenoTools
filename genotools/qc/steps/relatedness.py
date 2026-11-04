@@ -30,9 +30,36 @@ from genotools.core.executors import run_command, run_plink2, get_king
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import RelatedConfig
+from genotools.qc.plot_data import write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
+
+# Lower bound of 3rd degree (Manichaikul et al. 2010). The KING table is kept
+# down to here for plotting, whatever the pruning cutoff.
+THIRD_DEGREE_KINSHIP = 0.0442
+
+
+def split_kinship_table(
+    kinship: pd.DataFrame, related_cutoff: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split the KING table into its plot-ready and reported halves.
+
+    The table is built down to 3rd degree so the plot can show the whole
+    relatedness picture, but the `.related` file and the report keep only the
+    pairs at the requested cutoff - exactly what they held when the table
+    filter was the cutoff itself.
+
+    Args:
+        kinship: `.kin0` table from `--make-king-table`.
+        related_cutoff: The step's kinship cutoff.
+
+    Returns:
+        (pairs for plotting, pairs at or above the cutoff)
+    """
+    plot_table = kinship.loc[:, ["#FID1", "IID1", "FID2", "IID2", "IBS0", "KINSHIP"]]
+    reported = kinship[kinship["KINSHIP"] >= related_cutoff].copy()
+    return plot_table, reported
 
 
 def filter_relatedness(
@@ -108,7 +135,7 @@ def filter_relatedness(
                 "triangle",
                 "bin",
                 "--king-table-filter",
-                str(config.related_cutoff),
+                str(min(THIRD_DEGREE_KINSHIP, config.related_cutoff)),
             ],
             make_pgen=False,
         )
@@ -146,7 +173,11 @@ def filter_relatedness(
 
         if kin0_file.exists() and related_file.exists() and duplicated_file.exists():
             # Create .related file with relationship categories
-            kinship = pd.read_csv(kin0_file, sep=r"\s+")
+            kinship = pd.read_csv(
+                kin0_file, sep=r"\s+", dtype={"#FID1": str, "IID1": str, "FID2": str, "IID2": str}
+            )
+            plot_table, kinship = split_kinship_table(kinship, config.related_cutoff)
+            plot_tables = {"kinship": plot_table}
             kinship["REL"] = pd.cut(
                 x=kinship["KINSHIP"],
                 bins=[-np.inf, 0.0884, 0.177, 0.354, np.inf],
@@ -255,6 +286,7 @@ def filter_relatedness(
                 log="",
                 pruned_samples_file=pruned_out,
                 related_samples_file=related_out,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

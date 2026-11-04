@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from .. import __version__
+from .sample_fate import write_sample_fate
 
 if TYPE_CHECKING:
     from .parser import PipelineArgs
@@ -139,6 +140,8 @@ class PipelineOutput:
         pruned_samples: DataFrame of pruned samples.
         related_samples: DataFrame of related samples.
         pass_fail: Step pass/fail status by ancestry.
+        plot_data: Path to the ``{out}_plot_data/`` directory.
+        sample_fate: Path to ``{out}_sample_fate.tsv``, one row per input sample.
     """
 
     input_samples: Optional[pd.DataFrame] = None
@@ -161,6 +164,8 @@ class PipelineOutput:
     pruned_samples: Optional[pd.DataFrame] = None
     related_samples: Optional[pd.DataFrame] = None
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    plot_data: Optional[str] = None
+    sample_fate: Optional[str] = None
 
     @property
     def success(self) -> bool:
@@ -222,6 +227,17 @@ class PipelineOutput:
         # builds each step's config, so nothing has to be reconstructed here
         # from legacy_args - which cannot express a derived bound anyway.
         output.parameters = list(state.parameters)
+        if state.plot_data_dir is not None:
+            output.plot_data = str(state.plot_data_dir)
+        fate_path = write_sample_fate(
+            args.out_path,
+            output.input_samples,
+            output.pruned_samples,
+            output.ancestry_labels,
+            state.plot_data_dir,
+        )
+        if fate_path is not None:
+            output.sample_fate = str(fate_path)
         output.run_info = {"version": __version__}
         if args.invocation:
             output.run_info["invocation"] = args.invocation
@@ -285,6 +301,14 @@ class PipelineOutput:
         if "data" in ancestry_result and "common_snps" in ancestry_result["data"]:
             self.common_snps = ancestry_result["data"]["common_snps"]
 
+        # Samples whose predicted group fell under --min-samples. They are
+        # dropped from every group's QC, so no QC step will ever list them;
+        # this is the only place the report can account for them. Kept here
+        # and merged with the QC prunes in _process_qc_results.
+        dropped = ancestry_result.get("data", {}).get("pruned_samples")
+        if dropped is not None and len(dropped) > 0:
+            self.pruned_samples = pd.DataFrame(dropped)[["FID", "IID", "step", "label"]]
+
         # Diagnostics. Accepts either the collector or its dict form, so a
         # caller assembling this dict by hand does not have to know which.
         diagnostics = ancestry_result.get("diagnostics")
@@ -336,6 +360,9 @@ class PipelineOutput:
                     "step": v.step,
                     "metrics": v.metrics,
                     "output": v.output,
+                    # Only present on assoc; absent keys keep every other
+                    # step's dict exactly as it was.
+                    **({"gwas": v.gwas} if v.gwas else {}),
                 }
                 for k, v in state.step_results.items()
             }
@@ -367,6 +394,12 @@ class PipelineOutput:
             combined = pd.concat(pruned_dfs, ignore_index=True)
             combined = combined.drop_duplicates(subset=["#FID", "IID"], ignore_index=True)
             combined = combined.rename({"#FID": "FID"}, axis=1)
+            if self.pruned_samples is not None and not self.pruned_samples.empty:
+                # Ancestry drops first: they happened first, and a sample
+                # cannot be in both (dropped samples are never QC'd).
+                combined = pd.concat(
+                    [self.pruned_samples, combined], ignore_index=True
+                ).drop_duplicates(subset=["FID", "IID"], ignore_index=True)
             self.pruned_samples = combined
 
         # Combine related samples
@@ -587,6 +620,14 @@ class PipelineOutput:
         # Related samples
         if self.related_samples is not None and not self.related_samples.empty:
             result["related_samples"] = self.related_samples.to_dict()
+
+        # Plot-ready QC tables for genotools-plot, collected per ancestry group
+        if self.plot_data is not None:
+            result["plot_data"] = self.plot_data
+
+        # Per-sample fate table
+        if self.sample_fate is not None:
+            result["sample_fate"] = self.sample_fate
 
         # Pass/fail status
         result.update(self.pass_fail)

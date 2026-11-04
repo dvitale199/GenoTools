@@ -4,10 +4,12 @@
   "reason": null,
   "step": "haplotype_prune",
   "metrics": {
-    "outlier_count": 12,
-    "haplotype_removed_count": 12
+    "outlier_count": 27,
+    "haplotype_removed_count": 27
   },
-  "parameters": {},
+  "parameters": {
+    "p_threshold": 0.0001
+  },
   "output": {
     "pruned_samples": null,
     "plink_out": "tests/regression/golden/haplotype/output"

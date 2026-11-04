@@ -28,9 +28,26 @@ from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HaplotypeConfig
+from genotools.qc.plot_data import failing_rows, pvalue_histogram, write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
+
+
+#: Cohorts above this many samples get the Bonferroni-style threshold when
+#: ``adjust_for_sample_size`` is set.
+LARGE_COHORT_SAMPLES = 10000
+
+
+def effective_p_threshold(config: HaplotypeConfig, sample_count: int) -> float:
+    """The p-value threshold the step applies for a cohort of this size.
+
+    ``0.05 / sample_count`` for more than 10,000 samples when
+    ``adjust_for_sample_size`` is set, the configured value otherwise.
+    """
+    if config.adjust_for_sample_size and sample_count > LARGE_COHORT_SAMPLES:
+        return 0.05 / sample_count
+    return config.p_threshold
 
 
 def filter_haplotype(
@@ -64,9 +81,6 @@ def filter_haplotype(
     step_name = "haplotype_prune"
 
     with step_context(step_name):
-        # Determine effective p-value threshold
-        p_threshold = config.p_threshold
-
         # Validate input exists
         input_file = data.pgen if data.format == "pfile" else data.bed
         if not input_file.exists():
@@ -82,9 +96,8 @@ def filter_haplotype(
         initial_variant_count = data.variant_count
 
         # Adjust threshold for large sample sizes if configured
-        sample_count = data.sample_count
-        if config.adjust_for_sample_size and sample_count > 10000:
-            p_threshold = 0.05 / sample_count
+        p_threshold = effective_p_threshold(config, data.sample_count)
+        if p_threshold != config.p_threshold:
             logger.info(
                 f"Adjusted p-threshold for large sample size: {p_threshold:.2e}"
             )
@@ -105,7 +118,20 @@ def filter_haplotype(
         mishap_file = Path(f"{hap_tmp}.missing.hap")
         if mishap_file.exists():
             # Read mishap file and identify variants to exclude
-            mis_hap = pd.read_csv(mishap_file, sep=r"\s+")
+            mis_hap = pd.read_csv(mishap_file, sep=r"\s+", dtype={"SNP": str})
+
+            # Binned over every haplotype test, and the significant tests.
+            # The step also removes each significant test's FLANKING variants,
+            # so `failing` lists the tests, not every variant removed.
+            plot_tables = {
+                "pvalue_bins": pvalue_histogram(mis_hap["P"]),
+                "failing": failing_rows(
+                    mis_hap.loc[:, ["SNP", "HAPLOTYPE", "P", "FLANKING"]],
+                    mis_hap.P <= p_threshold,
+                    "P",
+                    ascending=True,
+                ),
+            }
 
             # Get reference SNPs (central variants) for significant associations
             ref_snps = list(mis_hap[mis_hap.P <= p_threshold].loc[:, "SNP"])
@@ -163,8 +189,12 @@ def filter_haplotype(
                 metrics={
                     "haplotype_removed_count": variants_removed,
                 },
+                # What was applied, adjusted or not: the configured value is
+                # not recoverable from the report once it has been replaced.
+                parameters={"p_threshold": p_threshold},
                 log="",
                 pruned_samples_file=None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:

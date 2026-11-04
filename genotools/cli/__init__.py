@@ -83,6 +83,31 @@ __all__ = [
 ]
 
 
+def _render_plots(out_path) -> None:
+    """Render `{out}_plots/` from the report a run just wrote.
+
+    Plots are the least load-bearing output a run has, so nothing here may fail
+    it: by now the report and the pfiles are already on disk, and a broken
+    figure is a warning, not a lost run. `genotools-plot` reruns this alone.
+    """
+    from pathlib import Path
+
+    from genotools.core.logging import get_logger
+
+    logger = get_logger(__name__)
+    try:
+        from genotools.plotting import render_plots
+
+        result = render_plots(Path(f"{out_path}.json"))
+    except Exception as exc:
+        logger.warning(
+            f"Plots not rendered ({type(exc).__name__}: {exc}); the run's "
+            f"results are unaffected. Retry with: genotools-plot --report {out_path}.json"
+        )
+        return
+    logger.info(f"Plots: {result.html}")
+
+
 def main():
     """Main entry point for the genotools CLI.
 
@@ -115,6 +140,8 @@ def main():
         result = run_pipeline(args)
 
         write_results(result, args.output.out_path)
+        if args.output.plots:
+            _render_plots(args.output.out_path)
     except (GenoToolsError, FileNotFoundError, ValueError, TypeError) as e:
         if debug:
             raise

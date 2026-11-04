@@ -20,14 +20,46 @@ Removes variants violating Hardy-Weinberg equilibrium using PLINK 1.9.
 
 from pathlib import Path
 
+import pandas as pd
+
 from genotools.core.exceptions import QCError, ValidationError
 from genotools.core.executors import run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HWEConfig
+from genotools.qc.plot_data import failing_rows, pvalue_histogram, write_plot_data
 from genotools.qc.results import FilterResult
 
 logger = get_logger(__name__)
+
+
+def hwe_plot_tables(hardy: pd.DataFrame, kept: set) -> dict:
+    """Binned HWE p-values per test, and the variants the filter removed.
+
+    PLINK 1.9 `--hwe` tests controls only (UNAFF) on case/control data, and
+    the whole sample otherwise, so the removed variants' p-values come from
+    UNAFF when it is present. That is checked against what the filter actually
+    removed, not re-derived from the threshold.
+
+    Args:
+        hardy: `.hwe` table with SNP, TEST and P columns.
+        kept: IDs of the variants that passed (`--write-snplist`).
+
+    Returns:
+        `pvalue_bins` (one histogram per TEST) and `failing`.
+    """
+    tests = set(hardy["TEST"])
+    filter_test = "UNAFF" if "UNAFF" in tests else sorted(tests)[0]
+    tested = hardy[hardy["TEST"] == filter_test]
+    return {
+        "pvalue_bins": pvalue_histogram(hardy["P"], by=hardy["TEST"].rename("test")),
+        "failing": failing_rows(
+            tested.rename(columns={"TEST": "test"}),
+            ~tested["SNP"].isin(kept),
+            "P",
+            ascending=True,
+        ),
+    }
 
 
 def filter_hwe(
@@ -93,6 +125,19 @@ def filter_hwe(
             extra_args=extra_args,
         )
 
+        # HWE p-values, for plotting. --hardy reports every test PLINK
+        # computes (ALL, AFF, UNAFF on case/control data).
+        hardy_tmp = out_path.parent / f"{out_path.name}_hardy_tmp"
+        hardy_args = ["--hardy"]
+        if config.filter_controls:
+            hardy_args.insert(0, "--filter-controls")
+        run_plink(
+            input_path=bfile_data.path,
+            output_path=hardy_tmp,
+            input_format="bfile",
+            extra_args=hardy_args,
+        )
+
         snplist_file = Path(f"{hwe_tmp}.snplist")
         if snplist_file.exists():
             # Extract passing variants and convert back to pfile
@@ -107,11 +152,23 @@ def filter_hwe(
             output = GenotypeData.from_path(out_path)
             variants_removed = initial_variant_count - output.variant_count
 
+            hardy_file = Path(f"{hardy_tmp}.hwe")
+            plot_tables = {}
+            if hardy_file.exists():
+                hardy = pd.read_csv(
+                    hardy_file, sep=r"\s+", usecols=["SNP", "TEST", "P"], dtype={"SNP": str}
+                )
+                kept = set(pd.read_csv(snplist_file, header=None, dtype=str)[0])
+                plot_tables = hwe_plot_tables(hardy, kept)
+
             # Cleanup temp files
             for temp_file in [
                 snplist_file,
                 Path(f"{hwe_tmp}.hh"),
                 Path(f"{hwe_tmp}.log"),
+                Path(f"{hardy_tmp}.hwe"),
+                Path(f"{hardy_tmp}.hh"),
+                Path(f"{hardy_tmp}.log"),
             ]:
                 if temp_file.exists():
                     temp_file.unlink()
@@ -134,9 +191,13 @@ def filter_hwe(
                 },
                 log="",
                 pruned_samples_file=None,
+                plot_data=write_plot_data(plot_tables, out_path),
                 step_name=step_name,
             )
         else:
+            for ext in (".hwe", ".hh", ".log"):
+                Path(f"{hardy_tmp}{ext}").unlink(missing_ok=True)
+
             # Cleanup bfiles if we created them
             if bfile_data.path != data.path:
                 for ext in [".bed", ".bim", ".fam"]:

@@ -3,6 +3,73 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## 2.3.0
+
+### Added
+
+- **Plots of every run, as PNGs and an interactive HTML report.**
+
+  Pass `--plots` to a `genotools` run, or run `genotools-plot --report
+  {out}.json` on a run that has already finished. Either way you get
+  `{out}_plots/`, with one PNG per plot under `static/` and a self-contained
+  `report.html` where hovering a point or bar names the sample, variant or
+  count behind it. Plotting never fails a run. A plotting error is logged as a
+  warning, and a plot the run produced no data for is listed as not plotted.
+
+  The plots:
+  - **QC summary:** sample and variant attrition per step and ancestry group,
+    and a step × group grid of pass / fail / skipped with the skip reason.
+  - **Sample QC:** call rate, sex check, heterozygosity and relatedness (KING
+    kinship against IBS0).
+  - **Variant QC:** variant missingness, and QQ plots for HWE, case-control
+    missingness and haplotype missingness.
+  - **Ancestry:**
+    - the reference panel and cohort in PC space, in 2D and in 3D
+    - the confusion matrix and predicted label counts
+    - PC drift, i.e. how far the cohort sits from the reference on each PC
+    - allele-frequency concordance with the reference, where strand and
+      allele flips stand out
+    - centroid margins behind each `CAH` call
+    - the reference PCA scree plot
+  - **GWAS:** Manhattan and QQ (with lambda), the GWAS PCs coloured by
+    phenotype, and the covariate PCA scree plot.
+
+  Every threshold drawn on a plot is read from the report's `parameters`
+  section, so it is the value the run actually applied for that group, and
+  every count in a title matches the report's `pruned_count`. Each ancestry
+  label keeps a fixed colour and marker shape in every plot. That includes
+  `CAH` and any label outside the default reference panel. See "Plotting a
+  finished run" in `docs/cli_args.md` for what each plot shows.
+
+- **`{out}_plot_data/`: the data the plots are drawn from.** Each QC step now
+  keeps a plot-ready copy of its statistics, one folder per ancestry group.
+  Per-sample tables are kept whole. Per-variant statistics are kept as
+  fixed-bin histograms plus the failing rows, capped at 10,000 per step, so
+  the folder does not grow with array size. Ancestry runs also keep the
+  allele frequencies and the centroid margins, and a run that trains the
+  model also keeps the reference PCA eigenvalues.
+  The report records the folder's path as `plot_data`.
+
+- **`{out}_sample_fate.tsv` answers "why did my sample disappear?"** It has
+  one row per input sample, with its predicted ancestry, the step that
+  removed it (or `kept`), and its call rate, sex-check F, heterozygosity F and
+  highest kinship. `removed_by` always agrees with the report's
+  `pruned_samples`. The report records the file's path as `sample_fate`.
+
+### Changed
+
+- **`--ancestry-plots` is a deprecated alias for `--plots`.** It no longer
+  writes `{anc}_pca_diagnostic.png` or `{anc}_centroid_distance.png`. Those
+  are replaced by `ancestry_pc_pairs` and `ancestry_cah_margins` in
+  `{out}_plots/`. It also no longer requires `--ancestry`.
+
+### Fixed
+
+- **The synthetic test cohort no longer gives every male a heterozygous X.**
+  Sex QC removed half of it, so the regression tests exercised a cohort no
+  real array produces. Sex QC now removes 17 samples instead of 253, and the
+  regression goldens were regenerated to match.
+
 ## 2.2.1
 
 ### Removed

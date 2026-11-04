@@ -27,6 +27,7 @@ from genotools.ancestry.diagnostics import (
     DEFAULT_MAX_FILL_FRACTION,
     SnpOverlapReport,
     allele_frequency_concordance,
+    allele_frequency_table,
     allele_frequency_warnings,
     bim_compatibility,
     is_low_overlap,
@@ -376,6 +377,21 @@ def get_raw_files(
     # matching or orientation fault, not population difference.
     concordance = allele_frequency_concordance(ref_snps, geno_snps)
     diagnostics.allele_frequency = concordance
+    # Keep a bounded sample of the per-SNP frequencies for plotting; the
+    # concordance above is only their summary. Alleles come from the match
+    # table: the panel's counted/other allele and the cohort's own pair.
+    diagnostics.allele_frequency_sample = allele_frequency_table(
+        ref_snps,
+        geno_snps,
+        alleles=merge_common_snps_bim.rename(
+            columns={
+                "a1_y": "counted_allele",
+                "a2_y": "other_allele",
+                "a1_x": "cohort_a1",
+                "a2_x": "cohort_a2",
+            }
+        ).set_index("rsid"),
+    )
     correlation = concordance["correlation"]
     logger.info(
         f"Panel/cohort allele-frequency concordance over "

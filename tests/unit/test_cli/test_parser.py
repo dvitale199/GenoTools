@@ -1253,6 +1253,61 @@ class TestDeprecatedFlagSpellings:
         assert any("--ref_panel is deprecated" in r.getMessage() for r in records)
 
 
+class TestAncestryPlotsAlias:
+    """`--ancestry-plots` is a deprecated alias for `--plots`, at each layer.
+
+    The two diagnostic PNGs it used to write are gone; the flag is kept so old
+    command lines still run, and turns the new plot report on.
+    """
+
+    BASE = ["--pfile", "/data/test", "--out", "/tmp/out"]
+
+    def test_the_spelling_is_registered_as_deprecated(self) -> None:
+        from genotools.cli.parser import _DEPRECATED_SPELLINGS
+
+        assert _DEPRECATED_SPELLINGS["--ancestry-plots"] == "--plots"
+
+    def test_the_helper_warns_and_names_the_replacement(self, caplog) -> None:
+        from genotools.cli.parser import _warn_deprecated_flags
+
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            _warn_deprecated_flags(["--ancestry-plots"])
+        text = " ".join(r.message for r in caplog.records)
+        assert "--ancestry-plots is deprecated" in text
+        assert "--plots" in text
+
+    def test_argparse_still_accepts_the_flag(self) -> None:
+        from genotools.cli.parser import create_parser
+
+        ns = create_parser().parse_args(self.BASE + ["--ancestry-plots"])
+        assert ns.ancestry_plots is True
+        assert ns.plots is False
+
+    def test_it_alone_turns_plots_on(self) -> None:
+        assert parse_args(self.BASE + ["--ancestry-plots"]).output.plots is True
+
+    def test_it_works_with_ancestry_and_without(self) -> None:
+        """It used to be refused without --ancestry; as `--plots` it never is."""
+        with_ancestry = parse_args(
+            self.BASE
+            + ["--ancestry", "--ref-panel", "/tmp/ref", "--ref-labels", "/tmp/lab",
+               "--ancestry-plots"]
+        )
+        assert with_ancestry.output.plots is True
+        assert parse_args(self.BASE + ["--ancestry-plots"]).ancestry.run_ancestry is False
+
+    def test_plots_stays_off_when_neither_is_given(self) -> None:
+        assert parse_args(self.BASE).output.plots is False
+
+    def test_plots_alone_is_unchanged(self) -> None:
+        assert parse_args(self.BASE + ["--plots"]).output.plots is True
+
+    def test_parse_args_emits_the_warning(self, caplog) -> None:
+        with caplog.at_level(logging.WARNING, logger="genotools"):
+            parse_args(self.BASE + ["--ancestry-plots"])
+        assert any("--ancestry-plots is deprecated" in r.getMessage() for r in caplog.records)
+
+
 class TestInvocationRecorded:
     """The report says what command produced it.
 
@@ -1296,7 +1351,6 @@ class TestAncestryDiagnosticArgs:
         assert args.detect_admixed is True
         assert args.missing_fill == "ref-mean"
         assert args.max_missing_snps == 0.5
-        assert args.write_plots is False
         assert args.self_test is False
         assert args.diagnostic_flags_set() == []
 
@@ -1320,17 +1374,17 @@ class TestAncestryDiagnosticArgs:
         assert AncestryArgs(missing_fill="constant").diagnostic_flags_set() == [
             "--ancestry-missing-fill"
         ]
-        assert AncestryArgs(self_test=True, write_plots=True).diagnostic_flags_set() == [
-            "--ancestry-plots", "--ancestry-self-test"
+        assert AncestryArgs(self_test=True).diagnostic_flags_set() == [
+            "--ancestry-self-test"
         ]
 
     def test_a_diagnostic_flag_without_ancestry_is_refused(self) -> None:
         """The --amr-het rule: refuse a setting rather than ignore it."""
-        with pytest.raises(ValueError, match="--ancestry-plots requires --ancestry"):
+        with pytest.raises(ValueError, match="--ancestry-self-test requires --ancestry"):
             PipelineArgs(
                 input=InputArgs(pfile=Path("/tmp/geno")),
                 output=OutputArgs(out_path=Path("/tmp/out")),
-                ancestry=AncestryArgs(write_plots=True),
+                ancestry=AncestryArgs(self_test=True),
             )
 
     def test_the_same_flags_are_fine_alongside_ancestry(self) -> None:
@@ -1338,10 +1392,10 @@ class TestAncestryDiagnosticArgs:
             input=InputArgs(pfile=Path("/tmp/geno")),
             output=OutputArgs(out_path=Path("/tmp/out")),
             ancestry=AncestryArgs(
-                run_ancestry=True, write_plots=True, detect_admixed=False
+                run_ancestry=True, self_test=True, detect_admixed=False
             ),
         )
-        assert args.ancestry.write_plots is True
+        assert args.ancestry.self_test is True
 
 
 class TestAncestryDiagnosticFlagsEndToEnd:
@@ -1361,7 +1415,6 @@ class TestAncestryDiagnosticFlagsEndToEnd:
     def test_defaults_measure_but_change_nothing_the_user_did_not_ask_for(self) -> None:
         ancestry = self._ancestry([])
         assert ancestry.detect_admixed is True
-        assert ancestry.write_plots is False
         assert ancestry.self_test is False
         assert ancestry.missing_fill == "ref-mean"
 
@@ -1380,9 +1433,8 @@ class TestAncestryDiagnosticFlagsEndToEnd:
     def test_the_missing_snp_limit_is_a_float(self) -> None:
         assert self._ancestry(["--ancestry-max-missing-snps", "0.9"]).max_missing_snps == 0.9
 
-    def test_plots_and_self_test_are_opt_in(self) -> None:
-        ancestry = self._ancestry(["--ancestry-plots", "--ancestry-self-test"])
-        assert (ancestry.write_plots, ancestry.self_test) == (True, True)
+    def test_self_test_is_opt_in(self) -> None:
+        assert self._ancestry(["--ancestry-self-test"]).self_test is True
 
     def test_a_diagnostic_flag_without_ancestry_fails_the_whole_parse(self) -> None:
         with pytest.raises(ValueError, match="requires --ancestry"):

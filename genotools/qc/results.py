@@ -103,6 +103,11 @@ class FilterResult:
             or None if no samples were filtered.
         related_samples_file: Path to .related file with kinship pair info,
             or None if not a relatedness step.
+        plot_data: Plot-ready tables the step kept from the statistics it
+            computed, as ``kind -> TSV path`` (see ``qc/plot_data.py``). The
+            pipeline runner moves them into ``{out}_plot_data/``. Not part of
+            ``to_dict()``: they are files for ``genotools-plot``, not report
+            content.
         step_name: Name of the QC step (e.g., 'callrate_prune').
     """
 
@@ -114,6 +119,7 @@ class FilterResult:
     log: str = ""
     pruned_samples_file: Optional[Path] = None
     related_samples_file: Optional[Path] = None
+    plot_data: dict[str, Path] = field(default_factory=dict)
     step_name: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:

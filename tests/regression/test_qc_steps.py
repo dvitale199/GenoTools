@@ -282,6 +282,19 @@ class TestDirectOutlierValidation:
             f"Expected {len(expected)}, detected {len(detected_expected)}"
         )
 
+        # Precision, which recall alone never checked (#311): the synthetic
+        # males were heterozygous on X, so every one was confidently called
+        # female and the step removed 253 samples while this test passed.
+        # Outside the injected samples, a sex-check failure may only be an
+        # ambiguous call (SNPSEX 0, F near a cutoff), never a confident one.
+        checks = pd.read_csv(result.plot_data["check"], sep="\t")
+        others = checks[~checks["IID"].isin(expected) & (checks["STATUS"] == "PROBLEM")]
+        confident = others[others["SNPSEX"] != 0]
+        assert confident.empty, (
+            f"{confident['IID'].nunique()} non-injected samples got a confident "
+            f"wrong sex call:\n{confident.head(10)}"
+        )
+
     def test_het_outliers_detection(
         self, test_geno_path: Path, outlier_manifest: Path, tmp_output_dir: Path
     ):
@@ -467,6 +480,44 @@ class TestVariantOutlierValidation:
 # =============================================================================
 
 
+def assert_plot_data_matches_golden(golden_prefix: Path, output_prefix: Path) -> None:
+    """The run's {out}_plot_data/ holds the same tables as the golden run's.
+
+    Floats are compared with a tolerance; PLINK prints six significant figures,
+    so anything tighter would only test the formatting.
+    """
+    golden_dir = Path(f"{golden_prefix}_plot_data")
+    output_dir = Path(f"{output_prefix}_plot_data")
+    golden_files = sorted(p.relative_to(golden_dir) for p in golden_dir.rglob("*.tsv"))
+    output_files = sorted(p.relative_to(output_dir) for p in output_dir.rglob("*.tsv"))
+    assert golden_files, f"no golden plot data under {golden_dir}"
+    assert output_files == golden_files
+
+    for rel in golden_files:
+        pd.testing.assert_frame_equal(
+            pd.read_csv(output_dir / rel, sep="\t"),
+            pd.read_csv(golden_dir / rel, sep="\t"),
+            check_exact=False,
+            rtol=1e-5,
+            obj=str(rel),
+        )
+
+
+def assert_sample_fate_matches_golden(golden_prefix: Path, output_prefix: Path) -> None:
+    """The run's {out}_sample_fate.tsv matches the golden run's, row for row."""
+    golden = Path(f"{golden_prefix}_sample_fate.tsv")
+    output = Path(f"{output_prefix}_sample_fate.tsv")
+    assert golden.is_file(), f"no golden sample fate table at {golden}"
+    assert output.is_file(), f"run wrote no sample fate table at {output}"
+    pd.testing.assert_frame_equal(
+        pd.read_csv(output, sep="\t", dtype={"FID": str, "IID": str}),
+        pd.read_csv(golden, sep="\t", dtype={"FID": str, "IID": str}),
+        check_exact=False,
+        rtol=1e-5,
+        obj="sample_fate",
+    )
+
+
 class TestAllSamplePipeline:
     """Integration tests for the --all_sample pipeline."""
 
@@ -506,6 +557,8 @@ class TestAllSamplePipeline:
             f"  Variant diff: {comparison.variant_diff}\n"
             f"  {comparison.message}"
         )
+        assert_plot_data_matches_golden(golden_output, output_prefix)
+        assert_sample_fate_matches_golden(golden_output, output_prefix)
 
     def test_all_sample_is_deterministic(
         self, test_geno_path: Path, tmp_output_dir: Path
@@ -583,6 +636,8 @@ class TestAllVariantPipeline:
             f"  Variant diff: {comparison.variant_diff}\n"
             f"  {comparison.message}"
         )
+        assert_plot_data_matches_golden(golden_output, output_prefix)
+        assert_sample_fate_matches_golden(golden_output, output_prefix)
 
 
 class TestFullPipeline:

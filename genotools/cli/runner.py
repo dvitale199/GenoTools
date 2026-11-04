@@ -117,6 +117,11 @@ class StepResult:
     error: Optional[str] = None
     outcome: str = "pass"
     reason: Optional[str] = None
+    # The assoc step's GWAS block (``{"metrics": {...}, "output": {...}}``).
+    # Not a metric of the step itself, so it has no place in ``metrics``, but
+    # the report reads it - dropping it here is what emptied the GWAS section
+    # of every flat run.
+    gwas: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_legacy_dict(cls, step: str, legacy: Dict[str, Any]) -> "StepResult":
@@ -135,6 +140,7 @@ class StepResult:
                 "outcome", "pass" if legacy.get("pass", False) else "fail"
             ),
             reason=legacy.get("reason"),
+            gwas=legacy.get("gwas"),
         )
 
 
@@ -168,6 +174,8 @@ class PipelineState:
     ancestry_result: Optional[Dict[str, Any]] = None
     labels_list: List[str] = field(default_factory=list)
     parameters: List[ParameterRecord] = field(default_factory=list)
+    # Where the steps' plot-ready tables were collected, once any were.
+    plot_data_dir: Optional[Path] = None
 
     def get_last_passed_output(self) -> Optional[str]:
         """Get the output path of the last passed step."""
@@ -792,16 +800,6 @@ class PipelineRunner:
         projected_pca_path = f"{actual_out}_projected_new_pca.txt"
         projected_pca = pd.read_csv(projected_pca_path, sep="\t")
 
-        if self.args.ancestry.write_plots:
-            from ..ancestry.plots import plot_ancestry_diagnostics
-
-            diagnostics.plots = plot_ancestry_diagnostics(
-                train_pca=model._train_pca,
-                projected=projected_pca,
-                out_prefix=out_path,
-                decisions=predictions.decisions,
-            )
-
         # UMAP visualization
         from ..ancestry.reducers.umap_reducer import run_umap
 
@@ -825,6 +823,8 @@ class PipelineRunner:
             min_samples=self.args.ancestry.min_samples,
             subset=self.args.ancestry.subset_ancestry,
         )
+
+        self._keep_ancestry_plot_data(actual_out, diagnostics)
 
         # Build legacy-format result dict
         pred_ids = predictions.predictions.rename(
@@ -903,6 +903,54 @@ class PipelineRunner:
             self._move_ancestry_files(out_dict)
 
         return out_dict
+
+    def _keep_ancestry_plot_data(
+        self, actual_out: str, diagnostics: "AncestryDiagnostics"
+    ) -> None:
+        """Keep ancestry tables that die with the temp dir in ``{out}_plot_data/ancestry/``.
+
+        The PCA eigenvalues, the per-SNP allele frequencies and the per-sample
+        centroid margins are computed during ancestry and, without
+        ``--full-output``, deleted with the temp directory (the margins live
+        only in memory until written here). They are for ``genotools-plot`` only, so a failure to keep
+        them is a warning, never a failed run. The projected cohort PCs are not
+        copied: the report already carries them whole as ``projected_pcs``.
+
+        The directory name is fixed and says what it holds; it is not an
+        ancestry label, which is user-supplied and lives one level up for QC
+        tables.
+
+        Args:
+            actual_out: Output prefix ancestry wrote to (temp dir unless
+                ``--full-output``).
+            diagnostics: Collector; its ``allele_frequency_sample`` and, when
+                admixture detection ran, ``admixture_decisions`` are written.
+        """
+        from ..ancestry.diagnostics import centroid_margin_table
+
+        assert self.state is not None
+        eigenvalues = Path(f"{actual_out}_pca_eigenvalues.txt")
+        sample = diagnostics.allele_frequency_sample
+        has_sample = sample is not None and not sample.empty
+        margins = centroid_margin_table(diagnostics.admixture_decisions)
+        # Inference from a saved model fits no PCA, so there are no eigenvalues.
+        if not eigenvalues.is_file() and not has_sample and margins is None:
+            return
+
+        root = Path(f"{self.args.output.out_path}_plot_data")
+        dest = root / "ancestry"
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            if eigenvalues.is_file():
+                shutil.copy2(eigenvalues, dest / "pca_eigenvalues.tsv")
+            if has_sample:
+                sample.to_csv(dest / "allele_frequencies.tsv", sep="\t", index=False)
+            if margins is not None:
+                margins.to_csv(dest / "centroid_margins.tsv", sep="\t", index=False)
+        except OSError as e:
+            logger.warning(f"Ancestry plot data not kept: {e}")
+            return
+        self.state.plot_data_dir = root
 
     def _run_training_mode(
         self,
@@ -1287,6 +1335,13 @@ class PipelineRunner:
                         output_path=step_output,
                     )
 
+                    self._keep_pfile_after_assoc(
+                        step=step,
+                        pass_fail=pass_fail,
+                        out_path=out_path,
+                        geno_path=geno_path,
+                    )
+
                     # Clean up intermediate files
                     self._cleanup_intermediate_files(
                         step=step,
@@ -1546,6 +1601,7 @@ class PipelineRunner:
         if result is None:
             return None
 
+        self._collect_plot_data(step, getattr(result, "plot_data", {}), ancestry_label)
         out = result.to_dict()
         self._record_parameters(
             step=step,
@@ -1554,6 +1610,40 @@ class PipelineRunner:
             ancestry_label=ancestry_label,
         )
         return out
+
+    def _collect_plot_data(
+        self,
+        step: str,
+        plot_data: Dict[str, Path],
+        ancestry_label: str,
+    ) -> None:
+        """Move a step's plot-ready tables into ``{out}_plot_data/{ancestry}/``.
+
+        Steps write them beside their own output, which is usually in the temp
+        directory and gone by the end of the run. Collecting them here, in the
+        shared tail, reaches both run shapes and keeps them without
+        ``--full-output``. The tables are for ``genotools-plot`` only, so a
+        failure to keep them is a warning, never a failed step.
+
+        Args:
+            step: Pipeline step key; prefixes each file (``het_het.tsv``).
+            plot_data: ``kind -> path`` from ``FilterResult.plot_data``.
+            ancestry_label: Group the step ran for, or "all" in a flat run.
+        """
+        assert self.state is not None
+        if not plot_data:
+            return
+
+        root = Path(f"{self.args.output.out_path}_plot_data")
+        dest = root / ancestry_label
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            for kind, src in plot_data.items():
+                shutil.move(str(src), dest / f"{step}_{kind}.tsv")
+        except OSError as e:
+            logger.warning(f"Plot data for {step} not kept: {e}")
+            return
+        self.state.plot_data_dir = root
 
     def _record_parameters(
         self,
@@ -1609,6 +1699,41 @@ class PipelineRunner:
                     source="resolved",
                 )
             )
+
+    def _keep_pfile_after_assoc(
+        self,
+        step: str,
+        pass_fail: Dict[str, PassFailRecord],
+        out_path: str,
+        geno_path: str,
+    ) -> None:
+        """Make ``{out}.pgen/.pvar/.psam`` exist when ``assoc`` is the last step.
+
+        ``assoc`` writes ``{out}.eigenvec`` / ``.glm.*`` and no pfile, so the
+        pipeline's final dataset used to be left at the previous step's
+        temp-dir output and deleted with the temp dir: every other run shape
+        ends with a pfile at ``out_path``, and this one ended with none. The
+        dataset ``assoc`` read is the final dataset, so hand it over: copy when
+        it is the caller's own input or ``--full-output`` keeps intermediates,
+        move otherwise (it is about to be deleted anyway).
+
+        Args:
+            step: Current step name; only ``assoc`` does anything.
+            pass_fail: Pass/fail tracking dictionary; ``assoc`` must have passed.
+            out_path: Final output path prefix.
+            geno_path: Original genotype path for this run.
+        """
+        if step != "assoc" or not pass_fail[step].status:
+            return
+        src = pass_fail[step].input_path
+        if src == out_path or os.path.isfile(f"{out_path}.pgen"):
+            return
+        if not all(os.path.isfile(f"{src}.{ext}") for ext in ("pgen", "pvar", "psam")):
+            return
+        keep = self.args.full_output or src == geno_path
+        transfer = shutil.copy2 if keep else shutil.move
+        for ext in ("pgen", "pvar", "psam"):
+            transfer(f"{src}.{ext}", f"{out_path}.{ext}")
 
     def _cleanup_intermediate_files(
         self,
