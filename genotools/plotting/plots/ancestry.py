@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 from genotools.plotting.plots.base import Plot
-from genotools.plotting.report import Report
+from genotools.plotting.report import Report, plot_data_dir
 from genotools.plotting.style import (
     GRID,
     INK,
@@ -598,6 +598,182 @@ def drift_plotly(drift: pd.DataFrame, limits):
     return fig
 
 
+# --- Allele-frequency concordance (#305) ---------------------------------------
+
+AF_TABLE = "allele_frequencies"
+AF_GROUP = "ancestry"
+AF_COLUMNS = ("snp", "ref_freq", "cohort_freq", "discordant", "flip_signature")
+_AF_ALLELES = ("counted_allele", "other_allele", "cohort_a1", "cohort_a2")
+
+# Three classes, each with a colour AND a marker: concordant sites are context
+# (neutral dots), a swap signature is the headline (orange triangle), other
+# discordance (violet diamond) is the remainder.
+_AF_CLASSES = (
+    ("concordant", "concordant", "#b4b2a9", "o", "circle", 14, 0.45),
+    ("discordant", "discordant, not a swap", "#6250d6", "D", "diamond", 30, 0.9),
+    ("flip", "flip signature (near 1 - ref)", "#eb6834", "^", "triangle-up", 34, 0.9),
+)
+
+
+def _as_bool(series: pd.Series) -> pd.Series:
+    """Bool from a column read as bool (pandas 2) or as "True"/"False" text."""
+    if series.dtype == bool:
+        return series
+    text = series.astype(str).str.strip().str.lower()
+    return text.isin(("true", "1", "1.0"))
+
+
+def _af_path(report: Report) -> Optional[Path]:
+    root = plot_data_dir(report)
+    path = None if root is None else root / AF_GROUP / f"{AF_TABLE}.tsv"
+    return path if path is not None and path.is_file() else None
+
+
+def _has_af(report: Report) -> bool:
+    try:
+        path = _af_path(report)
+        if path is None:
+            return False
+        header = pd.read_csv(path, sep="\t", nrows=0).columns
+        return all(c in header for c in AF_COLUMNS)
+    except Exception:
+        return False
+
+
+def af_frame(report: Report) -> pd.DataFrame:
+    """The retained per-SNP frequencies with a `kind` column.
+
+    `kind` is `flip` (flip signature), `discordant` (discordant but not a swap)
+    or `concordant`. Rows with non-numeric frequencies are dropped.
+    """
+    frame = pd.read_csv(_af_path(report), sep="\t")
+    for col in ("ref_freq", "cohort_freq"):
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+    frame = frame.dropna(subset=["ref_freq", "cohort_freq"]).reset_index(drop=True)
+    flip = _as_bool(frame["flip_signature"])
+    disc = _as_bool(frame["discordant"])
+    frame["kind"] = np.where(flip, "flip", np.where(disc, "discordant", "concordant"))
+    return frame
+
+
+def af_summary(report: Report, frame: pd.DataFrame) -> Dict[str, object]:
+    """Correlation and flip fraction to annotate.
+
+    Prefers `ancestry_diagnostics.allele_frequency`: it is computed over every
+    matched SNP, whereas the scatter shows a sample of at most 5k. Falls back
+    to the retained sample (`source` says which) for a report without it.
+    """
+    diagnostics = report.raw.get("ancestry_diagnostics")
+    recorded = diagnostics.get("allele_frequency") if isinstance(diagnostics, dict) else None
+    if isinstance(recorded, dict) and recorded.get("n_snps"):
+        try:
+            corr = recorded.get("correlation")
+            return {
+                "source": "report",
+                "n_snps": int(recorded["n_snps"]),
+                "correlation": None if corr is None else float(corr),
+                "flip_fraction": float(recorded["fraction_flip_signature"]),
+                "n_shown": len(frame),
+            }
+        except (KeyError, TypeError, ValueError):
+            pass
+    corr = None
+    if len(frame) > 1 and frame["ref_freq"].std() > 0 and frame["cohort_freq"].std() > 0:
+        corr = float(frame["ref_freq"].corr(frame["cohort_freq"]))
+    return {
+        "source": "sample",
+        "n_snps": len(frame),
+        "correlation": corr,
+        "flip_fraction": float((frame["kind"] == "flip").mean()) if len(frame) else 0.0,
+        "n_shown": len(frame),
+    }
+
+
+def af_note(summary: Dict[str, object]) -> str:
+    corr = summary["correlation"]
+    corr_text = "n/a" if corr is None else f"{corr:.3f}"
+    text = f"r = {corr_text}, flip signature {100 * summary['flip_fraction']:.2f}%"
+    if summary["source"] == "report":
+        return f"{text} of {summary['n_snps']:,} SNPs (scatter: {summary['n_shown']:,} retained)"
+    return f"{text} ({summary['n_shown']:,} retained SNPs)"
+
+
+def _af_hover(part: pd.DataFrame) -> List[str]:
+    alleles = [c for c in _AF_ALLELES if c in part.columns]
+    out = []
+    for _, row in part.iterrows():
+        lines = [f"<b>{row['snp']}</b>"]
+        lines += [f"{c}: {row[c]}" for c in alleles]
+        lines.append(f"ref freq {row['ref_freq']:.3f}, cohort freq {row['cohort_freq']:.3f}")
+        out.append("<br>".join(lines))
+    return out
+
+
+def af_png(frame: pd.DataFrame, summary: Dict[str, object], plt, out_path: Path) -> Path:
+    fig, ax = plt.subplots(figsize=(6.4, 6.0))
+    fig.patch.set_facecolor(SURFACE)
+    style_axis(ax)
+    ax.xaxis.grid(True, color=GRID, linewidth=0.8)
+    ax.plot([0, 1], [1, 0], color=THRESHOLD, linewidth=1, linestyle=":", alpha=0.6, zorder=1,
+            label="y = 1 - x (swap)")
+    ax.plot([0, 1], [0, 1], color=THRESHOLD, linewidth=1.2, zorder=1, label="y = x")
+    for kind, label, color, marker, _, size, alpha in _AF_CLASSES:
+        part = frame[frame["kind"] == kind]
+        if part.empty:
+            continue
+        ax.scatter(part["ref_freq"], part["cohort_freq"], s=size, color=color, marker=marker,
+                   alpha=alpha, linewidths=0, zorder=2 if kind == "concordant" else 3,
+                   label=f"{label} ({len(part):,})")
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_aspect("equal")
+    ax.set_xlabel("reference allele frequency", color=INK_SECONDARY, fontsize="small")
+    ax.set_ylabel("cohort allele frequency", color=INK_SECONDARY, fontsize="small")
+    ax.set_title("Allele-frequency concordance", loc="left", fontsize="medium", color=INK,
+                 pad=22)
+    ax.text(0.0, 1.015, af_note(summary), transform=ax.transAxes, fontsize="x-small",
+            color=INK_SECONDARY, va="bottom")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, frameon=False,
+              fontsize="x-small")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+    return out_path
+
+
+def af_plotly(frame: pd.DataFrame, summary: Dict[str, object]):
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[0, 1], y=[1, 0], mode="lines", name="y = 1 - x (swap)",
+                             line={"color": THRESHOLD, "width": 1, "dash": "dot"},
+                             hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="y = x",
+                             line={"color": THRESHOLD, "width": 1.5}, hoverinfo="skip"))
+    for kind, label, color, _, symbol, size, alpha in _AF_CLASSES:
+        part = frame[frame["kind"] == kind]
+        if part.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=part["ref_freq"], y=part["cohort_freq"], mode="markers",
+            name=f"{label} ({len(part):,})",
+            marker={"color": color, "symbol": symbol, "opacity": alpha,
+                    "size": 6 if kind == "concordant" else 9},
+            text=_af_hover(part), hovertemplate="%{text}<extra></extra>",
+        ))
+    fig.update_xaxes(title="reference allele frequency", range=[-0.02, 1.02], gridcolor=GRID)
+    fig.update_yaxes(title="cohort allele frequency", range=[-0.02, 1.02], gridcolor=GRID,
+                     scaleanchor="x", scaleratio=1)
+    plotly_layout(fig, 560, title={"text": f"Allele-frequency concordance<br><sup>{af_note(summary)}</sup>",
+                                   "font": {"size": 14}})
+    return fig
+
+
+def _af_args(report: Report):
+    frame = af_frame(report)
+    return frame, af_summary(report, frame)
+
+
 # --- Registry ------------------------------------------------------------------
 
 
@@ -674,5 +850,20 @@ PLOTS: List[Plot] = [
         available=_has_drift,
         png=lambda r, plt, p: drift_png(drift_frame(r), drift_limits(r), plt, p),
         plotly=lambda r: drift_plotly(drift_frame(r), drift_limits(r)),
+    ),
+    Plot(
+        name="ancestry_af_concordance",
+        title="Ancestry: allele-frequency concordance",
+        description=(
+            "Reference against cohort allele frequency for the model SNPs. "
+            "Points on y = x agree; a strand or allele flip lands on the faint "
+            "y = 1 - x line. Flip-signature and other discordant SNPs are "
+            "marked apart. The scatter shows a retained sample of at most 5,000 "
+            "SNPs; the annotated correlation and flip fraction cover every "
+            "matched SNP when the report records them. Hover for SNP and alleles."
+        ),
+        available=_has_af,
+        png=lambda r, plt, p: af_png(*_af_args(r), plt, p),
+        plotly=lambda r: af_plotly(*_af_args(r)),
     ),
 ]

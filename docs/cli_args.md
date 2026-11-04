@@ -210,6 +210,7 @@ reference panel.
 | `ancestry_confusion_matrix` | The reference test set's confusion matrix, each true label's row normalised to sum to 1, with the held-out balanced accuracy (training runs only) and accuracy in the title. |
 | `ancestry_label_counts` | Cohort samples predicted as each label. |
 | `ancestry_pc_drift` | Per PC, how far the cohort centre sits from the reference (in reference SD) and its spread relative to the reference's, against the band the run warned outside of. The band is read from `ancestry_diagnostics.pc_drift_limits`; a report that did not record it is drawn without one. |
+| `ancestry_af_concordance` | Reference against cohort allele frequency for the model SNPs, with y = x and the faint y = 1 - x line a strand or allele flip lands on; flip-signature and other discordant SNPs get their own colour and marker. Draws the retained sample (at most 5,000 SNPs, `ancestry/allele_frequencies.tsv`); the annotated correlation and flip fraction come from `ancestry_diagnostics.allele_frequency` (all matched SNPs) when recorded, else from the sample. |
 
 An all-`CAH` cohort or a collapsed projection shows up here first: the cohort
 lands off the reference cloud in `ancestry_pc_pairs`, and outside the band in

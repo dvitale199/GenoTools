@@ -27,6 +27,7 @@ from genotools.plotting.report import load_report
 from genotools.plotting.style import PANEL_COLORS, label_styles
 
 from .conftest import qc_row, write_report
+from .test_af_concordance import af_table
 
 N_PCS = 5
 
@@ -136,6 +137,11 @@ def write_ancestry_report(
     for key in drop or []:
         report.pop(key, None)
     path.write_text(json.dumps(report))
+    if "allele_frequencies" not in (drop or []):
+        # Beside the report, where `plot_data_dir` falls back to.
+        table_dir = Path(f"{str(path)[:-len('.json')]}_plot_data") / "ancestry"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        af_table().to_csv(table_dir / "allele_frequencies.tsv", sep="\t", index=False)
     return path
 
 
@@ -173,6 +179,7 @@ class TestAvailability:
             (["confusion_matrix"], ["ancestry_confusion_matrix"]),
             (["ancestry_counts"], ["ancestry_label_counts"]),
             (["ancestry_diagnostics"], ["ancestry_pc_drift"]),
+            (["allele_frequencies"], ["ancestry_af_concordance"]),
         ],
     )
     def test_a_plot_needs_its_own_key(self, tmp_path: Path, dropped, plot_names) -> None:
