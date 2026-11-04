@@ -65,6 +65,13 @@ history and the GitHub releases page.
 
 ### Fixed
 
+- **Training an ancestry model no longer floods the terminal with about 1,000
+  UMAP warnings.** Each UMAP fit in the grid search warned that its `n_jobs`
+  was being overridden to 1, because a UMAP with a fixed random seed always
+  runs single-threaded. The warnings came from worker processes, so they could
+  not be filtered. UMAP is now built with `n_jobs=1`, which is what it already
+  ran with. **Results are unchanged.**
+
 - **The synthetic test cohort no longer gives every male a heterozygous X.**
   Sex QC removed half of it, so the regression tests exercised a cohort no
   real array produces. Sex QC now removes 17 samples instead of 253, and the
