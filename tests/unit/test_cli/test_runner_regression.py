@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import pytest
 
-from genotools.core.exceptions import QCError, ValidationError
+from genotools.core.exceptions import NoDataRemainingError, QCError, ValidationError
 from genotools.cli.parser import (
     AncestryArgs,
     GWASArgs,
@@ -3011,3 +3011,347 @@ class TestPerGroupAssocFloor:
 
         assert seen["AMR"] == {}
         assert set(seen["EUR"]) == {"assoc"}
+
+
+def _emptying_step_factory(
+    emptying_step: str,
+    what: str = "samples",
+    in_group: Optional[str] = None,
+    own_output: bool = True,
+):
+    """A _run_single_step replacement whose `emptying_step` filters out everything.
+
+    It raises NoDataRemainingError as run_plink2 does, for the step's own output
+    prefix or (``own_output=False``) for an intermediate one, and only in group
+    `in_group` when given. It leaves a plot table behind first, as a step that
+    writes its tables before filtering does. Every other step writes pfiles.
+    """
+    def fake_single_step(
+        step: str,
+        step_input: str,
+        step_output: str,
+        legacy_args: Dict[str, Any],
+        ancestry_label: str = "all",
+        **_: Any,
+    ) -> Dict[str, Any]:
+        if step == emptying_step and in_group in (None, ancestry_label):
+            Path(f"{step_output}_plotdata_sample_missingness.tsv").write_text(
+                "#FID\tIID\tF_MISS\nF0\tI0\t0.2\n"
+            )
+            raise NoDataRemainingError(
+                tool="plink2",
+                command="plink2 --mind 0",
+                returncode=13,
+                stderr=f"Error: No {what} remaining after main filters.",
+                remaining=what,
+                output_path=step_output if own_output else f"{step_output}_tmp",
+            )
+        _touch_pfiles(Path(step_output))
+        _psam_with(Path(step_output), 4)
+        return {"pass": True, "step": step, "metrics": {}, "output": {}}
+
+    return fake_single_step
+
+
+class TestEmptiedGroupEndsItsQC:
+    """#323: a filter that removes every sample used to "fail", and under the
+    default warn-and-continue the next step then ran on the last passed output -
+    the unfiltered input - so geno and hwe QC'd samples callrate had rejected
+    and reported PASS, and the final fileset could be that unfiltered data.
+
+    An emptied group is finished: the emptying step passes with the whole input
+    as its count, later steps are skipped, no fileset is written. The run fails
+    only when nothing is left at all, or under --no-warn.
+    """
+
+    @staticmethod
+    def _flat(tmp_path: Path, warn_only: bool, factory) -> tuple[PipelineRunner, Path]:
+        runner, geno, out = _make_runner(tmp_path, warn_only=warn_only)
+        _psam_with(geno, 6)
+        runner._initialize_modules()
+        runner._run_single_step = factory  # type: ignore[method-assign]
+        return runner, out
+
+    @pytest.mark.parametrize("warn_only", [True, False])
+    def test_flat_run_stops_and_fails(self, tmp_path: Path, warn_only: bool) -> None:
+        runner, out = self._flat(tmp_path, warn_only, _emptying_step_factory("callrate"))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "geno", "hwe"],
+            geno_path=str(runner.state.geno_path),
+            out_path=str(out),
+        )
+
+        pf = out_dict["pass_fail"]
+        assert pf["callrate"]["status"] is True
+        assert pf["callrate"]["reason"] == "callrate removed all 6 samples; no samples remain"
+        for step in ("geno", "hwe"):
+            assert pf[step]["outcome"] == "skipped"
+            assert pf[step]["reason"] == "no samples remain after callrate"
+        assert out_dict["callrate"]["metrics"] == {"outlier_count": 6}
+        assert not Path(f"{out}.pgen").exists(), "an emptied group got a fileset"
+
+        outliers = pd.read_csv(out_dict["callrate"]["output"]["pruned_samples"], sep="\t")
+        assert list(outliers.columns) == ["#FID", "IID"]
+        assert list(outliers["IID"]) == [f"I{i}" for i in range(6)]
+
+        assert set(runner.state.emptied_groups) == {"all"}
+        assert runner._emptied_error() == (
+            "No data remain after QC: callrate removed all 6 samples; no samples remain."
+        )
+
+    def test_intermediate_emptying_is_an_ordinary_failure(self, tmp_path: Path) -> None:
+        """het's LD prefilter can empty an intermediate; the group still has data."""
+        runner, out = self._flat(
+            tmp_path, True, _emptying_step_factory("callrate", own_output=False)
+        )
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "geno"],
+            geno_path=str(runner.state.geno_path),
+            out_path=str(out),
+        )
+
+        assert out_dict["pass_fail"]["callrate"]["outcome"] == "fail"
+        assert out_dict["pass_fail"]["geno"]["outcome"] == "pass"
+        assert runner.state.emptied_groups == {}
+        assert runner._emptied_error() is None
+
+    def test_emptying_last_step_promotes_nothing(self, tmp_path: Path) -> None:
+        """The terminal-failure fallback would copy the unfiltered input to {out}."""
+        runner, out = self._flat(tmp_path, True, _emptying_step_factory("hwe", "variants"))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "geno", "hwe"],
+            geno_path=str(runner.state.geno_path),
+            out_path=str(out),
+        )
+
+        assert out_dict["pass_fail"]["hwe"]["reason"] == (
+            "hwe removed all 0 variants; no variants remain"
+        )
+        assert "pruned_samples" not in out_dict["hwe"]["output"] or (
+            out_dict["hwe"]["output"]["pruned_samples"] is None
+        )
+        assert not Path(f"{out}.pgen").exists(), "fallback promoted an earlier output"
+
+    def test_plot_tables_written_before_the_filter_are_kept(self, tmp_path: Path) -> None:
+        runner, out = self._flat(tmp_path, True, _emptying_step_factory("callrate"))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "geno"],
+            geno_path=str(runner.state.geno_path),
+            out_path=str(out),
+        )
+
+        kept = Path(f"{out}_plot_data") / "all" / "callrate_sample_missingness.tsv"
+        assert kept.is_file()
+
+    @staticmethod
+    def _ancestry(tmp_path: Path, warn_only: bool, factory):
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        _psam_with(geno, 8)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True, warn_only=warn_only),
+            ancestry=AncestryArgs(run_ancestry=True),
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        runner._initialize_modules()
+        runner._skip_reasons = lambda *a, **k: {}  # type: ignore[method-assign]
+        for label in ("AFR", "EUR"):
+            _touch_pfiles(Path(f"{out}_ancestry_{label}"))
+            _psam_with(Path(f"{out}_ancestry_{label}"), 4)
+        ids = pd.DataFrame(
+            {"FID": [f"F{i}" for i in range(8)], "IID": [f"I{i}" for i in range(8)],
+             "label": ["AFR"] * 4 + ["EUR"] * 4}
+        )
+        runner._run_ancestry_prediction_new = lambda: {  # type: ignore[method-assign]
+            "data": {
+                "predict_data": {"ids": ids},
+                "labels_list": ["AFR", "EUR"],
+                "pruned_samples": pd.DataFrame(columns=["FID", "IID", "step", "label"]),
+            },
+            "metrics": {},
+        }
+        runner._run_single_step = factory  # type: ignore[method-assign]
+        return runner, out
+
+    def test_one_emptied_group_leaves_the_others_and_the_run(self, tmp_path: Path) -> None:
+        runner, out = self._ancestry(
+            tmp_path, True, _emptying_step_factory("callrate", in_group="AFR")
+        )
+
+        output = runner._run_with_ancestry(["callrate", "geno"])
+
+        afr = runner.state.ancestry_results["AFR"]["pass_fail"]
+        eur = runner.state.ancestry_results["EUR"]["pass_fail"]
+        assert afr["geno"]["outcome"] == "skipped"
+        assert eur["geno"]["outcome"] == "pass"
+        assert Path(f"{out}_EUR.pgen").exists()
+        assert not Path(f"{out}_AFR.pgen").exists()
+        assert runner._emptied_error() is None
+        assert output.success is True
+
+        fate = pd.read_csv(f"{out}_sample_fate.tsv", sep="\t", dtype=str)
+        removed = dict(zip(fate["IID"], fate["removed_by"]))
+        assert {removed[f"I{i}"] for i in range(4)} == {"callrate"}
+        assert {removed[f"I{i}"] for i in range(4, 8)} == {"kept"}
+
+    def test_no_warn_runs_every_group_then_fails(self, tmp_path: Path) -> None:
+        runner, out = self._ancestry(
+            tmp_path, False, _emptying_step_factory("callrate", in_group="AFR")
+        )
+
+        runner._run_with_ancestry(["callrate", "geno"])
+
+        # AFR sorts first: under the old fail-fast EUR never ran.
+        assert Path(f"{out}_EUR.pgen").exists()
+        assert runner._emptied_error() == (
+            "No data remain after QC in 1 ancestry group(s) - "
+            "AFR: callrate removed all 4 samples; no samples remain."
+        )
+
+    def test_every_group_emptied_fails(self, tmp_path: Path) -> None:
+        runner, _ = self._ancestry(tmp_path, True, _emptying_step_factory("callrate"))
+
+        runner._run_with_ancestry(["callrate", "geno"])
+
+        assert set(runner.state.emptied_groups) == {"AFR", "EUR"}
+        assert runner._emptied_error() is not None
+
+
+class TestEmptyingStepRecordsItsSettings:
+    """The threshold that emptied a group is the setting a user needs to see,
+    and a raising step never reached the shared tail that records settings.
+    Drives the real _run_single_step with only the step function stubbed.
+    """
+
+    def test_mind_reaches_parameters(self, tmp_path: Path, monkeypatch) -> None:
+        geno = tmp_path / "geno"
+        out = tmp_path / "out"
+        _touch_pfiles(geno)
+        _psam_with(geno, 3)
+        args = PipelineArgs(
+            input=InputArgs(pfile=geno),
+            output=OutputArgs(out_path=out, full_output=True),
+            sample_qc=SampleQCArgs(run_callrate=True, callrate_threshold=0.0),
+        )
+        runner = PipelineRunner(args)
+        runner.state = PipelineState(geno_path=geno, out_path=out, tmp_dir=None)
+        runner._initialize_modules()
+
+        def empty(data, config, out_path):
+            raise NoDataRemainingError(
+                tool="plink2", command="plink2", returncode=13,
+                stderr="Error: No samples remaining after main filters.",
+                remaining="samples", output_path=str(out_path),
+            )
+
+        monkeypatch.setitem(runner._new_modules, "filter_callrate", empty)
+
+        runner._run_qc_pipeline(
+            steps=["callrate"], geno_path=str(geno), out_path=str(out)
+        )
+
+        recorded = {(p.step, p.parameter): p.value for p in runner.state.parameters}
+        assert recorded[("callrate_prune", "mind")] == 0.0
+
+
+class TestFailedFilterUnderWarnIsLoud:
+    """Under --warn a failed filter step is not applied, and the run says so.
+
+    The next step reads the last *passed* output, and a failed final step is
+    replaced by the last passed output, so the fileset is missing that filter.
+    That stays the --warn behaviour; these pin that it is never quiet about it.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch) -> List[str]:
+        import logging as _logging
+
+        messages: List[str] = []
+
+        class _Capture(_logging.Handler):
+            def emit(self, record):
+                messages.append(record.getMessage())
+
+        cap = _Capture()
+        logger = _logging.getLogger("genotools")
+        logger.addHandler(cap)
+        monkeypatch.setattr(logger, "level", _logging.DEBUG)
+        return messages
+
+    def test_failed_filter_is_named_when_it_fails_and_in_the_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        messages = self._capture(monkeypatch)
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("sex"))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"], geno_path=str(geno), out_path=str(out)
+        )
+        runner._emit_run_summary()
+
+        assert any(
+            "Step sex failed; continuing without its filter" in m for m in messages
+        ), messages
+        assert any(
+            m.strip().startswith("Filters NOT applied (failed under --warn): sex.")
+            for m in messages
+        ), messages
+
+    def test_summary_names_the_group_under_ancestry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        messages = self._capture(monkeypatch)
+        runner, _, _ = _make_runner(tmp_path, warn_only=True)
+        runner.state.ancestry_results = {
+            "AFR": {"pass_fail": {
+                "callrate": {"status": True, "outcome": "pass"},
+                "het": {"status": False, "outcome": "fail"},
+            }},
+            "EUR": {"pass_fail": {"het": {"status": True, "outcome": "pass"}}},
+        }
+
+        runner._emit_run_summary()
+
+        assert any("Filters NOT applied (failed under --warn): AFR/het." in m
+                   for m in messages), messages
+
+    def test_report_only_failure_is_not_called_a_missing_filter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        messages = self._capture(monkeypatch)
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _fake_step_factory("assoc"))
+
+        out_dict = runner._run_qc_pipeline(
+            steps=["callrate", "assoc"], geno_path=str(geno), out_path=str(out)
+        )
+        runner._emit_run_summary()
+
+        assert out_dict["pass_fail"]["assoc"]["status"] is False
+        assert not any("Filters NOT applied" in m for m in messages), messages
+        assert not any("without its filter" in m for m in messages), messages
+
+    def test_final_step_fallback_says_which_filter_is_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        messages = self._capture(monkeypatch)
+        runner, geno, out = _make_runner(tmp_path, warn_only=True)
+        monkeypatch.setattr(runner, "_run_single_step", _traceable_step_factory("het"))
+
+        runner._run_qc_pipeline(
+            steps=["callrate", "sex", "het"], geno_path=str(geno), out_path=str(out)
+        )
+
+        assert any(
+            f"Final step het failed: writing {out} from sex, without het's filter "
+            f"applied." in m
+            for m in messages
+        ), messages

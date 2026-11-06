@@ -37,6 +37,7 @@ from .exceptions import (
     AncestryError,
     GWASError,
     ExternalToolError,
+    NoDataRemainingError,
     FileFormatError,
     DependencyError,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "AncestryError",
     "GWASError",
     "ExternalToolError",
+    "NoDataRemainingError",
     "FileFormatError",
     "DependencyError",
     # Logging

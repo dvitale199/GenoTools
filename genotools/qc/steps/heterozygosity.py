@@ -24,7 +24,7 @@ from typing import Any, Dict, Tuple
 import pandas as pd
 
 from genotools.core.exceptions import QCError, ValidationError
-from genotools.core.executors import run_plink2
+from genotools.core.executors import emptying_filter, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import HetConfig
@@ -225,12 +225,15 @@ def filter_heterozygosity(
             het_outliers.to_csv(outliers_out, sep="\t", header=True, index=False)
 
             # Remove outliers from original data
-            run_plink2(
-                input_path=data.path,
-                output_path=out_path,
-                input_format=data.format,
-                extra_args=["--remove", str(outliers_out)],
-            )
+            with emptying_filter(
+                outlier_count >= data.sample_count, "samples", out_path
+            ):
+                run_plink2(
+                    input_path=data.path,
+                    output_path=out_path,
+                    input_format=data.format,
+                    extra_args=["--remove", str(outliers_out)],
+                )
 
             # Load output
             output = GenotypeData.from_path(out_path)

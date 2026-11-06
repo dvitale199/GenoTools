@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 from genotools.core.exceptions import ValidationError
-from genotools.core.executors import run_plink2
+from genotools.core.executors import emptying_filter, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import CallrateConfig
@@ -82,19 +82,27 @@ def filter_callrate(
         )
         smiss_file = Path(f"{miss_tmp}.smiss")
         plot_tables = {}
+        removes_all = False
         if smiss_file.exists():
             smiss = pd.read_csv(smiss_file, sep=r"\s+", dtype={"#FID": str, "IID": str})
             plot_tables["sample_missingness"] = smiss.loc[:, ["#FID", "IID", "F_MISS"]]
+            # --mind removes a sample whose missing rate exceeds the threshold.
+            removes_all = bool((smiss["F_MISS"] > config.mind).all())
             smiss_file.unlink()
         Path(f"{miss_tmp}.log").unlink(missing_ok=True)
 
+        # Written before filtering: if --mind leaves nothing, the runner keeps
+        # these tables, which show why.
+        plot_data = write_plot_data(plot_tables, out_path)
+
         # Run PLINK2 with --mind
-        result = run_plink2(
-            input_path=data.path,
-            output_path=out_path,
-            input_format=data.format,
-            extra_args=["--mind", str(config.mind)],
-        )
+        with emptying_filter(removes_all, "samples", out_path):
+            result = run_plink2(
+                input_path=data.path,
+                output_path=out_path,
+                input_format=data.format,
+                extra_args=["--mind", str(config.mind)],
+            )
 
         # Load output to get counts
         output = GenotypeData.from_path(out_path)
@@ -130,6 +138,6 @@ def filter_callrate(
             },
             log=result.stderr,
             pruned_samples_file=pruned_file,
-            plot_data=write_plot_data(plot_tables, out_path),
+            plot_data=plot_data,
             step_name=step_name,
         )

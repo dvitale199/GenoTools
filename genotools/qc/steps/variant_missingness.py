@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 from genotools.core.exceptions import ValidationError
-from genotools.core.executors import run_plink2
+from genotools.core.executors import emptying_filter, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import get_logger, step_context
 from genotools.qc.config import GenoConfig
@@ -91,22 +91,30 @@ def filter_variant_missingness(
         )
         vmiss_file = Path(f"{miss_tmp}.vmiss")
         plot_tables = {}
+        removes_all = False
         if vmiss_file.exists():
             vmiss = pd.read_csv(vmiss_file, sep=r"\s+", usecols=["ID", "F_MISS"], dtype={"ID": str})
             plot_tables["missingness_bins"] = histogram(vmiss["F_MISS"], MISSINGNESS_EDGES)
             plot_tables["failing"] = failing_rows(
                 vmiss, vmiss["F_MISS"] > config.geno, "F_MISS", ascending=False
             )
+            # --geno removes a variant whose missing rate exceeds the threshold.
+            removes_all = bool((vmiss["F_MISS"] > config.geno).all())
             vmiss_file.unlink()
         Path(f"{miss_tmp}.log").unlink(missing_ok=True)
 
+        # Written before filtering: if --geno leaves nothing, the runner keeps
+        # these tables, which show why.
+        plot_data = write_plot_data(plot_tables, out_path)
+
         # Run PLINK2 with --geno
-        result = run_plink2(
-            input_path=data.path,
-            output_path=out_path,
-            input_format=data.format,
-            extra_args=["--geno", str(config.geno)],
-        )
+        with emptying_filter(removes_all, "variants", out_path):
+            result = run_plink2(
+                input_path=data.path,
+                output_path=out_path,
+                input_format=data.format,
+                extra_args=["--geno", str(config.geno)],
+            )
 
         # Load output to get counts
         output = GenotypeData.from_path(out_path)
@@ -126,6 +134,6 @@ def filter_variant_missingness(
             },
             log=result.stderr,
             pruned_samples_file=None,
-            plot_data=write_plot_data(plot_tables, out_path),
+            plot_data=plot_data,
             step_name=step_name,
         )

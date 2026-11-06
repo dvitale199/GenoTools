@@ -511,6 +511,41 @@ class TestSuccessSeparatesSkipFromFailure:
     def test_no_steps_is_success(self) -> None:
         assert PipelineOutput().success is True
 
+    def test_emptying_filter_passes_but_error_fails(self) -> None:
+        """#323: the step that emptied the run passes, so only `error` fails it."""
+        steps = {
+            "callrate": {"status": True, "outcome": "pass"},
+            "geno": {"status": False, "outcome": "skipped", "reason": "no samples remain"},
+        }
+        assert self._output(**steps).success is True
+        out = self._output(**steps)
+        out.error = "No data remain after QC: callrate removed all 500 samples."
+        assert out.success is False
+
+
+class TestMainReportsTheRunError:
+    """#323: a run a filter emptied writes its report, then says why it failed."""
+
+    def test_error_is_printed_and_exits_1(self, monkeypatch, capsys) -> None:
+        import sys
+
+        import genotools.cli as cli
+
+        written = []
+        result = PipelineOutput(error="No data remain after QC: callrate removed all 5 samples.")
+        monkeypatch.setattr(
+            sys, "argv", ["genotools", "--pfile", "/data/test", "--out", "/tmp/out"]
+        )
+        monkeypatch.setattr(cli, "run_pipeline", lambda args: result)
+        monkeypatch.setattr(cli, "write_results", lambda r, out: written.append(r))
+
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+
+        assert exc.value.code == 1
+        assert written == [result], "the report must be written before failing"
+        assert "ERROR: No data remain after QC" in capsys.readouterr().err
+
 
 class TestParametersSection:
     """The report records the settings a run used, not only its outcomes.

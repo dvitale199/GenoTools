@@ -171,7 +171,7 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     | `level` | `sample` or `variant` |
     | `pass` | `true` only when the step ran and succeeded |
     | `outcome` | *New in 2.0.* `pass`, `fail`, or `skipped` |
-    | `reason` | *New in 2.0.* Why, for `fail` and `skipped`; `null` otherwise |
+    | `reason` | *New in 2.0.* Why, for `fail` and `skipped`, and for a `pass` that removed everything; `null` otherwise |
 
     `pruned_count` holds a count and nothing else, which is why the settings
     live in `parameters` rather than here: a mode name or a derived bound in
@@ -184,6 +184,13 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     these rows were either absent (skips) or present without any indication of
     why (failures), so a missing row could not be told from a step that was
     never asked for.
+
+    A filter that removed every sample or variant in a group passes - it did
+    its job - with `pruned_count` the group's whole input and a `reason` such
+    as `callrate removed all 500 samples; no samples remain`. The group's later
+    steps are `skipped` with reason `no samples remain after callrate`. For a
+    sample step, every sample in the group is listed in `pruned_samples` and
+    the sample fate table under that step.
 
 - **`GWAS`**  
   - *Process*: `Genome-wide Assoication Study (GWAS)`  
@@ -267,7 +274,7 @@ input_samples = pd.DataFrame(json_file['input_samples']) # replace 'input_sample
     |---|---|
     | `status` | Boolean; `true` only when the step ran and succeeded |
     | `outcome` | *New in 2.0.* `pass`, `fail`, or `skipped` |
-    | `reason` | *New in 2.0.* Why, for `fail` and `skipped`; `null` otherwise |
+    | `reason` | *New in 2.0.* Why, for `fail` and `skipped`, and for a `pass` that removed everything; `null` otherwise |
     | `input` | Pfile prefix the step read |
     | `output` | Pfile prefix the step wrote (equal to `input` for a skip, which passes the chain through untouched) |
 

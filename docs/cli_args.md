@@ -94,7 +94,9 @@ over `--bfile`, which wins over `--vcf`.
   - *Default*: `False` (warn-and-continue is the default behavior)
   - *Description*: Stop the pipeline at the first failing step. Without this
     flag, a failing step is recorded as failed and the pipeline continues from
-    the last step that passed. Failure policy only — it has no effect on which
+    the last step that passed - so **a failed filter step is not applied**: the
+    steps after it, and the `{out}` fileset, are built without it (see below).
+    Failure policy only — it has no effect on which
     files are kept. (Before 2.2.0 it silently did both: cleanup ran *only*
     under `--no-warn`, so reclaiming disk meant giving up warn-and-continue.)
 
@@ -111,6 +113,35 @@ longer interfere (they did before 2.2.0, when cleanup ran only under
 
 A failed step's input pfile is kept in every column, so a broken run can be
 examined whatever the flags.
+
+**What "run continues" costs.** Under the default, a filter step that fails
+(a PLINK error, a missing file - anything but removing everything, below) is
+skipped over: the next step reads the output of the last step that passed, and
+if the *last* step failed, `{out}` is a copy of the last passed output. Either
+way the fileset is missing that filter. The run says so three times - a warning
+when the step fails ("continuing without its filter"), a warning naming the
+step `{out}` was written from, and a `Filters NOT applied` line in the run
+summary listing every such step (`AFR/het` under `--ancestry`) - and it exits
+1, since any failed step fails the run. The report marks the step `fail` with
+the error as its `reason`. `kinship_check` and `assoc` only report on the data,
+so their failure costs a report, not a filter. Use `--no-warn` when a fileset
+missing a filter must never be written.
+
+**A filter that removes everything.** When a step's threshold removes every
+sample (or every variant) in a dataset - `--callrate 0`, say - that is not a
+failure: the step reports `pass` with the whole input as its count, the steps
+after it are reported `skipped` ("no samples remain after callrate"), and no
+`{out}` fileset is written. Under `--ancestry` this is per group: the other
+groups are QC'd as normal. The report, sample fate table and plots are still
+written, and then the run exits 1 with an `ERROR:` line when
+
+- nothing is left at all - a run without `--ancestry`, or every group emptied;
+  or
+- any group was emptied and `--no-warn` is set. `--no-warn` still lets every
+  group finish first, so the others' output is not lost.
+
+Otherwise (some groups emptied, default mode) the run exits 0 and the summary
+names each emptied group.
 
 - **`--quiet`**
   - *Type*: `flag`

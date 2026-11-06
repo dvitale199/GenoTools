@@ -153,4 +153,6 @@ def main():
         sys.exit(130)
 
     # Return appropriate exit code
+    if result.error is not None:
+        print(f"ERROR: {result.error}", file=sys.stderr)
     sys.exit(0 if result.success else 1)
