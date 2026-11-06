@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, List, Optional, Sequence, Union
 
-from .exceptions import DependencyError, ExternalToolError
+from .exceptions import DependencyError, ExternalToolError, NoDataRemainingError
 from .logging import get_logger, raw_sink
 
 logger = get_logger(__name__)
@@ -332,7 +332,72 @@ def run_plink2(
     # Add output
     cmd.extend(["--out", str(output_path)])
 
-    return run_command(cmd, tool_name="plink2")
+    try:
+        return run_command(cmd, tool_name="plink2")
+    except ExternalToolError as e:
+        remaining = _no_data_remaining(f"{e.stderr}\n{e.stdout or ''}")
+        if remaining is None:
+            raise
+        raise _as_no_data_remaining(e, remaining, output_path) from e
+
+
+def _no_data_remaining(text: str) -> Optional[str]:
+    """What a PLINK2 run's output says it filtered out entirely, if anything.
+
+    Matched on PLINK2's message, not its exit code: exit 13 also covers
+    ``--indep-pairwise`` refusing fewer than 50 samples, which empties nothing.
+
+    Returns:
+        ``"samples"`` or ``"variants"``, or None for any other failure.
+    """
+    for kind in ("samples", "variants"):
+        if f"No {kind} remaining" in text:
+            return kind
+    return None
+
+
+def _as_no_data_remaining(
+    e: ExternalToolError, remaining: str, output_path: Union[str, Path]
+) -> NoDataRemainingError:
+    return NoDataRemainingError(
+        tool=e.tool,
+        command=e.command,
+        returncode=e.returncode,
+        stderr=e.stderr,
+        stdout=e.stdout,
+        remaining=remaining,
+        output_path=str(output_path),
+    )
+
+
+@contextmanager
+def emptying_filter(
+    removes_all: bool, remaining: str, output_path: Path
+) -> Generator[None, None, None]:
+    """Classify a failed filtering call by the step's own count, not PLINK's text.
+
+    Wrap the call that writes a step's output. If it fails while the step had
+    already worked out that it removes every sample (or variant), the failure
+    becomes a :class:`NoDataRemainingError`, whatever PLINK printed. Matching
+    PLINK2's message in :func:`run_plink2` stays as the backstop for anything a
+    step's count misses.
+
+    Only failures are reclassified: a step whose count disagrees with PLINK at
+    a threshold boundary never discards data PLINK would have kept.
+
+    Args:
+        removes_all: The step's own verdict that the call leaves nothing.
+        remaining: ``"samples"`` or ``"variants"``.
+        output_path: The call's ``--out`` prefix, the step's output.
+    """
+    try:
+        yield
+    except NoDataRemainingError:
+        raise
+    except ExternalToolError as e:
+        if not removes_all:
+            raise
+        raise _as_no_data_remaining(e, remaining, output_path) from e
 
 
 def run_plink(

@@ -3,6 +3,46 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## 2.3.1
+
+### Fixed
+
+- **A filter that removes every sample now stops that dataset's QC (#323).**
+
+  With `--callrate 0`, say, PLINK refuses to write an empty fileset, and
+  GenoTools treated that as an ordinary step failure. Under the default
+  warn-and-continue, the steps after it then QC'd the *unfiltered* input and
+  reported PASS, and `{out}` could be written from it. The sample fate table
+  listed every sample as kept, and the attrition plot showed nothing removed.
+
+  Now the step reports `pass` with the whole input as its count, the steps
+  after it are `skipped` ("no samples remain after callrate"), and no `{out}`
+  fileset is written. The report, sample fate table and plots are still
+  written, and they show every sample removed by that step, with the
+  missingness that removed it. The run then exits 1 with an `ERROR:` line.
+  Under `--ancestry` this is per group: the other groups are QC'd as normal,
+  and the run exits 1 only if every group was emptied, or under `--no-warn`
+  after all groups have run. The same applies to variants (`--geno`, HWE,
+  case-control and haplotype missingness).
+
+  Each step detects this from its own count of what it removes, not from
+  PLINK's wording. PLINK's "No samples remaining" message is still matched as
+  a backstop.
+
+### Changed
+
+- **A failed filter step under warn-and-continue is no longer quiet.**
+
+  When a filter step fails for any other reason, the run still continues from
+  the last step that passed, so the steps after it and `{out}` are built
+  without that filter. The run already exited 1, but on the console this read
+  like any other warning. It now says when the step fails ("continuing without
+  its filter"). If the last step failed, it names the step `{out}` was written
+  from instead. The run summary ends with a `Filters NOT applied` line naming
+  every such step (`AFR/het` under `--ancestry`). Use `--no-warn` when a
+  fileset missing a filter must never be written. See "What 'run continues'
+  costs" in `docs/cli_args.md`.
+
 ## 2.3.0
 
 ### Added

@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 from genotools.core.exceptions import QCError, ValidationError
-from genotools.core.executors import run_plink, run_plink2
+from genotools.core.executors import emptying_filter, run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import SexConfig
@@ -159,12 +159,15 @@ def filter_sex(
             sex_fail_ids.to_csv(sex_fails, sep="\t", header=True, index=False)
 
             # Remove sex fail samples from geno
-            run_plink2(
-                input_path=data.path,
-                output_path=out_path,
-                input_format=data.format,
-                extra_args=["--remove", str(sex_fails)],
-            )
+            with emptying_filter(
+                sex_fail_count >= data.sample_count, "samples", out_path
+            ):
+                run_plink2(
+                    input_path=data.path,
+                    output_path=out_path,
+                    input_format=data.format,
+                    extra_args=["--remove", str(sex_fails)],
+                )
 
             # Load output
             output = GenotypeData.from_path(out_path)

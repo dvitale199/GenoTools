@@ -35,7 +35,7 @@ import pandas as pd
 
 from .parser import PipelineArgs
 from .output import ParameterRecord, PipelineOutput, write_results
-from ..core.exceptions import GenoToolsError, ValidationError
+from ..core.exceptions import GenoToolsError, NoDataRemainingError, ValidationError
 from ..core.logging import (
     RunLog,
     get_logger,
@@ -177,6 +177,8 @@ class PipelineState:
     parameters: List[ParameterRecord] = field(default_factory=list)
     # Where the steps' plot-ready tables were collected, once any were.
     plot_data_dir: Optional[Path] = None
+    # Groups ("all" in a flat run) a filter emptied, and why.
+    emptied_groups: Dict[str, str] = field(default_factory=dict)
 
     def get_last_passed_output(self) -> Optional[str]:
         """Get the output path of the last passed step."""
@@ -201,6 +203,9 @@ class PipelineRunner:
     # Step categories
     SAMPLE_STEPS = ["callrate", "sex", "het", "related", "kinship_check"]
     VARIANT_STEPS = ["geno", "case_control", "haplotype", "hwe", "ld"]
+    # Steps that report on the data without filtering it, so a failure under
+    # --warn loses a report, not a filter.
+    REPORT_ONLY_STEPS = ("kinship_check", "assoc")
 
     def __init__(self, args: PipelineArgs) -> None:
         """Initialize the pipeline runner.
@@ -280,6 +285,7 @@ class PipelineRunner:
             else:
                 result = self._run_qc_only(steps)
 
+            result.error = self._emptied_error()
             self._emit_run_summary()
             return result
         finally:
@@ -488,6 +494,21 @@ class PipelineRunner:
         tally = summary_tally(rows)
         if tally:
             logger.warning(f"  {tally}", extra={"console_only": True})
+        unapplied = [
+            label for label, _, outcome in rows
+            if outcome == "fail"
+            and label.rsplit("/", 1)[-1] not in self.REPORT_ONLY_STEPS
+        ]
+        if unapplied:
+            logger.warning(
+                f"  Filters NOT applied (failed under --warn): {', '.join(unapplied)}. "
+                f"Later steps and the output fileset were built without them; "
+                f"--no-warn stops at the first failure instead.",
+                extra={"console_only": True},
+            )
+        for label, reason in self.state.emptied_groups.items():
+            group = "" if label == "all" else f"{label}: "
+            logger.warning(f"  {group}{reason}", extra={"console_only": True})
         if self._runlog is not None:
             self._runlog.write_summary(rows)
 
@@ -1226,6 +1247,10 @@ class PipelineRunner:
                 if os.path.isfile(f"{source}{ext}"):
                     shutil.copy2(f"{source}{ext}", f"{out_path}{ext}")
 
+        # Set once a step's filter removes every sample or variant: the group
+        # is finished, and the steps after it have nothing to run on.
+        emptied_reason: Optional[str] = None
+
         # Run each step
         for i, step in enumerate(steps):
             step_input, step_output = self._compute_step_paths(
@@ -1238,6 +1263,19 @@ class PipelineRunner:
                 working_out=working_out,
                 is_last=(i == last_runnable),
             )
+
+            if emptied_reason is not None:
+                pass_fail[step] = PassFailRecord(
+                    status=False,
+                    input_path=step_input,
+                    output_path=step_input,
+                    outcome="skipped",
+                    reason=emptied_reason,
+                )
+                skipped = unrun_result(step, "skipped", emptied_reason, step_input)
+                if skipped is not None:
+                    out_dict[step] = skipped
+                continue
 
             # A data-driven skip records its outcome and passes the chain
             # through untouched: output_path is the input, so the next step
@@ -1311,10 +1349,34 @@ class PipelineRunner:
                         ancestry_label=ancestry_label,
                     )
                 except GenoToolsError as e:
+                    # A filter that emptied the step's own output finished the
+                    # group rather than failing. An internal call emptying an
+                    # intermediate (het's LD prefilter) is an ordinary failure.
+                    if (
+                        isinstance(e, NoDataRemainingError)
+                        and e.output_path == step_output
+                    ):
+                        emptied_reason = self._record_emptied_step(
+                            step=step,
+                            error=e,
+                            step_input=step_input,
+                            step_output=step_output,
+                            pass_fail=pass_fail,
+                            out_dict=out_dict,
+                            ancestry_label=ancestry_label,
+                        )
+                        continue
                     logger.error(f"Step {step} failed: {e}")
                     if not self.args.warn_only:
                         raise
-                    logger.warning(f"Step {step} failed but continuing (--warn): {e}")
+                    if step in self.REPORT_ONLY_STEPS:
+                        logger.warning(f"Step {step} failed but continuing (--warn)")
+                    else:
+                        logger.warning(
+                            f"Step {step} failed; continuing without its filter "
+                            f"(--warn). Later steps and the output fileset will "
+                            f"not have it applied - use --no-warn to stop instead."
+                        )
                     pass_fail[step] = PassFailRecord(
                         status=False,
                         input_path=step_input,
@@ -1359,14 +1421,16 @@ class PipelineRunner:
         # Handle final step failure with --warn
         # Only steps that ran can have produced (or failed to produce) out_path;
         # passing the full list would make a trailing skip look like the
-        # terminal failure and copy out_path onto itself.
-        self._handle_final_step_failure(
-            [step for step in steps if step not in skip_reasons],
-            pass_fail,
-            out_path,
-            geno_path,
-            working_geno,
-        )
+        # terminal failure and copy out_path onto itself. An emptied group has
+        # no output by design: the fallback would hand it the unfiltered input.
+        if emptied_reason is None:
+            self._handle_final_step_failure(
+                [step for step in steps if step not in skip_reasons],
+                pass_fail,
+                out_path,
+                geno_path,
+                working_geno,
+            )
 
         out_dict["paths"] = step_paths
         out_dict["pass_fail"] = {
@@ -1395,6 +1459,103 @@ class PipelineRunner:
             self.state.ancestry_results[ancestry_label] = out_dict  # type: ignore[attr-defined]
 
         return out_dict
+
+    def _record_emptied_step(
+        self,
+        step: str,
+        error: NoDataRemainingError,
+        step_input: str,
+        step_output: str,
+        pass_fail: Dict[str, PassFailRecord],
+        out_dict: Dict[str, Any],
+        ancestry_label: str,
+    ) -> str:
+        """Record a step whose filter removed every sample or variant.
+
+        The step passes: it ran and did its job, and nothing was left. Reporting
+        it as a failure with zero removed would tell the attrition plot the
+        group came through intact, and a sample step that lists no pruned
+        samples would leave every sample ``kept`` in the fate table. So the
+        count is the whole input, and a sample step's outliers file names every
+        input sample. Whatever plot tables the step wrote before its filter
+        are kept, since they show why (the missingness behind a bad --mind).
+
+        Returns:
+            The reason each later step in the group is skipped with.
+        """
+        assert self.state is not None
+        what = error.remaining
+        GenotypeData = self._new_modules["GenotypeData"]
+        data = GenotypeData.from_path(Path(step_input))
+        removed = data.sample_count if what == "samples" else data.variant_count
+        reason = f"{step} removed all {removed} {what}; no {what} remain"
+        logger.warning(f"{reason}. Skipping the remaining QC steps for this group.")
+
+        result = unrun_result(step, "pass", reason, step_output)
+        if result is not None:
+            result["pass"] = True
+            first_metric = next(iter(result["metrics"]))
+            result["metrics"][first_metric] = removed
+            if what == "samples":
+                result["output"]["pruned_samples"] = self._write_all_samples_removed(
+                    step_input, step_output
+                )
+            out_dict[step] = result
+        pass_fail[step] = PassFailRecord(
+            status=True,
+            input_path=step_input,
+            output_path=step_output,
+            reason=reason,
+        )
+
+        prefix = Path(step_output)
+        plot_data = {
+            path.name[len(f"{prefix.name}_plotdata_"):-len(".tsv")]: path
+            for path in prefix.parent.glob(f"{prefix.name}_plotdata_*.tsv")
+        }
+        self._collect_plot_data(step, plot_data, ancestry_label)
+
+        self.state.emptied_groups[ancestry_label] = reason
+        return f"no {what} remain after {step}"
+
+    @staticmethod
+    def _write_all_samples_removed(step_input: str, step_output: str) -> str:
+        """Write every input sample to ``{step_output}.outliers``.
+
+        Same shape the steps write (tab-separated, ``#FID`` header). A ``.psam``
+        without a FID column gets ``0``, as the sample fate table assumes.
+        """
+        psam = pd.read_csv(f"{step_input}.psam", sep=r"\s+", dtype=str)
+        psam = psam.rename(columns={"#IID": "IID"})
+        if "#FID" not in psam.columns:
+            psam.insert(0, "#FID", psam["FID"] if "FID" in psam.columns else "0")
+        outliers = f"{step_output}.outliers"
+        psam[["#FID", "IID"]].to_csv(outliers, sep="\t", index=False)
+        return outliers
+
+    def _emptied_error(self) -> Optional[str]:
+        """The run's error when a filter left nothing, or None.
+
+        An emptied group is a finished group, not a failed run: under
+        warn-and-continue the others are still worth having. The run fails when
+        nothing is left at all - a flat run, or every ancestry group emptied -
+        or under --no-warn, which asks for any such outcome to fail it.
+        """
+        assert self.state is not None
+        emptied = self.state.emptied_groups
+        if not emptied:
+            return None
+        groups = (
+            set(self.state.labels_list)
+            if self.args.ancestry.run_ancestry
+            else {"all"}
+        )
+        if self.args.warn_only and not groups <= set(emptied):
+            return None
+        if set(emptied) == {"all"}:
+            return f"No data remain after QC: {emptied['all']}."
+        detail = "; ".join(f"{label}: {why}" for label, why in emptied.items())
+        return f"No data remain after QC in {len(emptied)} ancestry group(s) - {detail}."
 
     def _compute_step_paths(
         self,
@@ -1509,97 +1670,109 @@ class PipelineRunner:
         config: Any = None
         result: Any = None
 
-        # Map step names to functions and config creation
-        if step == "callrate":
-            config = self._config_classes["CallrateConfig"](mind=legacy_args["callrate"])
-            result = self._new_modules["filter_callrate"](data, config, Path(step_output))
+        # The step's settings are what a user needs to see when its filter
+        # emptied the dataset (a mistyped threshold), but a raising step never
+        # reaches the shared tail below - so record them on the way out too.
+        try:
+            # Map step names to functions and config creation
+            if step == "callrate":
+                config = self._config_classes["CallrateConfig"](mind=legacy_args["callrate"])
+                result = self._new_modules["filter_callrate"](data, config, Path(step_output))
 
-        elif step == "sex":
-            sex_vals = legacy_args["sex"]
-            config = self._config_classes["SexConfig"](female_max_f=sex_vals[0], male_min_f=sex_vals[1])
-            result = self._new_modules["filter_sex"](data, config, Path(step_output))
+            elif step == "sex":
+                sex_vals = legacy_args["sex"]
+                config = self._config_classes["SexConfig"](female_max_f=sex_vals[0], male_min_f=sex_vals[1])
+                result = self._new_modules["filter_sex"](data, config, Path(step_output))
 
-        elif step == "het":
-            if het_config is None:
-                het_vals = legacy_args["het"]
-                het_config = self._config_classes["HetConfig"](
-                    f_lower=het_vals[0], f_upper=het_vals[1]
+            elif step == "het":
+                if het_config is None:
+                    het_vals = legacy_args["het"]
+                    het_config = self._config_classes["HetConfig"](
+                        f_lower=het_vals[0], f_upper=het_vals[1]
+                    )
+                config = het_config
+                result = self._new_modules["filter_heterozygosity"](
+                    data, het_config, Path(step_output)
                 )
-            config = het_config
-            result = self._new_modules["filter_heterozygosity"](
-                data, het_config, Path(step_output)
-            )
 
-        elif step == "related":
-            config = self._config_classes["RelatedConfig"](
-                related_cutoff=legacy_args["related_cutoff"],
-                duplicated_cutoff=legacy_args["duplicated_cutoff"],
-                prune_related=legacy_args["prune_related"],
-                prune_duplicated=legacy_args["prune_duplicated"],
-            )
-            result = self._new_modules["filter_relatedness"](data, config, Path(step_output))
-
-        elif step == "kinship_check":
-            if platform.system() != "Linux":
-                logger.warning("Relatedness Assessment can only run on a Linux OS!")
-                return None
-            result = self._new_modules["verify_kinship"](data, Path(step_output))
-
-        elif step == "case_control":
-            config = self._config_classes["CaseControlConfig"](p_threshold=legacy_args["case_control"])
-            result = self._new_modules["filter_case_control"](data, config, Path(step_output))
-
-        elif step == "haplotype":
-            config = self._config_classes["HaplotypeConfig"](p_threshold=legacy_args["haplotype"])
-            result = self._new_modules["filter_haplotype"](data, config, Path(step_output))
-
-        elif step == "hwe":
-            config = self._config_classes["HWEConfig"](
-                hwe_threshold=legacy_args["hwe"],
-                filter_controls=legacy_args["filter_controls"],
-            )
-            result = self._new_modules["filter_hwe"](data, config, Path(step_output))
-
-        elif step == "geno":
-            config = self._config_classes["GenoConfig"](geno=legacy_args["geno"])
-            result = self._new_modules["filter_variant_missingness"](data, config, Path(step_output))
-
-        elif step == "ld":
-            ld_vals = legacy_args["ld"]
-            config = self._config_classes["LDConfig"](
-                window_size=ld_vals[0],
-                step_size=ld_vals[1],
-                r2_threshold=ld_vals[2],
-            )
-            result = self._new_modules["prune_ld"](data, config, Path(step_output))
-
-        elif step == "assoc":
-            # legacy_args["pca"] is the requested PC count (or None); it doubles as
-            # the run-PCA flag. Thread it into PCAConfig so a non-default --pca N is
-            # honored instead of silently defaulting to 10.
-            n_pcs = legacy_args.get("pca")
-            covar_path = legacy_args.get("covars")
-            covariates = (
-                self._config_classes["CovariateConfig"](
-                    covar_path=covar_path,
-                    covar_names=legacy_args.get("covar_names"),
+            elif step == "related":
+                config = self._config_classes["RelatedConfig"](
+                    related_cutoff=legacy_args["related_cutoff"],
+                    duplicated_cutoff=legacy_args["duplicated_cutoff"],
+                    prune_related=legacy_args["prune_related"],
+                    prune_duplicated=legacy_args["prune_duplicated"],
                 )
-                if covar_path
-                else self._config_classes["CovariateConfig"]()
+                result = self._new_modules["filter_relatedness"](data, config, Path(step_output))
+
+            elif step == "kinship_check":
+                if platform.system() != "Linux":
+                    logger.warning("Relatedness Assessment can only run on a Linux OS!")
+                    return None
+                result = self._new_modules["verify_kinship"](data, Path(step_output))
+
+            elif step == "case_control":
+                config = self._config_classes["CaseControlConfig"](p_threshold=legacy_args["case_control"])
+                result = self._new_modules["filter_case_control"](data, config, Path(step_output))
+
+            elif step == "haplotype":
+                config = self._config_classes["HaplotypeConfig"](p_threshold=legacy_args["haplotype"])
+                result = self._new_modules["filter_haplotype"](data, config, Path(step_output))
+
+            elif step == "hwe":
+                config = self._config_classes["HWEConfig"](
+                    hwe_threshold=legacy_args["hwe"],
+                    filter_controls=legacy_args["filter_controls"],
+                )
+                result = self._new_modules["filter_hwe"](data, config, Path(step_output))
+
+            elif step == "geno":
+                config = self._config_classes["GenoConfig"](geno=legacy_args["geno"])
+                result = self._new_modules["filter_variant_missingness"](data, config, Path(step_output))
+
+            elif step == "ld":
+                ld_vals = legacy_args["ld"]
+                config = self._config_classes["LDConfig"](
+                    window_size=ld_vals[0],
+                    step_size=ld_vals[1],
+                    r2_threshold=ld_vals[2],
+                )
+                result = self._new_modules["prune_ld"](data, config, Path(step_output))
+
+            elif step == "assoc":
+                # legacy_args["pca"] is the requested PC count (or None); it doubles as
+                # the run-PCA flag. Thread it into PCAConfig so a non-default --pca N is
+                # honored instead of silently defaulting to 10.
+                n_pcs = legacy_args.get("pca")
+                covar_path = legacy_args.get("covars")
+                covariates = (
+                    self._config_classes["CovariateConfig"](
+                        covar_path=covar_path,
+                        covar_names=legacy_args.get("covar_names"),
+                    )
+                    if covar_path
+                    else self._config_classes["CovariateConfig"]()
+                )
+                config = self._config_classes["AssocConfig"](
+                    pca=self._config_classes["PCAConfig"](
+                        n_pcs=n_pcs,
+                        build=legacy_args.get("build", "hg38"),
+                    ) if n_pcs else None,
+                    gwas=self._config_classes["GWASConfig"](
+                        maf_lambdas=legacy_args.get("maf_lambdas", False),
+                    ) if legacy_args.get("gwas") else None,
+                    covariates=covariates,
+                    run_pca=bool(n_pcs),
+                    run_gwas=bool(legacy_args.get("gwas", False)),
+                )
+                result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
+        except NoDataRemainingError:
+            self._record_parameters(
+                step=step,
+                config=config,
+                resolved={},
+                ancestry_label=ancestry_label,
             )
-            config = self._config_classes["AssocConfig"](
-                pca=self._config_classes["PCAConfig"](
-                    n_pcs=n_pcs,
-                    build=legacy_args.get("build", "hg38"),
-                ) if n_pcs else None,
-                gwas=self._config_classes["GWASConfig"](
-                    maf_lambdas=legacy_args.get("maf_lambdas", False),
-                ) if legacy_args.get("gwas") else None,
-                covariates=covariates,
-                run_pca=bool(n_pcs),
-                run_gwas=bool(legacy_args.get("gwas", False)),
-            )
-            result = self._new_modules["run_gwas_association"](data, Path(step_output), config)
+            raise
 
         if result is None:
             return None
@@ -1826,6 +1999,15 @@ class PipelineRunner:
                 last_passed_output = pass_fail[step_name].output_path
                 last_passed_step_name = step_name
 
+        source = last_passed_step_name or "the input (no step passed)"
+        unapplied = (
+            "" if steps[-1] in self.REPORT_ONLY_STEPS
+            else f", without {steps[-1]}'s filter applied"
+        )
+        logger.warning(
+            f"Final step {steps[-1]} failed: writing {out_path} from {source}"
+            f"{unapplied}."
+        )
         if last_passed_output and os.path.isfile(f"{last_passed_output}.pgen"):
             shutil.copy2(f"{last_passed_output}.pgen", f"{out_path}.pgen")
             shutil.copy2(f"{last_passed_output}.psam", f"{out_path}.psam")

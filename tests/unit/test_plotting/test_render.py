@@ -144,6 +144,7 @@ class TestPlotsFlag:
 
         class Result:
             success = True
+            error = None
 
         monkeypatch.setattr(sys, "argv", argv)
         monkeypatch.setattr(cli, "run_pipeline", lambda args: Result())

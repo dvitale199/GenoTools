@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from genotools.core.exceptions import QCError, ValidationError
-from genotools.core.executors import run_plink, run_plink2
+from genotools.core.executors import emptying_filter, run_plink, run_plink2
 from genotools.core.genotypes import GenotypeData
 from genotools.core.logging import RAW_LOG_HINT, get_logger, step_context
 from genotools.qc.config import CaseControlConfig
@@ -128,12 +128,15 @@ def filter_case_control(
             exclude.to_csv(exclude_file, sep="\t", header=False, index=False)
 
             # Exclude variants and convert back to pfile
-            run_plink2(
-                input_path=bfile_data.path,
-                output_path=out_path,
-                input_format="bfile",
-                extra_args=["--exclude", str(exclude_file)],
-            )
+            with emptying_filter(
+                exclude.nunique() >= initial_variant_count, "variants", out_path
+            ):
+                run_plink2(
+                    input_path=bfile_data.path,
+                    output_path=out_path,
+                    input_format="bfile",
+                    extra_args=["--exclude", str(exclude_file)],
+                )
 
             # Load output
             output = GenotypeData.from_path(out_path)

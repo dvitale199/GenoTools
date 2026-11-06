@@ -101,6 +101,35 @@ class ExternalToolError(GenoToolsError):
         )
 
 
+class NoDataRemainingError(ExternalToolError):
+    """PLINK2 filtered out every sample or every variant.
+
+    Not a tool malfunction: the filter did its job and nothing was left. The
+    runner treats it as the end of that dataset's QC, not as a failed step,
+    but only when ``output_path`` is the step's own output - a step's internal
+    calls (het's LD-pruning prefilter) can empty an intermediate without
+    emptying the dataset.
+
+    Attributes:
+        remaining: What ran out, ``"samples"`` or ``"variants"``.
+        output_path: The ``--out`` prefix of the call that emptied.
+    """
+
+    def __init__(
+        self,
+        tool: str,
+        command: str,
+        returncode: int,
+        stderr: str,
+        remaining: str,
+        output_path: str,
+        stdout: Optional[str] = None,
+    ):
+        super().__init__(tool, command, returncode, stderr, stdout)
+        self.remaining = remaining
+        self.output_path = output_path
+
+
 class FileFormatError(GenoToolsError):
     """Raised when file format is invalid or unsupported.
 

@@ -142,6 +142,9 @@ class PipelineOutput:
         pass_fail: Step pass/fail status by ancestry.
         plot_data: Path to the ``{out}_plot_data/`` directory.
         sample_fate: Path to ``{out}_sample_fate.tsv``, one row per input sample.
+        error: Why the run failed although every step reported an outcome
+            (a filter left no samples or variants), or None. Not serialized:
+            the report already says it through each step's outcome and reason.
     """
 
     input_samples: Optional[pd.DataFrame] = None
@@ -166,6 +169,7 @@ class PipelineOutput:
     pass_fail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     plot_data: Optional[str] = None
     sample_fate: Optional[str] = None
+    error: Optional[str] = None
 
     @property
     def success(self) -> bool:
@@ -180,7 +184,12 @@ class PipelineOutput:
         ``status`` is False for both, which is why the decision reads
         ``outcome``. Entries predating ``outcome`` default to "fail" when
         status is False, preserving the stricter old behavior.
+
+        A filter that left nothing reports as passed (it did its job), so the
+        runner sets ``error`` when that should fail the run.
         """
+        if self.error is not None:
+            return False
         for value in self.pass_fail.values():
             if not isinstance(value, dict):
                 continue

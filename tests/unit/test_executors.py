@@ -174,3 +174,69 @@ class TestRunPlinkCommandShape:
                 output_path=tmp_path / "out",
                 input_format="pfile",
             )
+
+
+class TestNoDataRemaining:
+    """#323: PLINK2 filtering out everything is its own error, not a crash.
+
+    The runner ends a group's QC on it instead of continuing on the unfiltered
+    input, so it has to be told apart from every other PLINK2 failure - in
+    particular from ``--indep-pairwise`` refusing a small dataset, which exits
+    with the same code 13 and empties nothing.
+    """
+
+    @staticmethod
+    def _fake_plink2(monkeypatch, tmp_path: Path, message: str, code: int = 13) -> None:
+        """Point run_plink2 at a script that prints `message` and exits `code`."""
+        from genotools.core import executors
+
+        script = tmp_path / "plink2"
+        script.write_text(f"#!/bin/sh\necho '{message}' >&2\nexit {code}\n")
+        script.chmod(0o755)
+        monkeypatch.setattr(executors, "get_plink2", lambda: script)
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("Error: No samples remaining after main filters.", "samples"),
+            ("Error: No variants remaining after main filters.", "variants"),
+            (
+                "Error: --indep-pairwise requires at least 50 samples.",
+                None,
+            ),
+            ("Error: Failed to open in.pgen.", None),
+        ],
+    )
+    def test_classifies_plink2_output(self, text: str, expected) -> None:
+        from genotools.core.executors import _no_data_remaining
+
+        assert _no_data_remaining(text) == expected
+
+    def test_run_plink2_raises_it_with_the_output_prefix(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        from genotools.core.exceptions import NoDataRemainingError
+        from genotools.core.executors import run_plink2
+
+        self._fake_plink2(
+            monkeypatch, tmp_path, "Error: No samples remaining after main filters."
+        )
+        out = tmp_path / "cohort.v2_callrate"
+        with pytest.raises(NoDataRemainingError) as exc:
+            run_plink2(input_path=tmp_path / "in", output_path=out)
+
+        assert exc.value.remaining == "samples"
+        assert exc.value.output_path == str(out)
+        assert exc.value.returncode == 13
+
+    def test_other_failures_stay_plain(self, monkeypatch, tmp_path: Path) -> None:
+        from genotools.core.exceptions import ExternalToolError, NoDataRemainingError
+        from genotools.core.executors import run_plink2
+
+        self._fake_plink2(
+            monkeypatch, tmp_path, "Error: --indep-pairwise requires at least 50 samples."
+        )
+        with pytest.raises(ExternalToolError) as exc:
+            run_plink2(input_path=tmp_path / "in", output_path=tmp_path / "out")
+
+        assert not isinstance(exc.value, NoDataRemainingError)
