@@ -20,7 +20,7 @@ Use the repo `.venv` (Python 3.11) for the **new** code:
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-pip install pytest
+pip install pytest pyarrow  # pyarrow: the ancestry tests read parquet goldens
 ```
 
 PLINK/PLINK2 are downloaded automatically the first time a step needs them
