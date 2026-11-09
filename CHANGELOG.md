@@ -3,6 +3,22 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## 2.3.2
+
+### Changed
+
+- **GenoTools no longer installs streamlit (#334).**
+
+  streamlit was listed as a dependency but never used. Every install pulled
+  in streamlit and thirteen packages only it needs, among them pyarrow, altair,
+  pydeck, protobuf, starlette and uvicorn. Its pin of `packaging<25` could
+  also conflict with other tools in the same environment, such as twine 7.
+  Installs are now lighter. Nothing GenoTools does changes.
+
+  If you ran the test suite from a source checkout, also install `pyarrow`:
+  the ancestry tests read parquet files (`pip install -e '.[dev]'` includes
+  it).
+
 ## 2.3.1
 
 ### Fixed
