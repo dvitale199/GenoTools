@@ -52,6 +52,8 @@ setup(
     python_requires='>=3.11',
     extras_require={
         'dev': [
+            # The ancestry tests read their golden frames from parquet.
+            'pyarrow',
             'pytest>=3.7',
             'twine>=1.11.0'
         ]
@@ -78,7 +80,6 @@ setup(
         'scipy>=1.9.3',
         'seaborn>=0.12.1',
         'statsmodels>=0.13.5',
-        'streamlit>=1.15.2',
         # 0.5.5 is the floor, not a preference: 0.5.4 and earlier do
         # `import pkg_resources` at import time, and setuptools deleted
         # pkg_resources in 82.0.0 -- so older umap cannot be imported at all in
