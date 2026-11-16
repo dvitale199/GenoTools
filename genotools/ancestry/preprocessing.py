@@ -409,7 +409,8 @@ def get_raw_files(
     # never shown this cohort". Recorded, warned about, and above a threshold
     # refused, because none of it is visible in a predicted label.
     if not train:
-        absent = [col for col in ref_snps.columns if col not in set(geno_snps.columns)]
+        geno_columns = set(geno_snps.columns)
+        absent = [col for col in ref_snps.columns if col not in geno_columns]
         overlap = SnpOverlapReport(
             n_model_snps=len(ref_snps.columns),
             n_matched=len(ref_snps.columns) - len(absent),

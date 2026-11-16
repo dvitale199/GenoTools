@@ -196,7 +196,10 @@ def test_get_raw_files_inference_defaults_to_ref_mean_fill(
     overlap = res["diagnostics"].snp_overlap
     assert overlap.fill_strategy == "ref-mean"
     assert overlap.n_filled == len(filled)
-    assert set(overlap.filled_snps) == set(filled)
+    # in the model's column order, the same order as the feature matrix
+    filled_set = set(filled)
+    model_order = [c for c in res["raw_geno"].columns if c in filled_set]
+    assert list(overlap.filled_snps) == model_order
 
 
 def test_get_raw_files_writes_filled_snp_ids(
