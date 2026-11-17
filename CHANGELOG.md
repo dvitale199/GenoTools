@@ -3,6 +3,23 @@
 Notable changes per release. Releases before 2.1.0 are recorded in the git
 history and the GitHub releases page.
 
+## Unreleased
+
+### Fixed
+
+- **Predicting with a saved model no longer slows down quadratically with the
+  model's SNP count (#336).**
+
+  Before filling the SNPs a cohort lacks, `get_raw_files` lists them with
+  `col not in set(geno_snps.columns)` inside a comprehension, which rebuilds
+  the set for every model SNP, so its cost grows with the square of the SNP
+  count. Profiled on a synthetic cohort, that line took 35 s of
+  `get_raw_files`' 38 s with a 10,000-SNP model and 140 s of 146 s with a
+  20,000-SNP model; a 100,000-SNP model would spend an hour or more there
+  (extrapolated). The set is now built once, so the line takes milliseconds.
+  The filled SNPs, their order and every prediction are unchanged. The same
+  pattern in `allele_frequency_concordance` was removed in 2.3.0.
+
 ## 2.3.2
 
 ### Changed
