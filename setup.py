@@ -34,7 +34,10 @@ setup(
     packages=find_packages(exclude=["tests", "tests.*"]),
     author='Dan Vitale',
     author_email='d.vitale199@gmail.com',
-    description='A collection of tools for genotype quality control and analysis',
+    description=(
+        'Genotype QC and analysis pipeline built on PLINK: sample and variant '
+        'QC, ancestry prediction, PCA and GWAS'
+    ),
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     url='https://github.com/dvitale199/GenoTools',
